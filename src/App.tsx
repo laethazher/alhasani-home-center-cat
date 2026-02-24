@@ -590,7 +590,7 @@ export default function App() {
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
                   <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
                     <img 
-                      src={`https://raw.githubusercontent.com/HomeCenterAlhasani/assets/main/truck_collage.jpg?t=${cacheBuster}`} 
+                      src={`/truck-collage.jpg?t=${cacheBuster}`} 
                       alt="Truck Map" 
                       className="w-full h-auto"
                       crossOrigin="anonymous"
