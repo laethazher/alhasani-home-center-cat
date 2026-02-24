@@ -70,7 +70,7 @@ export const DamageMap: React.FC<{
           crossOrigin="anonymous"
           onError={(e) => {
             // Fallback if the specific URL doesn't work
-            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&q=80&w=1200';
+            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=1200';
           }}
         />
         
