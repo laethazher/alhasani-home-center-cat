@@ -64,7 +64,7 @@ export const DamageMap: React.FC<{
         onClick={handleImageClick}
       >
         <img 
-          src="/truck-collage.jpg.jpg" 
+          src="/truck-collage.jpg" 
           alt="Truck Angles" 
           className="w-full h-auto select-none opacity-95"
           crossOrigin="anonymous"
