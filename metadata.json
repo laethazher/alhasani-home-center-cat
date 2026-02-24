@@ -1,0 +1,8 @@
+{
+  "name": "Home Center Alhasani - Vehicle & Tool Management",
+  "description": "نظام متكامل لمتابعة أضرار المركبات، الفحص الأسبوعي، وجرد عُدة التركيب لفرق نقل الأثاث.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
