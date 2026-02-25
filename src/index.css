@@ -119,6 +119,10 @@ body {
     color-adjust: exact;
     max-width: 100% !important;
     height: auto !important;
+    display: block !important;
+    width: 100% !important;
+    min-height: 350px !important;
+    object-fit: contain !important;
   }
 
   .pdf-section {
@@ -135,6 +139,13 @@ body {
   .pdf-section > div > div {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+
+  /* Ensure image containers are properly sized */
+  div[style*="flexDirection"] {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   .pdf-section:first-child {

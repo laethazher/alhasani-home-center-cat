@@ -171,12 +171,25 @@ export default function App() {
             el.style.width = '900px';
             el.style.padding = '50px';
             el.style.margin = '0';
+            el.style.display = 'block';
           }
-          // Optimize images for better quality
+          // Optimize images for better quality and ensure dimensions
           const images = clonedDoc.querySelectorAll('img');
           images.forEach((img: any) => {
             img.style.WebkitPrintColorAdjust = 'exact';
             img.style.printColorAdjust = 'exact';
+            img.style.width = '100%';
+            img.style.height = 'auto';
+            img.style.display = 'block';
+            img.style.minHeight = '350px';
+            img.style.maxHeight = '600px';
+            img.style.objectFit = 'contain';
+          });
+          // Ensure image containers have proper dimensions
+          const imgDivs = clonedDoc.querySelectorAll('div[style*="flexDirection"]');
+          imgDivs.forEach((div: any) => {
+            div.style.width = '100%';
+            div.style.display = 'flex';
           });
         }
       });
@@ -648,12 +661,11 @@ export default function App() {
                               <p className="text-xs font-bold text-stone-600 mb-4">صور الضرر ({p.images.length}):</p>
                               <div className="space-y-4">
                                 {p.images.map((image: string, imgIdx: number) => (
-                                  <div key={imgIdx} className="bg-white rounded border border-stone-200 overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                                  <div key={imgIdx} className="bg-white rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
                                     <img 
                                       src={image} 
                                       alt={`صورة الضرر ${imgIdx + 1}`}
-                                      className="w-full h-auto object-contain"
-                                      style={{ minHeight: '300px', maxHeight: '600px' }}
+                                      style={{ width: '100%', height: 'auto', display: 'block', minHeight: '350px', maxHeight: '600px', objectFit: 'contain', backgroundColor: '#ffffff' }}
                                     />
                                   </div>
                                 ))}
@@ -711,12 +723,11 @@ export default function App() {
                             <p className="text-xs font-bold text-stone-600 mb-4">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
                             <div className="space-y-4">
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
-                                <div key={imgIdx} className="bg-white rounded border border-stone-200 overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                                <div key={imgIdx} className="bg-white rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
                                   <img 
                                     src={image} 
                                     alt={`${item.name} - الصورة ${imgIdx + 1}`}
-                                    className="w-full h-auto object-contain"
-                                    style={{ minHeight: '300px', maxHeight: '600px' }}
+                                    style={{ width: '100%', height: 'auto', display: 'block', minHeight: '350px', maxHeight: '600px', objectFit: 'contain', backgroundColor: '#ffffff' }}
                                   />
                                 </div>
                               ))}
