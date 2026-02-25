@@ -102,13 +102,23 @@ body {
   body {
     margin: 0;
     padding: 0;
+    background: white;
   }
 
   #print-section {
     margin: 0;
-    padding: 40px;
+    padding: 50px;
     width: 100%;
     display: block;
+    background: white;
+  }
+
+  img {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+    max-width: 100% !important;
+    height: auto !important;
   }
 
   .pdf-section {

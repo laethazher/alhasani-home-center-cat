@@ -157,43 +157,50 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       const canvas = await html2canvas(reportRef.current, {
-        scale: 2,
+        scale: 3,
         useCORS: true,
         logging: false,
         backgroundColor: '#fafaf9',
         allowTaint: false,
         scrollX: 0,
         scrollY: 0,
-        windowWidth: 800,
+        windowWidth: 900,
         onclone: (clonedDoc) => {
           const el = clonedDoc.getElementById('print-section');
           if (el) {
-            el.style.width = '800px';
-            el.style.padding = '40px';
+            el.style.width = '900px';
+            el.style.padding = '50px';
+            el.style.margin = '0';
           }
+          // Optimize images for better quality
+          const images = clonedDoc.querySelectorAll('img');
+          images.forEach((img: any) => {
+            img.style.WebkitPrintColorAdjust = 'exact';
+            img.style.printColorAdjust = 'exact';
+          });
         }
       });
       
-      const imgData = canvas.toDataURL('image/jpeg', 0.9);
+      const imgData = canvas.toDataURL('image/jpeg', 1.0);
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       
-      const imgWidth = pdfWidth;
+      const imgWidth = pdfWidth - 2;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       
       let heightLeft = imgHeight;
       let position = 0;
       
-      // Add first page
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+      // Add first page with margins
+      pdf.addImage(imgData, 'JPEG', 1, 1, imgWidth, imgHeight);
       heightLeft -= pdfHeight;
       
       // Add subsequent pages if needed
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+        pdf.addImage(imgData, 'JPEG', 1, position, imgWidth, imgHeight);
         heightLeft -= pdfHeight;
       }
       
@@ -638,15 +645,15 @@ export default function App() {
                           {/* Damage Images */}
                           {p.images && p.images.length > 0 && (
                             <div className="p-4 bg-stone-50 border-t border-stone-100">
-                              <p className="text-xs font-bold text-stone-600 mb-3">صور الضرر ({p.images.length}):</p>
-                              <div className="space-y-3">
+                              <p className="text-xs font-bold text-stone-600 mb-4">صور الضرر ({p.images.length}):</p>
+                              <div className="space-y-4">
                                 {p.images.map((image: string, imgIdx: number) => (
-                                  <div key={imgIdx} className="bg-white p-3 rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                                  <div key={imgIdx} className="bg-white rounded border border-stone-200 overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                                     <img 
                                       src={image} 
                                       alt={`صورة الضرر ${imgIdx + 1}`}
-                                      className="w-full max-w-2xl mx-auto h-auto object-contain rounded"
-                                      style={{ minHeight: '150px', maxHeight: '300px' }}
+                                      className="w-full h-auto object-contain"
+                                      style={{ minHeight: '300px', maxHeight: '600px' }}
                                     />
                                   </div>
                                 ))}
@@ -701,15 +708,15 @@ export default function App() {
                         {/* Tool Images */}
                         {viewingReport.toolImages && viewingReport.toolImages[item.id] && viewingReport.toolImages[item.id].length > 0 && (
                           <div className="p-4 bg-stone-50 border-t border-stone-100">
-                            <p className="text-xs font-bold text-stone-600 mb-3">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
-                            <div className="space-y-3">
+                            <p className="text-xs font-bold text-stone-600 mb-4">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
+                            <div className="space-y-4">
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
-                                <div key={imgIdx} className="bg-white p-3 rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                                <div key={imgIdx} className="bg-white rounded border border-stone-200 overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                                   <img 
                                     src={image} 
                                     alt={`${item.name} - الصورة ${imgIdx + 1}`}
-                                    className="w-full max-w-2xl mx-auto h-auto object-contain rounded"
-                                    style={{ minHeight: '150px', maxHeight: '300px' }}
+                                    className="w-full h-auto object-contain"
+                                    style={{ minHeight: '300px', maxHeight: '600px' }}
                                   />
                                 </div>
                               ))}
