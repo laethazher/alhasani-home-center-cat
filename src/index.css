@@ -93,16 +93,8 @@ body {
   width: 100% !important;
 }
 
-.pdf-section-damage {
-  page-break-inside: avoid !important;
-  break-inside: avoid !important;
-  position: relative;
-  display: block !important;
-  width: 100% !important;
-}
-
 .pdf-section + .pdf-section {
-  page-break-before: auto !important;
+  page-break-before: always !important;
 }
 
 /* PDF-specific optimizations */
@@ -114,17 +106,19 @@ body {
 
   #print-section {
     margin: 0;
-    padding: 3rem !important;
+    padding: 40px;
     width: 100%;
+    display: block;
   }
 
   .pdf-section {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    margin-bottom: 3rem !important;
+    padding-bottom: 3rem !important;
     display: block !important;
     width: 100% !important;
-    margin: 0 0 2rem 0 !important;
-    padding: 0 0 2rem 0 !important;
+    page-break-before: always !important;
   }
 
   .pdf-section > div,
@@ -133,7 +127,24 @@ body {
     break-inside: avoid !important;
   }
 
-  .pdf-section:nth-child(n+3) {
+  .pdf-section:first-child {
+    page-break-before: avoid !important;
+  }
+
+  /* Force page breaks for specific sections */
+  .pdf-section:nth-of-type(1):not(:first-child) {
+    page-break-before: always !important;
+  }
+  
+  .pdf-section:nth-of-type(2):not(:first-child) {
+    page-break-before: always !important;
+  }
+  
+  .pdf-section:nth-of-type(3):not(:first-child) {
+    page-break-before: always !important;
+  }
+  
+  .pdf-section:nth-of-type(4):not(:first-child) {
     page-break-before: always !important;
   }
 }
