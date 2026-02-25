@@ -61,93 +61,95 @@ export const DamageMap: React.FC<{
         <p className="text-sm text-stone-500">انقر على الصورة لتحديد مكان الضرر</p>
       </div>
 
-      <div 
-        ref={imgRef}
-        className="relative rounded-xl overflow-hidden cursor-crosshair border-2 border-stone-200 shadow-inner group"
-        onClick={handleImageClick}
-      >
-        <img 
-          src="/truck-collage.jpg?v=1" 
-          alt="Truck Angles" 
-          className="w-full h-auto select-none opacity-95 object-cover"
-          crossOrigin="anonymous"
-        />
-        
-        {points.map((point) => (
-          <motion.div
-            key={point.id}
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="absolute z-10"
-            style={{ left: `${point.x}%`, top: `${point.y}%`, transform: 'translate(-50%, -50%)' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setActivePoint(point.id);
-            }}
-          >
-            <div className={`w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-110`} style={{
-              backgroundColor: point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15'
-            }}>
-              <Plus className="w-4 h-4 text-white" />
-            </div>
+      <div className="relative">
+        <div 
+          ref={imgRef}
+          className="relative rounded-xl cursor-crosshair border-2 border-stone-200 shadow-inner group overflow-visible"
+          onClick={handleImageClick}
+        >
+          <img 
+            src="/truck-collage.jpg?v=1" 
+            alt="Truck Angles" 
+            className="w-full h-auto select-none opacity-95 object-cover rounded-xl"
+            crossOrigin="anonymous"
+          />
+          
+          {points.map((point) => (
+            <motion.div
+              key={point.id}
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              className="absolute z-10"
+              style={{ left: `${point.x}%`, top: `${point.y}%`, transform: 'translate(-50%, -50%)' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActivePoint(point.id);
+              }}
+            >
+              <div className={`w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center cursor-pointer transition-transform hover:scale-110`} style={{
+                backgroundColor: point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15'
+              }}>
+                <Plus className="w-4 h-4 text-white" />
+              </div>
 
-            {activePoint === point.id && (
-              <motion.div 
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute top-8 left-1/2 -translate-x-1/2 w-96 glass p-4 rounded-xl shadow-2xl z-50 max-h-96 overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex justify-between items-center mb-3 sticky top-0 bg-white/50 -mx-4 px-4 py-2">
-                  <span className="font-bold text-sm">تفاصيل الضرر</span>
-                  <button onClick={() => removePoint(point.id)} className="text-stone-400 hover:text-red-600">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-                
-                <div className="space-y-3">
-                  <textarea
-                    className="input-field text-sm h-20 resize-none w-full"
-                    placeholder="وصف الضرر..."
-                    value={point.description}
-                    onChange={(e) => updatePoint(point.id, { description: e.target.value })}
-                  />
-
-                  <div className="flex gap-2">
-                    {(['low', 'medium', 'high'] as const).map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => updatePoint(point.id, { severity: s })}
-                        className={`flex-1 text-[10px] py-1 rounded-md border transition-colors ${
-                          point.severity === s 
-                          ? 'bg-stone-900 text-white border-stone-900' 
-                          : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
-                        }`}
-                      >
-                        {s === 'high' ? 'كبير' : s === 'medium' ? 'متوسط' : 'بسيط'}
-                      </button>
-                    ))}
+              {activePoint === point.id && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-96 glass p-4 rounded-xl shadow-2xl z-50 max-h-96 overflow-y-auto pointer-events-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex justify-between items-center mb-3 sticky top-0 bg-white/50 -mx-4 px-4 py-2">
+                    <span className="font-bold text-sm">تفاصيل الضرر</span>
+                    <button onClick={() => removePoint(point.id)} className="text-stone-400 hover:text-red-600">
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-
-                  {/* Image Capture for Damage */}
-                  <div className="border-t pt-3 mt-3">
-                    <ImageCapture 
-                      toolName={`الضرر #${points.indexOf(point) + 1}`}
-                      images={point.images || []}
-                      onImageCapture={(image) => {
-                        updatePoint(point.id, { images: [...(point.images || []), image] });
-                      }}
-                      onRemoveImage={(index) => {
-                        const newImages = (point.images || []).filter((_, i) => i !== index);
-                        updatePoint(point.id, { images: newImages });
-                      }}
+                  
+                  <div className="space-y-3">
+                    <textarea
+                      className="input-field text-sm h-20 resize-none w-full"
+                      placeholder="وصف الضرر..."
+                      value={point.description}
+                      onChange={(e) => updatePoint(point.id, { description: e.target.value })}
                     />
+
+                    <div className="flex gap-2">
+                      {(['low', 'medium', 'high'] as const).map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => updatePoint(point.id, { severity: s })}
+                          className={`flex-1 text-[10px] py-1 rounded-md border transition-colors ${
+                            point.severity === s 
+                            ? 'bg-stone-900 text-white border-stone-900' 
+                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                          }`}
+                        >
+                          {s === 'high' ? 'كبير' : s === 'medium' ? 'متوسط' : 'بسيط'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Image Capture for Damage */}
+                    <div className="border-t pt-3 mt-3">
+                      <ImageCapture 
+                        toolName={`الضرر #${points.indexOf(point) + 1}`}
+                        images={point.images || []}
+                        onImageCapture={(image) => {
+                          updatePoint(point.id, { images: [...(point.images || []), image] });
+                        }}
+                        onRemoveImage={(index) => {
+                          const newImages = (point.images || []).filter((_, i) => i !== index);
+                          updatePoint(point.id, { images: newImages });
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
-          </motion.div>
-        ))}
+                </motion.div>
+              )}
+            </motion.div>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
