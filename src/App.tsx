@@ -638,15 +638,16 @@ export default function App() {
                           {/* Damage Images */}
                           {p.images && p.images.length > 0 && (
                             <div className="p-3 bg-stone-50 border-t border-stone-100">
-                              <p className="text-xs font-bold text-stone-600 mb-2">صور الضرر ({p.images.length}):</p>
-                              <div className="grid grid-cols-3 gap-2">
+                              <p className="text-xs font-bold text-stone-600 mb-3">صور الضرر ({p.images.length}):</p>
+                              <div className="grid grid-cols-2 gap-3">
                                 {p.images.map((image: string, imgIdx: number) => (
-                                  <img 
-                                    key={imgIdx} 
-                                    src={image} 
-                                    alt={`صورة الضرر ${imgIdx + 1}`}
-                                    className="w-full h-20 object-cover rounded border border-stone-200"
-                                  />
+                                  <div key={imgIdx} className="bg-white p-2 rounded border border-stone-200">
+                                    <img 
+                                      src={image} 
+                                      alt={`صورة الضرر ${imgIdx + 1}`}
+                                      className="w-full h-auto object-contain rounded"
+                                    />
+                                  </div>
                                 ))}
                               </div>
                             </div>
@@ -699,15 +700,16 @@ export default function App() {
                         {/* Tool Images */}
                         {viewingReport.toolImages && viewingReport.toolImages[item.id] && viewingReport.toolImages[item.id].length > 0 && (
                           <div className="p-3 bg-stone-50 border-t border-stone-100">
-                            <p className="text-xs font-bold text-stone-600 mb-2">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
-                            <div className="grid grid-cols-3 gap-2">
+                            <p className="text-xs font-bold text-stone-600 mb-3">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
+                            <div className="grid grid-cols-2 gap-3">
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
-                                <img 
-                                  key={imgIdx} 
-                                  src={image} 
-                                  alt={`${item.name} - الصورة ${imgIdx + 1}`}
-                                  className="w-full h-20 object-cover rounded border border-stone-200"
-                                />
+                                <div key={imgIdx} className="bg-white p-2 rounded border border-stone-200">
+                                  <img 
+                                    src={image} 
+                                    alt={`${item.name} - الصورة ${imgIdx + 1}`}
+                                    className="w-full h-auto object-contain rounded"
+                                  />
+                                </div>
                               ))}
                             </div>
                           </div>
