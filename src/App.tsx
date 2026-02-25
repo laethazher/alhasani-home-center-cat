@@ -52,6 +52,7 @@ export default function App() {
   const [damagePoints, setDamagePoints] = useState<any[]>([]);
   const [inspectionValues, setInspectionValues] = useState<Record<number, boolean>>({});
   const [toolValues, setToolValues] = useState<Record<number, number>>({});
+  const [toolImages, setToolImages] = useState<Record<number, string[]>>({});
   
   // Signatures
   const [driverSignature, setDriverSignature] = useState('');
@@ -95,6 +96,7 @@ export default function App() {
       damagePoints,
       inspectionValues,
       toolValues,
+      toolImages,
       driverSignature,
       equipmentManagerSignature,
       logisticsManagerSignature,
@@ -428,6 +430,8 @@ export default function App() {
                       <ToolInventory 
                         values={toolValues} 
                         onChange={(id, count) => setToolValues(prev => ({ ...prev, [id]: count }))} 
+                        toolImages={toolImages}
+                        onImagesChange={(id, images) => setToolImages(prev => ({ ...prev, [id]: images }))}
                       />
                     </div>
                   )}
@@ -618,16 +622,35 @@ export default function App() {
                   {viewingReport.damagePoints.length === 0 ? (
                     <p className="text-stone-400 italic">لا توجد أضرار مسجلة</p>
                   ) : (
-                    <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 gap-4">
                       {viewingReport.damagePoints.map((p: any, idx: number) => (
-                        <div key={idx} className="flex items-center gap-4 p-3 bg-stone-50 rounded-xl">
-                          <span className="font-mono font-bold text-stone-300">#{idx + 1}</span>
-                          <span className={`px-2 py-1 rounded text-[10px] font-bold ${
-                            p.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                          }`}>
-                            {p.severity === 'high' ? 'كبير' : 'متوسط'}
-                          </span>
-                          <p className="flex-1 font-medium">{p.description}</p>
+                        <div key={idx} className="border border-stone-200 rounded-lg overflow-hidden">
+                          <div className="flex items-center gap-4 p-3 bg-white border-b border-stone-100">
+                            <span className="font-mono font-bold text-stone-300">#{idx + 1}</span>
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold ${
+                              p.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                            }`}>
+                              {p.severity === 'high' ? 'كبير' : 'متوسط'}
+                            </span>
+                            <p className="flex-1 font-medium">{p.description}</p>
+                          </div>
+                          
+                          {/* Damage Images */}
+                          {p.images && p.images.length > 0 && (
+                            <div className="p-3 bg-stone-50 border-t border-stone-100">
+                              <p className="text-xs font-bold text-stone-600 mb-2">صور الضرر ({p.images.length}):</p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {p.images.map((image: string, imgIdx: number) => (
+                                  <img 
+                                    key={imgIdx} 
+                                    src={image} 
+                                    alt={`صورة الضرر ${imgIdx + 1}`}
+                                    className="w-full h-20 object-cover rounded border border-stone-200"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -655,21 +678,40 @@ export default function App() {
                 {/* Tool Inventory */}
                 <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">جرد العدة والمواد</h3>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="grid grid-cols-1 gap-4">
                     {TOOL_INVENTORY_ITEMS.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-3 border-b border-stone-100 bg-white rounded-lg text-sm">
-                        <div className="flex items-center gap-3">
-                          <Package className="w-4 h-4 text-stone-400" />
-                          <span className="font-medium">{item.name}</span>
+                      <div key={item.id} className="border border-stone-200 rounded-lg overflow-hidden">
+                        <div className="flex items-center justify-between p-3 bg-white border-b border-stone-100">
+                          <div className="flex items-center gap-3">
+                            <Package className="w-4 h-4 text-stone-400" />
+                            <span className="font-medium">{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-6">
+                            <span className="text-xs text-stone-400">المطلوب: {item.quantity}</span>
+                            <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
+                              (viewingReport.toolValues[item.id] || 0) < item.quantity ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                            }`}>
+                              المتوفر: {viewingReport.toolValues[item.id] || 0}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-6">
-                          <span className="text-xs text-stone-400">المطلوب: {item.quantity}</span>
-                          <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
-                            (viewingReport.toolValues[item.id] || 0) < item.quantity ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
-                          }`}>
-                            المتوفر: {viewingReport.toolValues[item.id] || 0}
-                          </span>
-                        </div>
+                        
+                        {/* Tool Images */}
+                        {viewingReport.toolImages && viewingReport.toolImages[item.id] && viewingReport.toolImages[item.id].length > 0 && (
+                          <div className="p-3 bg-stone-50 border-t border-stone-100">
+                            <p className="text-xs font-bold text-stone-600 mb-2">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
+                                <img 
+                                  key={imgIdx} 
+                                  src={image} 
+                                  alt={`${item.name} - الصورة ${imgIdx + 1}`}
+                                  className="w-full h-20 object-cover rounded border border-stone-200"
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

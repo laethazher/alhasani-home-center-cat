@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, X, AlertCircle } from 'lucide-react';
+import { ImageCapture } from './ImageCapture';
 
 interface DamagePoint {
   id: string;
@@ -8,6 +9,7 @@ interface DamagePoint {
   y: number;
   description: string;
   severity: 'low' | 'medium' | 'high';
+  images?: string[];
 }
 
 export const DamageMap: React.FC<{ 
@@ -29,7 +31,8 @@ export const DamageMap: React.FC<{
       x,
       y,
       description: '',
-      severity: 'medium'
+      severity: 'medium',
+      images: []
     };
 
     const updated = [...points, newPoint];
@@ -92,7 +95,7 @@ export const DamageMap: React.FC<{
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="absolute top-8 left-1/2 -translate-x-1/2 w-64 glass p-4 rounded-xl shadow-xl z-20"
+                className="absolute top-8 left-1/2 -translate-x-1/2 w-80 glass p-4 rounded-xl shadow-xl z-20"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center mb-3">
@@ -109,7 +112,7 @@ export const DamageMap: React.FC<{
                   onChange={(e) => updatePoint(point.id, { description: e.target.value })}
                 />
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 mb-3">
                   {(['low', 'medium', 'high'] as const).map((s) => (
                     <button
                       key={s}
@@ -124,6 +127,19 @@ export const DamageMap: React.FC<{
                     </button>
                   ))}
                 </div>
+
+                {/* Image Capture for Damage */}
+                <ImageCapture 
+                  toolName={`الضرر #${points.indexOf(point) + 1}`}
+                  images={point.images || []}
+                  onImageCapture={(image) => {
+                    updatePoint(point.id, { images: [...(point.images || []), image] });
+                  }}
+                  onRemoveImage={(index) => {
+                    const newImages = (point.images || []).filter((_, i) => i !== index);
+                    updatePoint(point.id, { images: newImages });
+                  }}
+                />
               </motion.div>
             )}
           </motion.div>

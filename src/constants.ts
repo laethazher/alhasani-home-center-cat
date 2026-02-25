@@ -29,6 +29,11 @@ export interface ToolItem {
   quantity: number;
 }
 
+export interface ToolImage {
+  toolId: number;
+  images: string[];
+}
+
 export const TOOL_INVENTORY_ITEMS: ToolItem[] = [
   { id: 1, name: "نرمادة عدله هايدروليك", quantity: 4 },
   { id: 2, name: "نرمادة عدلة عادية", quantity: 4 },

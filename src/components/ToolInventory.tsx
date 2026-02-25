@@ -1,13 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TOOL_INVENTORY_ITEMS } from '../constants';
 import { Package, Minus, Plus } from 'lucide-react';
+import { ImageCapture } from './ImageCapture';
 
 interface ToolInventoryProps {
   values: Record<number, number>;
   onChange: (id: number, count: number) => void;
+  toolImages?: Record<number, string[]>;
+  onImagesChange?: (id: number, images: string[]) => void;
 }
 
-export const ToolInventory: React.FC<ToolInventoryProps> = ({ values, onChange }) => {
+export const ToolInventory: React.FC<ToolInventoryProps> = ({ 
+  values, 
+  onChange,
+  toolImages = {},
+  onImagesChange = () => {}
+}) => {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -24,11 +32,11 @@ export const ToolInventory: React.FC<ToolInventoryProps> = ({ values, onChange }
                 <span className="font-bold text-sm leading-tight">{item.name}</span>
               </div>
               <span className="text-[10px] font-bold px-2 py-1 bg-stone-900 text-white rounded-full">
-                العدد المطلوب: {item.quantity}
+                المطلوب: {item.quantity}
               </span>
             </div>
 
-            <div className="flex items-center justify-between bg-stone-50 p-2 rounded-lg">
+            <div className="flex items-center justify-between bg-stone-50 p-2 rounded-lg mb-4">
               <button 
                 onClick={() => onChange(item.id, Math.max(0, (values[item.id] || 0) - 1))}
                 className="p-1 hover:bg-stone-200 rounded-md transition-colors"
@@ -53,6 +61,20 @@ export const ToolInventory: React.FC<ToolInventoryProps> = ({ values, onChange }
                 <Plus className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Image Capture Component */}
+            <ImageCapture 
+              toolName={item.name}
+              images={toolImages[item.id] || []}
+              onImageCapture={(image) => {
+                const currentImages = toolImages[item.id] || [];
+                onImagesChange(item.id, [...currentImages, image]);
+              }}
+              onRemoveImage={(index) => {
+                const currentImages = toolImages[item.id] || [];
+                onImagesChange(item.id, currentImages.filter((_, i) => i !== index));
+              }}
+            />
           </div>
         ))}
       </div>
