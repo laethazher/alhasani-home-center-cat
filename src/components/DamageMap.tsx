@@ -63,9 +63,12 @@ export const DamageMap: React.FC<{
         className="relative rounded-xl overflow-hidden cursor-crosshair border-2 border-stone-200 shadow-inner group"
         onClick={handleImageClick}
       >
-        <div className="w-full bg-gradient-to-br from-blue-400 to-blue-600 aspect-video flex items-center justify-center text-white text-4xl font-bold">
-          🚎 مخطط الشاحنة
-        </div>
+        <img 
+          src="/truck-collage.jpg?v=1" 
+          alt="Truck Angles" 
+          className="w-full h-auto select-none opacity-95 object-cover"
+          crossOrigin="anonymous"
+        />
         
         {points.map((point) => (
           <motion.div

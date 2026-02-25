@@ -588,8 +588,13 @@ export default function App() {
                 {/* Vehicle Damage Map */}
                 <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100 bg-gradient-to-br from-blue-400 to-blue-600 aspect-video flex items-center justify-center">
-                    <span className="text-6xl font-bold text-white drop-shadow-lg">🚎</span>
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
+                    <img 
+                      src="/truck-collage.jpg?v=1" 
+                      alt="Truck Map" 
+                      className="w-full h-auto object-cover"
+                      crossOrigin="anonymous"
+                    />
                     {viewingReport.damagePoints.map((point: any, idx: number) => (
                       <div
                         key={idx}
