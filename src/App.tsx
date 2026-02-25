@@ -22,7 +22,9 @@ import {
   ArrowRight,
   Printer,
   Package,
-  RotateCcw
+  RotateCcw,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { DamageMap } from './components/DamageMap';
 import { InspectionForm } from './components/InspectionForm';
@@ -41,6 +43,7 @@ export default function App() {
   const [submitted, setSubmitted] = useState(false);
   const [savedReports, setSavedReports] = useState<any[]>([]);
   const [viewingReport, setViewingReport] = useState<any | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -59,6 +62,29 @@ export default function App() {
   const [equipmentManagerSignature, setEquipmentManagerSignature] = useState('');
   const [logisticsManagerSignature, setLogisticsManagerSignature] = useState('');
   const [warehouseManagerSignature, setWarehouseManagerSignature] = useState('');
+
+  useEffect(() => {
+    // Load dark mode preference from localStorage
+    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+    setIsDarkMode(savedDarkMode);
+    updateDarkMode(savedDarkMode);
+    fetchReports();
+  }, []);
+
+  const updateDarkMode = (isDark: boolean) => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('darkMode', isDark.toString());
+  };
+
+  const toggleDarkMode = () => {
+    const newDarkMode = !isDarkMode;
+    setIsDarkMode(newDarkMode);
+    updateDarkMode(newDarkMode);
+  };
 
   useEffect(() => {
     fetchReports();
@@ -228,17 +254,17 @@ export default function App() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-stone-50">
+      <div className="min-h-screen flex items-center justify-center p-6 bg-stone-50 dark:bg-stone-950">
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           className="max-w-md w-full glass p-12 rounded-3xl text-center space-y-6"
         >
-          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto">
+          <div className="w-20 h-20 bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mx-auto">
             <CheckCircle className="w-12 h-12" />
           </div>
-          <h1 className="text-2xl font-bold">تم حفظ التقرير بنجاح!</h1>
-          <p className="text-stone-500">تم تخزين التقرير في قاعدة بيانات الموقع ويمكنك الرجوع إليه في أي وقت.</p>
+          <h1 className="text-2xl font-bold text-stone-900 dark:text-stone-100">تم حفظ التقرير بنجاح!</h1>
+          <p className="text-stone-500 dark:text-stone-400">تم تخزين التقرير في قاعدة بيانات الموقع ويمكنك الرجوع إليه في أي وقت.</p>
           <div className="flex flex-col gap-3">
             <button 
               onClick={() => window.location.reload()}
@@ -251,7 +277,7 @@ export default function App() {
                 setSubmitted(false);
                 setActiveTab('history');
               }}
-              className="w-full py-2 text-stone-600 font-bold hover:text-stone-900 transition-colors"
+              className="w-full py-2 text-stone-600 dark:text-stone-300 font-bold hover:text-stone-900 dark:hover:text-stone-100 transition-colors"
             >
               عرض السجل
             </button>
@@ -262,31 +288,50 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen pb-24" dir="rtl">
+    <div className="min-h-screen pb-24 bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 transition-colors" dir="rtl">
       {/* Header */}
-      <header className="glass sticky top-0 z-50 px-6 py-4">
+      <header className="glass sticky top-0 z-50 px-6 py-4 dark:glass-dark">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 flex items-center justify-center bg-rose-50 rounded-xl">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-rose-500">
+              <div className="w-12 h-12 flex items-center justify-center bg-rose-50 dark:bg-rose-950 rounded-xl">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-rose-500 dark:text-rose-400">
                   <path d="M3 14l9-9 9 9" />
                 </svg>
               </div>
-              <div className="border-r-2 border-stone-200 pr-4 text-right">
-                <h1 className="text-xl font-black tracking-tight text-stone-900 leading-none">الحسني هوم سنتر</h1>
-                <p className="text-[9px] uppercase tracking-[0.15em] font-bold text-stone-500 mt-1">ALHASANI HOME CENTER</p>
+              <div className="border-r-2 border-stone-200 dark:border-stone-700 pr-4 text-right">
+                <h1 className="text-xl font-black tracking-tight text-stone-900 dark:text-stone-100 leading-none">الحسني هوم سنتر</h1>
+                <p className="text-[9px] uppercase tracking-[0.15em] font-bold text-stone-500 dark:text-stone-400 mt-1">ALHASANI HOME CENTER</p>
               </div>
             </div>
           </div>
           
-          <button 
-            onClick={() => setActiveTab('history')}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl hover:bg-stone-100 transition-colors text-stone-600 font-bold text-sm"
-          >
-            <History className="w-4 h-4" />
-            السجل
-          </button>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={toggleDarkMode}
+              className="flex items-center justify-center w-10 h-10 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors text-stone-600 dark:text-stone-300"
+              title={isDarkMode ? 'وضع النهار' : 'الوضع الليلي'}
+            >
+              <motion.div
+                initial={false}
+                animate={{ rotate: isDarkMode ? 180 : 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                {isDarkMode ? (
+                  <Sun className="w-5 h-5" />
+                ) : (
+                  <Moon className="w-5 h-5" />
+                )}
+              </motion.div>
+            </button>
+            <button 
+              onClick={() => setActiveTab('history')}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors text-stone-600 dark:text-stone-300 font-bold text-sm"
+            >
+              <History className="w-4 h-4" />
+              السجل
+            </button>
+          </div>
         </div>
       </header>
 

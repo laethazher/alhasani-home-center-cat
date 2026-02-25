@@ -42,6 +42,10 @@ body {
   direction: rtl;
 }
 
+html.dark {
+  @apply bg-stone-950 text-stone-100;
+}
+
 .glass {
   background-color: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(12px);
@@ -49,13 +53,27 @@ body {
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
+html.dark .glass {
+  background-color: rgba(28, 25, 23, 0.8);
+  border: 1px solid rgba(120, 113, 108, 0.2);
+  box-shadow: 0 1px 2px 0 rgba(255, 255, 255, 0.05);
+}
+
 .btn-primary {
   @apply bg-red-700 text-white px-6 py-2 rounded-lg font-medium hover:bg-red-800 transition-colors shadow-sm active:scale-95;
 }
 
+html.dark .btn-primary {
+  @apply bg-red-600 hover:bg-red-700;
+}
+
 .input-field {
-  @apply w-full px-4 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:border-red-500 transition-all bg-white;
+  @apply w-full px-4 py-2 rounded-lg border border-stone-200 focus:outline-none focus:ring-2 focus:border-red-500 transition-all bg-white text-stone-900;
   /* Avoid focus:ring-red-500/20 which might use oklch */
+}
+
+html.dark .input-field {
+  @apply bg-stone-800 border-stone-700 text-stone-100 focus:border-red-400;
 }
 
 .signature-canvas {
