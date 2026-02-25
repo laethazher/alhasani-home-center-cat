@@ -589,35 +589,37 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Vehicle Damage Map */}
-                <div className="space-y-4 pdf-section">
-                  <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
-                    <img 
-                      src="/truck-collage.jpg?v=1" 
-                      alt="Truck Map" 
-                      className="w-full h-auto object-cover"
-                      crossOrigin="anonymous"
-                    />
-                    {viewingReport.damagePoints.map((point: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="absolute w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center"
-                        style={{ 
-                          left: `${point.x}%`, 
-                          top: `${point.y}%`, 
-                          transform: 'translate(-50%, -50%)',
-                          backgroundColor: point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15'
-                        }}
-                      >
-                        <span className="text-[10px] font-bold text-white">{idx + 1}</span>
-                      </div>
-                    ))}
+                {/* Damage Section - Full Page */}
+                <div className="space-y-6" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
+                  {/* Vehicle Damage Map */}
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
+                      <img 
+                        src="/truck-collage.jpg?v=1" 
+                        alt="Truck Map" 
+                        className="w-full h-auto object-cover"
+                        crossOrigin="anonymous"
+                      />
+                      {viewingReport.damagePoints.map((point: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="absolute w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center"
+                          style={{ 
+                            left: `${point.x}%`, 
+                            top: `${point.y}%`, 
+                            transform: 'translate(-50%, -50%)',
+                            backgroundColor: point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15'
+                          }}
+                        >
+                          <span className="text-[10px] font-bold text-white">{idx + 1}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Damage Summary */}
-                <div className="space-y-4 pdf-section">
+                  {/* Damage Summary */}
+                  <div className="space-y-4">
                   <h3 className="text-xl font-bold border-r-4 border-red-700 pr-4">أضرار المركبة الموثقة</h3>
                   {viewingReport.damagePoints.length === 0 ? (
                     <p className="text-stone-400 italic">لا توجد أضرار مسجلة</p>
@@ -657,10 +659,11 @@ export default function App() {
                       ))}
                     </div>
                   )}
+                  </div>
                 </div>
 
-                {/* Inspection Results */}
-                <div className="space-y-4 pdf-section">
+                {/* Inspection Results - Full Page */}
+                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">نتائج الفحص الأسبوعي</h3>
                   <div className="space-y-2">
                     {WEEKLY_INSPECTION_ITEMS.map((item) => (
@@ -677,8 +680,8 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Tool Inventory */}
-                <div className="space-y-4 pdf-section">
+                {/* Tool Inventory - Full Page */}
+                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">جرد العدة والمواد</h3>
                   <div className="space-y-4">
                     {TOOL_INVENTORY_ITEMS.map((item) => (
@@ -721,8 +724,8 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Signatures */}
-                <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 pdf-section" style={{ pageBreakInside: 'avoid' }}>
+                {/* Signatures - Full Page */}
+                <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
                   <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <p className="text-sm font-bold text-stone-500">اسم وتوقيع السائق</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">

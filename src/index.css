@@ -89,6 +89,16 @@ body {
   position: relative;
   margin-bottom: 2rem !important;
   padding-bottom: 2rem !important;
+  display: block !important;
+  width: 100% !important;
+}
+
+.pdf-section-damage {
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+  position: relative;
+  display: block !important;
+  width: 100% !important;
 }
 
 .pdf-section + .pdf-section {
@@ -97,9 +107,24 @@ body {
 
 /* PDF-specific optimizations */
 @media print {
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  #print-section {
+    margin: 0;
+    padding: 3rem !important;
+    width: 100%;
+  }
+
   .pdf-section {
     page-break-inside: avoid !important;
-    margin-bottom: 3rem !important;
+    break-inside: avoid !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 0 2rem 0 !important;
+    padding: 0 0 2rem 0 !important;
   }
 
   .pdf-section > div,
@@ -108,10 +133,7 @@ body {
     break-inside: avoid !important;
   }
 
-  .pdf-section:nth-child(3),
-  .pdf-section:nth-child(4),
-  .pdf-section:nth-child(5),
-  .pdf-section:nth-child(6) {
+  .pdf-section:nth-child(n+3) {
     page-break-before: always !important;
   }
 }
