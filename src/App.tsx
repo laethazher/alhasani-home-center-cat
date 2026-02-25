@@ -622,12 +622,12 @@ export default function App() {
                   {viewingReport.damagePoints.length === 0 ? (
                     <p className="text-stone-400 italic">لا توجد أضرار مسجلة</p>
                   ) : (
-                    <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-4">
                       {viewingReport.damagePoints.map((p: any, idx: number) => (
-                        <div key={idx} className="border border-stone-200 rounded-lg overflow-hidden">
+                        <div key={idx} className="border border-stone-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                           <div className="flex items-center gap-4 p-3 bg-white border-b border-stone-100">
                             <span className="font-mono font-bold text-stone-300">#{idx + 1}</span>
-                            <span className={`px-2 py-1 rounded text-[10px] font-bold ${
+                            <span className={`px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap ${
                               p.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
                             }`}>
                               {p.severity === 'high' ? 'كبير' : 'متوسط'}
@@ -641,12 +641,12 @@ export default function App() {
                               <p className="text-xs font-bold text-stone-600 mb-3">صور الضرر ({p.images.length}):</p>
                               <div className="space-y-3">
                                 {p.images.map((image: string, imgIdx: number) => (
-                                  <div key={imgIdx} className="bg-white p-3 rounded border border-stone-200">
+                                  <div key={imgIdx} className="bg-white p-3 rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                                     <img 
                                       src={image} 
                                       alt={`صورة الضرر ${imgIdx + 1}`}
                                       className="w-full max-w-2xl mx-auto h-auto object-contain rounded"
-                                      style={{ minHeight: '200px' }}
+                                      style={{ minHeight: '150px', maxHeight: '300px' }}
                                     />
                                   </div>
                                 ))}
@@ -662,14 +662,14 @@ export default function App() {
                 {/* Inspection Results */}
                 <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">نتائج الفحص الأسبوعي</h3>
-                  <div className="grid grid-cols-1 gap-2">
+                  <div className="space-y-2">
                     {WEEKLY_INSPECTION_ITEMS.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-3 border-b border-stone-100 bg-white rounded-lg text-sm">
+                      <div key={item.id} className="flex items-center justify-between p-3 border-b border-stone-100 bg-white rounded-lg text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                         <div className="flex items-center gap-3">
                           <span className="text-stone-400 font-mono text-xs">{item.id.toString().padStart(2, '0')}</span>
                           <span className="font-medium">{item.label}</span>
                         </div>
-                        <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${viewingReport.inspectionValues[item.id] ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                        <span className={`font-bold px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${viewingReport.inspectionValues[item.id] ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                           {viewingReport.inspectionValues[item.id] ? '✓ سليم' : '✗ غير سليم'}
                         </span>
                       </div>
@@ -680,17 +680,17 @@ export default function App() {
                 {/* Tool Inventory */}
                 <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">جرد العدة والمواد</h3>
-                  <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-4">
                     {TOOL_INVENTORY_ITEMS.map((item) => (
-                      <div key={item.id} className="border border-stone-200 rounded-lg overflow-hidden">
+                      <div key={item.id} className="border border-stone-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                         <div className="flex items-center justify-between p-3 bg-white border-b border-stone-100">
                           <div className="flex items-center gap-3">
                             <Package className="w-4 h-4 text-stone-400" />
                             <span className="font-medium">{item.name}</span>
                           </div>
                           <div className="flex items-center gap-6">
-                            <span className="text-xs text-stone-400">المطلوب: {item.quantity}</span>
-                            <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${
+                            <span className="text-xs text-stone-400 whitespace-nowrap">المطلوب: {item.quantity}</span>
+                            <span className={`font-bold px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${
                               (viewingReport.toolValues[item.id] || 0) < item.quantity ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
                             }`}>
                               المتوفر: {viewingReport.toolValues[item.id] || 0}
@@ -704,12 +704,12 @@ export default function App() {
                             <p className="text-xs font-bold text-stone-600 mb-3">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
                             <div className="space-y-3">
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
-                                <div key={imgIdx} className="bg-white p-3 rounded border border-stone-200">
+                                <div key={imgIdx} className="bg-white p-3 rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                                   <img 
                                     src={image} 
                                     alt={`${item.name} - الصورة ${imgIdx + 1}`}
                                     className="w-full max-w-2xl mx-auto h-auto object-contain rounded"
-                                    style={{ minHeight: '200px' }}
+                                    style={{ minHeight: '150px', maxHeight: '300px' }}
                                   />
                                 </div>
                               ))}
@@ -722,27 +722,27 @@ export default function App() {
                 </div>
 
                 {/* Signatures */}
-                <div className="grid grid-cols-2 gap-y-12 gap-x-12 pt-12 border-t border-stone-100 pdf-section">
-                  <div className="text-center space-y-4">
+                <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 pdf-section" style={{ pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <p className="text-sm font-bold text-stone-500">اسم وتوقيع السائق</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.driverSignature && <img src={viewingReport.driverSignature} className="max-h-full" />}
                     </div>
                     <p className="text-xs font-bold text-stone-400">{viewingReport.driverName}</p>
                   </div>
-                  <div className="text-center space-y-4">
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <p className="text-sm font-bold text-stone-500">مسؤول قسم التجهيز</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.equipmentManagerSignature && <img src={viewingReport.equipmentManagerSignature} className="max-h-full" />}
                     </div>
                   </div>
-                  <div className="text-center space-y-4">
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <p className="text-sm font-bold text-stone-500">مدير قسم اللوجستك</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.logisticsManagerSignature && <img src={viewingReport.logisticsManagerSignature} className="max-h-full" />}
                     </div>
                   </div>
-                  <div className="text-center space-y-4">
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <p className="text-sm font-bold text-stone-500">مدير المخازن</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.warehouseManagerSignature && <img src={viewingReport.warehouseManagerSignature} className="max-h-full" />}

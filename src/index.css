@@ -87,5 +87,32 @@ body {
   page-break-inside: avoid !important;
   break-inside: avoid !important;
   position: relative;
+  margin-bottom: 2rem !important;
+  padding-bottom: 2rem !important;
+}
+
+.pdf-section + .pdf-section {
+  page-break-before: auto !important;
+}
+
+/* PDF-specific optimizations */
+@media print {
+  .pdf-section {
+    page-break-inside: avoid !important;
+    margin-bottom: 3rem !important;
+  }
+
+  .pdf-section > div,
+  .pdf-section > div > div {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .pdf-section:nth-child(3),
+  .pdf-section:nth-child(4),
+  .pdf-section:nth-child(5),
+  .pdf-section:nth-child(6) {
+    page-break-before: always !important;
+  }
 }
 
