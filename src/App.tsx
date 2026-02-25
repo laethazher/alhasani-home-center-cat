@@ -290,7 +290,7 @@ export default function App() {
   return (
     <div className="min-h-screen pb-24 bg-white dark:bg-stone-950 text-stone-900 dark:text-stone-100 transition-colors" dir="rtl" style={{ backgroundColor: isDarkMode ? '#030712' : '#ffffff' }}>
       {/* Header */}
-      <header className="glass sticky top-0 z-50 px-6 py-4 dark:glass-dark">
+      <header className="glass sticky top-0 z-50 px-6 py-4 dark:glass-dark" style={{ backgroundColor: isDarkMode ? 'rgba(3, 7, 18, 0.85)' : 'rgba(255, 255, 255, 0.85)' }}>
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
@@ -300,8 +300,8 @@ export default function App() {
                 </svg>
               </div>
               <div className="border-r-2 border-stone-200 dark:border-stone-700 pr-4 text-right">
-                <h1 className="text-xl font-black tracking-tight text-stone-900 dark:text-stone-100 leading-none">الحسني هوم سنتر</h1>
-                <p className="text-[9px] uppercase tracking-[0.15em] font-bold text-stone-500 dark:text-stone-400 mt-1">ALHASANI HOME CENTER</p>
+                <h1 style={{ color: isDarkMode ? '#e7e5e4' : '#1c1917' }} className="text-xl font-black tracking-tight text-stone-900 dark:text-stone-100 leading-none">الحسني هوم سنتر</h1>
+                <p style={{ color: isDarkMode ? '#a8a29e' : '#78716c' }} className="text-[9px] uppercase tracking-[0.15em] font-bold text-stone-500 dark:text-stone-400 mt-1">ALHASANI HOME CENTER</p>
               </div>
             </div>
           </div>
