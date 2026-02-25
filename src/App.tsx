@@ -590,12 +590,12 @@ export default function App() {
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
                   <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
                     <img 
-                      src="https://drive.google.com/uc?export=view&id=1U-c7eNnSTwvjVR8yTjQVOn6SwlDWO5mV" 
+                      src="https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=1200" 
                       alt="Truck Map" 
                       className="w-full h-auto"
                       crossOrigin="anonymous"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=1200';
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=800';
                       }}
                     />
                     {viewingReport.damagePoints.map((point: any, idx: number) => (

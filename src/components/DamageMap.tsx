@@ -64,13 +64,13 @@ export const DamageMap: React.FC<{
         onClick={handleImageClick}
       >
         <img 
-          src="https://drive.google.com/uc?export=view&id=1U-c7eNnSTwvjVR8yTjQVOn6SwlDWO5mV" 
+          src="https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=1200" 
           alt="Truck Angles" 
           className="w-full h-auto select-none opacity-95"
           crossOrigin="anonymous"
           onError={(e) => {
             // Fallback if the specific URL doesn't work
-            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=1200';
+            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1605281317010-612ad2349bda?auto=format&fit=crop&q=80&w=800';
           }}
         />
         
