@@ -1,48 +1,25 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
-@theme {
-  --font-sans: "Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
-  
-  /* Override oklch colors with hex for html2canvas compatibility */
-  --color-white: #ffffff;
-  --color-black: #000000;
-  --color-rose-50: #fff1f2;
-  --color-rose-400: #fb7185;
-  --color-rose-500: #f43f5e;
-  --color-red-50: #fef2f2;
-  --color-red-100: #fee2e2;
-  --color-red-500: #ef4444;
-  --color-red-600: #dc2626;
-  --color-red-700: #b91c1c;
-  --color-red-800: #991b1b;
-  --color-stone-50: #fafaf9;
-  --color-stone-100: #f5f5f4;
-  --color-stone-200: #e7e5e4;
-  --color-stone-300: #d6d3d1;
-  --color-stone-400: #a8a29e;
-  --color-stone-500: #78716c;
-  --color-stone-600: #57534e;
-  --color-stone-700: #44403c;
-  --color-stone-800: #292524;
-  --color-stone-900: #1c1917;
-  --color-blue-50: #eff6ff;
-  --color-blue-600: #2563eb;
-  --color-blue-700: #1d4ed8;
-  --color-orange-50: #fff7ed;
-  --color-orange-100: #ffedd5;
-  --color-orange-700: #c2410c;
-  --color-green-50: #f0fdf4;
-  --color-green-100: #dcfce7;
-  --color-green-600: #16a34a;
+* {
+  @apply transition-colors;
 }
 
-body {
-  @apply bg-stone-50 text-stone-900;
-  direction: rtl;
+html {
+  @apply bg-white text-stone-900;
 }
 
 html.dark {
+  @apply bg-stone-950 text-stone-100;
+}
+
+body {
+  direction: rtl;
+  @apply bg-white text-stone-900;
+  font-family: "Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+}
+
+html.dark body {
   @apply bg-stone-950 text-stone-100;
 }
 
@@ -54,7 +31,7 @@ html.dark {
 }
 
 html.dark .glass {
-  background-color: rgba(28, 25, 23, 0.8);
+  background-color: rgba(20, 18, 16, 0.9);
   border: 1px solid rgba(120, 113, 108, 0.2);
   box-shadow: 0 1px 2px 0 rgba(255, 255, 255, 0.05);
 }
