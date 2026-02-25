@@ -254,7 +254,7 @@ export default function App() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-stone-50 dark:bg-stone-950">
+      <div className="min-h-screen flex items-center justify-center p-6 bg-white dark:bg-stone-950" style={{ backgroundColor: isDarkMode ? '#030712' : '#ffffff' }}>
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -288,7 +288,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen pb-24 bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 transition-colors" dir="rtl">
+    <div className="min-h-screen pb-24 bg-white dark:bg-stone-950 text-stone-900 dark:text-stone-100 transition-colors" dir="rtl" style={{ backgroundColor: isDarkMode ? '#030712' : '#ffffff' }}>
       {/* Header */}
       <header className="glass sticky top-0 z-50 px-6 py-4 dark:glass-dark">
         <div className="max-w-5xl mx-auto flex items-center justify-between">

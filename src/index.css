@@ -2,15 +2,27 @@
 @import "tailwindcss";
 
 * {
-  @apply transition-colors;
+  @apply transition-colors duration-300;
 }
 
 html {
   @apply bg-white text-stone-900;
+  background-color: #ffffff !important;
 }
 
 html.dark {
   @apply bg-stone-950 text-stone-100;
+  background-color: #030712 !important;
+}
+
+body {
+  @apply bg-white text-stone-900;
+  background-color: #ffffff !important;
+}
+
+html.dark body {
+  @apply bg-stone-950 text-stone-100;
+  background-color: #030712 !important;
 }
 
 body {
