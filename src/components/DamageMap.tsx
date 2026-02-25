@@ -63,17 +63,9 @@ export const DamageMap: React.FC<{
         className="relative rounded-xl overflow-hidden cursor-crosshair border-2 border-stone-200 shadow-inner group"
         onClick={handleImageClick}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" className="w-full h-auto select-none opacity-95">
-          <rect width="800" height="400" fill="#f0f0f0"/>
-          <rect x="150" y="100" width="500" height="200" fill="#333" rx="10"/>
-          <circle cx="250" cy="280" r="40" fill="#555"/>
-          <circle cx="550" cy="280" r="40" fill="#555"/>
-          <circle cx="250" cy="280" r="30" fill="#333"/>
-          <circle cx="550" cy="280" r="30" fill="#333"/>
-          <rect x="160" y="110" width="480" height="150" fill="#444" rx="5"/>
-          <rect x="170" y="120" width="460" height="100" fill="#666" rx="3"/>
-          <text x="400" y="350" textAnchor="middle" fontSize="24" fill="#999" fontWeight="bold">مخطط الشاحنة</text>
-        </svg>
+        <div className="w-full bg-gradient-to-br from-blue-400 to-blue-600 aspect-video flex items-center justify-center text-white text-4xl font-bold">
+          🚎 مخطط الشاحنة
+        </div>
         
         {points.map((point) => (
           <motion.div
