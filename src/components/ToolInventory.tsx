@@ -14,7 +14,7 @@ export const ToolInventory: React.FC<ToolInventoryProps> = ({
   values, 
   onChange,
   toolImages = {},
-  onImagesChange = () => {}
+  onImagesChange = (id: number, images: string[]) => { }
 }) => {
   return (
     <div className="space-y-4">
