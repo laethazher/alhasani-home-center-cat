@@ -588,16 +588,18 @@ export default function App() {
                 {/* Vehicle Damage Map */}
                 <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
-                    <img 
-                      src="https://images.pexels.com/photos/2783873/pexels-photo-2783873.jpeg" 
-                      alt="Truck Map" 
-                      className="w-full h-auto"
-                      crossOrigin="anonymous"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'https://images.pixabay.com/photos/truck-lorry-vehicle-transport-98101-q80';
-                      }}
-                    />
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100 bg-stone-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" className="w-full h-auto">
+                      <rect width="800" height="400" fill="#f9f9f9"/>
+                      <rect x="150" y="100" width="500" height="200" fill="#333" rx="10"/>
+                      <circle cx="250" cy="280" r="40" fill="#555"/>
+                      <circle cx="550" cy="280" r="40" fill="#555"/>
+                      <circle cx="250" cy="280" r="30" fill="#333"/>
+                      <circle cx="550" cy="280" r="30" fill="#333"/>
+                      <rect x="160" y="110" width="480" height="150" fill="#444" rx="5"/>
+                      <rect x="170" y="120" width="460" height="100" fill="#666" rx="3"/>
+                      <text x="400" y="350" textAnchor="middle" fontSize="24" fill="#999" fontWeight="bold">مخطط الشاحنة</text>
+                    </svg>
                     {viewingReport.damagePoints.map((point: any, idx: number) => (
                       <div
                         key={idx}
