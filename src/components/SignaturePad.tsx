@@ -33,7 +33,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ label, onSave, defau
         <label className="text-sm font-bold text-stone-600">{label}</label>
         <button 
           onClick={clear}
-          className="text-stone-400 hover:text-red-600 transition-colors p-1"
+          className="text-stone-400 dark:text-stone-500 hover:text-red-600 dark:hover:text-red-400 transition-colors p-1"
           title="مسح التوقيع"
         >
           <RotateCcw className="w-4 h-4" />

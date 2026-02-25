@@ -346,14 +346,14 @@ export default function App() {
               <div className="flex items-center gap-4">
                 <button 
                   onClick={fetchReports}
-                  className="p-2 text-stone-400 hover:text-stone-600 transition-colors"
+                  className="p-2 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 transition-colors"
                   title="تحديث السجل"
                 >
                   <RotateCcw className="w-5 h-5" />
                 </button>
                 <button 
                   onClick={() => setActiveTab('damage')}
-                  className="flex items-center gap-2 text-stone-500 hover:text-red-700 font-bold"
+                  className="flex items-center gap-2 text-stone-500 dark:text-stone-400 hover:text-red-700 dark:hover:text-red-400 font-bold"
                 >
                   <ArrowRight className="w-4 h-4" />
                   رجوع للنموذج
@@ -363,7 +363,7 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {savedReports.length === 0 ? (
-                <div className="col-span-full py-20 text-center text-stone-400">
+                <div className="col-span-full py-20 text-center text-stone-400 dark:text-stone-500">
                   <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
                   <p>لا توجد تقارير محفوظة حالياً</p>
                 </div>
@@ -377,22 +377,22 @@ export default function App() {
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="font-bold text-lg">{report.driverName}</h3>
-                        <p className="text-sm text-stone-500">مركبة رقم: {report.truckNumber}</p>
+                        <p className="text-sm text-stone-500 dark:text-stone-400">مركبة رقم: {report.truckNumber}</p>
                       </div>
-                      <span className="text-xs font-mono bg-stone-100 px-2 py-1 rounded text-stone-500">
+                      <span className="text-xs font-mono bg-stone-100 dark:bg-stone-700 px-2 py-1 rounded text-stone-500 dark:text-stone-300">
                         {new Date(report.createdAt).toLocaleDateString('ar-EG')}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-stone-100">
+                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-stone-100 dark:border-stone-700">
                       <div className="flex gap-2">
-                        <span className="text-[10px] font-bold px-2 py-1 bg-red-50 text-red-700 rounded-full">
+                        <span className="text-[10px] font-bold px-2 py-1 bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-200 rounded-full">
                           {report.damagePoints.length} أضرار
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-1 bg-blue-50 text-blue-700 rounded-full">
+                        <span className="text-[10px] font-bold px-2 py-1 bg-blue-50 dark:bg-blue-900 text-blue-700 dark:text-blue-200 rounded-full">
                           {Object.values(report.inspectionValues).filter(Boolean).length}/17 فحص
                         </span>
                       </div>
-                      <ArrowRight className="w-4 h-4 text-stone-300 group-hover:text-red-700 transition-colors" />
+                      <ArrowRight className="w-4 h-4 text-stone-300 dark:text-stone-600 group-hover:text-red-700 dark:group-hover:text-red-400 transition-colors" />
                     </div>
                   </div>
                 ))
@@ -404,7 +404,7 @@ export default function App() {
             {/* Driver Info */}
             <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-stone-500 flex items-center gap-2">
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400 flex items-center gap-2">
                   <User className="w-3 h-3" /> اسم السائق
                 </label>
                 <input 
@@ -416,7 +416,7 @@ export default function App() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-stone-500 flex items-center gap-2">
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400 flex items-center gap-2">
                   <Hash className="w-3 h-3" /> رقم المركبة
                 </label>
                 <input 
@@ -428,7 +428,7 @@ export default function App() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-stone-500 flex items-center gap-2">
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400 flex items-center gap-2">
                   <Calendar className="w-3 h-3" /> تاريخ الجرد
                 </label>
                 <input 
@@ -441,7 +441,7 @@ export default function App() {
             </section>
 
             {/* Tabs Navigation */}
-            <div className="flex p-1 bg-stone-200 rounded-2xl">
+            <div className="flex p-1 bg-stone-200 dark:bg-stone-800 rounded-2xl">
               {(['damage', 'inspection', 'tools'] as const).map((tab) => (
                 <button
                   key={tab}
@@ -449,8 +449,8 @@ export default function App() {
                   className={cn(
                     "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all",
                     activeTab === tab 
-                      ? "bg-white text-red-700 shadow-sm" 
-                      : "text-stone-500 hover:text-stone-700"
+                      ? "bg-white dark:bg-stone-700 text-red-700 dark:text-red-400 shadow-sm" 
+                      : "text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300"
                   )}
                 >
                   {tab === 'damage' && <AlertTriangle className="w-4 h-4" />}
@@ -532,15 +532,15 @@ export default function App() {
 
       {/* Bottom Action Bar */}
       {activeTab !== 'history' && (
-        <div className="fixed bottom-0 left-0 right-0 glass p-4 border-t border-stone-200 z-50">
+        <div className="fixed bottom-0 left-0 right-0 glass dark:glass p-4 border-t border-stone-200 dark:border-stone-700 z-50">
           <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
             <div className="hidden sm:block">
-              <p className="text-xs text-stone-500 font-medium">سيتم الحفظ في:</p>
-              <p className="text-[10px] font-mono text-stone-400">قاعدة بيانات الموقع المحلية</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 font-medium">سيتم الحفظ في:</p>
+              <p className="text-[10px] font-mono text-stone-400 dark:text-stone-500">قاعدة بيانات الموقع المحلية</p>
             </div>
 
             <div className="flex items-center gap-4 flex-1 sm:flex-none">
-              <div className="hidden md:flex items-center gap-4 text-[10px] font-bold text-stone-400 border-r border-stone-200 pr-4">
+              <div className="hidden md:flex items-center gap-4 text-[10px] font-bold text-stone-400 dark:text-stone-500 border-r border-stone-200 dark:border-stone-700 pr-4">
                 <span className={damagePoints.length > 0 ? 'text-red-500' : ''}>
                   {damagePoints.length} أضرار
                 </span>
@@ -586,9 +586,9 @@ export default function App() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative"
+              className="bg-white dark:bg-stone-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl relative"
             >
-              <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center z-10">
+              <div className="sticky top-0 bg-white dark:bg-stone-800 border-b border-stone-200 dark:border-stone-700 p-4 flex justify-between items-center z-10">
                 <div className="flex gap-2">
                   <button 
                     onClick={exportPDF}
@@ -600,7 +600,7 @@ export default function App() {
                   </button>
                   <button 
                     onClick={() => window.print()}
-                    className="flex items-center gap-2 px-4 py-2 bg-stone-100 text-stone-700 rounded-xl font-bold text-sm hover:bg-stone-200 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-stone-100 dark:bg-stone-700 text-stone-700 dark:text-stone-300 rounded-xl font-bold text-sm hover:bg-stone-200 dark:hover:bg-stone-600 transition-colors"
                   >
                     <Printer className="w-4 h-4" />
                     طباعة
@@ -608,13 +608,13 @@ export default function App() {
                 </div>
                 <button 
                   onClick={() => setViewingReport(null)}
-                  className="p-2 hover:bg-stone-100 rounded-full transition-colors"
+                  className="p-2 hover:bg-stone-100 dark:hover:bg-stone-700 rounded-full transition-colors"
                 >
                   <ArrowRight className="w-6 h-6" />
                 </button>
               </div>
 
-              <div ref={reportRef} id="print-section" className="p-12 space-y-12 bg-white" dir="rtl">
+              <div ref={reportRef} id="print-section" className="p-12 space-y-12 bg-white dark:bg-stone-900" dir="rtl">
                 {/* PDF Header */}
                 <div className="flex justify-between items-start border-b-4 border-rose-400 pb-8" style={{ pageBreakInside: 'avoid' }}>
                   <div className="flex items-center gap-6">
@@ -685,15 +685,15 @@ export default function App() {
                 <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
                   <h3 className="text-xl font-bold border-r-4 border-red-700 pr-4">أضرار المركبة الموثقة</h3>
                   {viewingReport.damagePoints.length === 0 ? (
-                    <p className="text-stone-400 italic">لا توجد أضرار مسجلة</p>
+                    <p className="text-stone-400 dark:text-stone-500 italic">لا توجد أضرار مسجلة</p>
                   ) : (
                     <div className="space-y-4">
                       {viewingReport.damagePoints.map((p: any, idx: number) => (
-                        <div key={idx} className="border border-stone-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                          <div className="flex items-center gap-4 p-3 bg-white border-b border-stone-100">
-                            <span className="font-mono font-bold text-stone-300">#{idx + 1}</span>
+                        <div key={idx} className="border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                          <div className="flex items-center gap-4 p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
+                            <span className="font-mono font-bold text-stone-300 dark:text-stone-500">#{idx + 1}</span>
                             <span className={`px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap ${
-                              p.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                              p.severity === 'high' ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200' : 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-200'
                             }`}>
                               {p.severity === 'high' ? 'كبير' : 'متوسط'}
                             </span>
@@ -702,11 +702,11 @@ export default function App() {
                           
                           {/* Damage Images */}
                           {p.images && p.images.length > 0 && (
-                            <div className="p-4 bg-stone-50 border-t border-stone-100">
-                              <p className="text-xs font-bold text-stone-600 mb-4">صور الضرر ({p.images.length}):</p>
+                            <div className="p-4 bg-stone-50 dark:bg-stone-700 border-t border-stone-100 dark:border-stone-700">
+                              <p className="text-xs font-bold text-stone-600 dark:text-stone-300 mb-4">صور الضرر ({p.images.length}):</p>
                               <div className="space-y-4">
                                 {p.images.map((image: string, imgIdx: number) => (
-                                  <div key={imgIdx} className="bg-white rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
+                                  <div key={imgIdx} className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
                                     <img 
                                       src={image} 
                                       alt={`صورة الضرر ${imgIdx + 1}`}
@@ -728,12 +728,12 @@ export default function App() {
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">نتائج الفحص الأسبوعي</h3>
                   <div className="space-y-2">
                     {WEEKLY_INSPECTION_ITEMS.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-3 border-b border-stone-100 bg-white rounded-lg text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                      <div key={item.id} className="flex items-center justify-between p-3 border-b border-stone-100 dark:border-stone-700 bg-white dark:bg-stone-800 rounded-lg text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                         <div className="flex items-center gap-3">
-                          <span className="text-stone-400 font-mono text-xs">{item.id.toString().padStart(2, '0')}</span>
+                          <span className="text-stone-400 dark:text-stone-500 font-mono text-xs">{item.id.toString().padStart(2, '0')}</span>
                           <span className="font-medium">{item.label}</span>
                         </div>
-                        <span className={`font-bold px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${viewingReport.inspectionValues[item.id] ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                        <span className={`font-bold px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${viewingReport.inspectionValues[item.id] ? 'bg-green-50 dark:bg-green-900 text-green-600 dark:text-green-200' : 'bg-red-50 dark:bg-red-900 text-red-600 dark:text-red-200'}`}>
                           {viewingReport.inspectionValues[item.id] ? '✓ سليم' : '✗ غير سليم'}
                         </span>
                       </div>
@@ -747,15 +747,15 @@ export default function App() {
                   <div className="space-y-4">
                     {TOOL_INVENTORY_ITEMS.map((item) => (
                       <div key={item.id} className="border border-stone-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                        <div className="flex items-center justify-between p-3 bg-white border-b border-stone-100">
+                        <div className="flex items-center justify-between p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
                           <div className="flex items-center gap-3">
-                            <Package className="w-4 h-4 text-stone-400" />
+                            <Package className="w-4 h-4 text-stone-400 dark:text-stone-500" />
                             <span className="font-medium">{item.name}</span>
                           </div>
                           <div className="flex items-center gap-6">
-                            <span className="text-xs text-stone-400 whitespace-nowrap">المطلوب: {item.quantity}</span>
+                            <span className="text-xs text-stone-400 dark:text-stone-500 whitespace-nowrap">المطلوب: {item.quantity}</span>
                             <span className={`font-bold px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${
-                              (viewingReport.toolValues[item.id] || 0) < item.quantity ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'
+                              (viewingReport.toolValues[item.id] || 0) < item.quantity ? 'bg-red-50 dark:bg-red-900 text-red-600 dark:text-red-200' : 'bg-green-50 dark:bg-green-900 text-green-600 dark:text-green-200'
                             }`}>
                               المتوفر: {viewingReport.toolValues[item.id] || 0}
                             </span>
@@ -764,11 +764,11 @@ export default function App() {
                         
                         {/* Tool Images */}
                         {viewingReport.toolImages && viewingReport.toolImages[item.id] && viewingReport.toolImages[item.id].length > 0 && (
-                          <div className="p-4 bg-stone-50 border-t border-stone-100">
-                            <p className="text-xs font-bold text-stone-600 mb-4">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
+                          <div className="p-4 bg-stone-50 dark:bg-stone-700 border-t border-stone-100 dark:border-stone-700">
+                            <p className="text-xs font-bold text-stone-600 dark:text-stone-300 mb-4">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
                             <div className="space-y-4">
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
-                                <div key={imgIdx} className="bg-white rounded border border-stone-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
+                                <div key={imgIdx} className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
                                   <img 
                                     src={image} 
                                     alt={`${item.name} - الصورة ${imgIdx + 1}`}
@@ -785,17 +785,17 @@ export default function App() {
                 </div>
 
                 {/* Signatures */}
-                <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
+                <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 dark:border-stone-700 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
                   <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                    <p className="text-sm font-bold text-stone-500">اسم وتوقيع السائق</p>
-                    <div className="h-24 border-b border-stone-200 flex items-center justify-center">
+                    <p className="text-sm font-bold text-stone-500 dark:text-stone-400">اسم وتوقيع السائق</p>
+                    <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.driverSignature && <img src={viewingReport.driverSignature} className="max-h-full" />}
                     </div>
-                    <p className="text-xs font-bold text-stone-400">{viewingReport.driverName}</p>
+                    <p className="text-xs font-bold text-stone-400 dark:text-stone-500">{viewingReport.driverName}</p>
                   </div>
                   <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                    <p className="text-sm font-bold text-stone-500">مسؤول قسم التجهيز</p>
-                    <div className="h-24 border-b border-stone-200 flex items-center justify-center">
+                    <p className="text-sm font-bold text-stone-500 dark:text-stone-400">مسؤول قسم التجهيز</p>
+                    <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.equipmentManagerSignature && <img src={viewingReport.equipmentManagerSignature} className="max-h-full" />}
                     </div>
                   </div>

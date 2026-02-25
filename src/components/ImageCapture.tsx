@@ -86,7 +86,7 @@ export const ImageCapture: React.FC<ImageCaptureProps> = ({
             if (isOpen) stopCamera();
             setIsOpen(!isOpen);
           }}
-          className="w-full py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2"
+          className="w-full py-2 px-3 bg-blue-50 dark:bg-blue-900 hover:bg-blue-100 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-200 rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2"
         >
           <Camera className="w-4 h-4" />
           {isOpen ? 'إغلاق الكاميرا' : 'التقاط صور'}
@@ -101,7 +101,7 @@ export const ImageCapture: React.FC<ImageCaptureProps> = ({
             className="mt-2 space-y-3 bg-stone-50 p-3 rounded-lg border-2 border-blue-200"
           >
             {error && (
-              <div className="text-xs text-red-600 font-bold bg-red-50 p-2 rounded">
+              <div className="text-xs text-red-600 dark:text-red-300 font-bold bg-red-50 dark:bg-red-900 p-2 rounded">
                 {error}
               </div>
             )}
@@ -184,14 +184,14 @@ export const ImageCapture: React.FC<ImageCaptureProps> = ({
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                       onClick={() => downloadImage(image, index)}
-                      className="p-1.5 bg-white rounded-full hover:bg-stone-100"
+                      className="p-1.5 bg-white dark:bg-stone-700 rounded-full hover:bg-stone-100 dark:hover:bg-stone-600"
                       title="تحميل"
                     >
                       <Download className="w-3 h-3 text-green-600" />
                     </button>
                     <button
                       onClick={() => onRemoveImage(index)}
-                      className="p-1.5 bg-white rounded-full hover:bg-stone-100"
+                      className="p-1.5 bg-white dark:bg-stone-700 rounded-full hover:bg-stone-100 dark:hover:bg-stone-600"
                       title="حذف"
                     >
                       <Trash2 className="w-3 h-3 text-red-600" />

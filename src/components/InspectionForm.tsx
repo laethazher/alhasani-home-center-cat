@@ -35,7 +35,7 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({ values, onChange
             {values[item.id] ? (
               <CheckCircle2 className="w-6 h-6 text-green-600" />
             ) : (
-              <Circle className="w-6 h-6 text-stone-300" />
+              <Circle className="w-6 h-6 text-stone-300 dark:text-stone-600" />
             )}
           </div>
         </label>

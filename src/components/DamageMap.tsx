@@ -58,13 +58,13 @@ export const DamageMap: React.FC<{
           <AlertCircle className="w-5 h-5 text-red-600" />
           تحديد أماكن الضرر
         </h3>
-        <p className="text-sm text-stone-500">انقر على الصورة لتحديد مكان الضرر</p>
+        <p className="text-sm text-stone-500 dark:text-stone-400">انقر على الصورة لتحديد مكان الضرر</p>
       </div>
 
       <div className="relative">
         <div 
           ref={imgRef}
-          className="relative rounded-xl cursor-crosshair border-2 border-stone-200 shadow-inner group overflow-visible"
+          className="relative rounded-xl cursor-crosshair border-2 border-stone-200 dark:border-stone-700 shadow-inner group overflow-visible"
           onClick={handleImageClick}
         >
           <img 
@@ -96,12 +96,12 @@ export const DamageMap: React.FC<{
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-96 glass p-4 rounded-xl shadow-2xl z-50 max-h-96 overflow-y-auto pointer-events-auto"
+                  className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-96 glass dark:glass p-4 rounded-xl shadow-2xl z-50 max-h-96 overflow-y-auto pointer-events-auto"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex justify-between items-center mb-3 sticky top-0 bg-white/50 -mx-4 px-4 py-2">
+                  <div className="flex justify-between items-center mb-3 sticky top-0 bg-white dark:bg-stone-800 bg-opacity-50 dark:bg-opacity-50 -mx-4 px-4 py-2">
                     <span className="font-bold text-sm">تفاصيل الضرر</span>
-                    <button onClick={() => removePoint(point.id)} className="text-stone-400 hover:text-red-600">
+                    <button onClick={() => removePoint(point.id)} className="text-stone-400 dark:text-stone-500 hover:text-red-600 dark:hover:text-red-400">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -121,8 +121,8 @@ export const DamageMap: React.FC<{
                           onClick={() => updatePoint(point.id, { severity: s })}
                           className={`flex-1 text-[10px] py-1 rounded-md border transition-colors ${
                             point.severity === s 
-                            ? 'bg-stone-900 text-white border-stone-900' 
-                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                            ? 'bg-stone-900 dark:bg-stone-600 text-white border-stone-900 dark:border-stone-600' 
+                            : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700'
                           }`}
                         >
                           {s === 'high' ? 'كبير' : s === 'medium' ? 'متوسط' : 'بسيط'}
@@ -154,16 +154,16 @@ export const DamageMap: React.FC<{
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {points.length > 0 && (
-          <div className="col-span-full bg-white p-4 rounded-xl border border-stone-200">
+          <div className="col-span-full bg-white dark:bg-stone-800 p-4 rounded-xl border border-stone-200 dark:border-stone-700">
             <h4 className="font-bold mb-2 text-sm">قائمة الأضرار المحددة:</h4>
             <div className="space-y-2">
               {points.map((p, idx) => (
-                <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm p-3 bg-stone-50 rounded-lg border border-stone-100">
+                <div key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm p-3 bg-stone-50 dark:bg-stone-700 rounded-lg border border-stone-100 dark:border-stone-600">
                   <div className="flex items-center gap-3 shrink-0">
                     <span className={`w-3 h-3 rounded-full shadow-sm`} style={{
                       backgroundColor: p.severity === 'high' ? '#dc2626' : p.severity === 'medium' ? '#f97316' : '#facc15'
                     }} />
-                    <span className="font-mono font-bold text-stone-400">#{idx + 1}</span>
+                    <span className="font-mono font-bold text-stone-400 dark:text-stone-500">#{idx + 1}</span>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase`} style={{
                       backgroundColor: p.severity === 'high' ? '#fee2e2' : p.severity === 'medium' ? '#ffedd5' : '#fef9c3',
                       color: p.severity === 'high' ? '#b91c1c' : p.severity === 'medium' ? '#c2410c' : '#a16207'
@@ -171,10 +171,10 @@ export const DamageMap: React.FC<{
                       {p.severity === 'high' ? 'ضرر كبير' : p.severity === 'medium' ? 'ضرر متوسط' : 'ضرر بسيط'}
                     </span>
                   </div>
-                  <span className="flex-1 text-stone-700 font-medium">{p.description || 'لا يوجد وصف مضاف'}</span>
+                  <span className="flex-1 text-stone-700 dark:text-stone-200 font-medium">{p.description || 'لا يوجد وصف مضاف'}</span>
                   <button 
                     onClick={() => removePoint(p.id)} 
-                    className="self-end sm:self-auto p-1 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    className="self-end sm:self-auto p-1 text-stone-400 dark:text-stone-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900 rounded transition-colors"
                   >
                     <X className="w-4 h-4" />
                   </button>
