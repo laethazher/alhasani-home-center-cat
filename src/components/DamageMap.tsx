@@ -95,51 +95,55 @@ export const DamageMap: React.FC<{
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="absolute top-8 left-1/2 -translate-x-1/2 w-80 glass p-4 rounded-xl shadow-xl z-20"
+                className="absolute top-8 left-1/2 -translate-x-1/2 w-96 glass p-4 rounded-xl shadow-2xl z-50 max-h-96 overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex justify-between items-center mb-3">
+                <div className="flex justify-between items-center mb-3 sticky top-0 bg-white/50 -mx-4 px-4 py-2">
                   <span className="font-bold text-sm">تفاصيل الضرر</span>
                   <button onClick={() => removePoint(point.id)} className="text-stone-400 hover:text-red-600">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
                 
-                <textarea
-                  className="input-field text-sm h-20 mb-3 resize-none"
-                  placeholder="وصف الضرر..."
-                  value={point.description}
-                  onChange={(e) => updatePoint(point.id, { description: e.target.value })}
-                />
+                <div className="space-y-3">
+                  <textarea
+                    className="input-field text-sm h-20 resize-none w-full"
+                    placeholder="وصف الضرر..."
+                    value={point.description}
+                    onChange={(e) => updatePoint(point.id, { description: e.target.value })}
+                  />
 
-                <div className="flex gap-2 mb-3">
-                  {(['low', 'medium', 'high'] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => updatePoint(point.id, { severity: s })}
-                      className={`flex-1 text-[10px] py-1 rounded-md border transition-colors ${
-                        point.severity === s 
-                        ? 'bg-stone-900 text-white border-stone-900' 
-                        : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
-                      }`}
-                    >
-                      {s === 'high' ? 'كبير' : s === 'medium' ? 'متوسط' : 'بسيط'}
-                    </button>
-                  ))}
+                  <div className="flex gap-2">
+                    {(['low', 'medium', 'high'] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => updatePoint(point.id, { severity: s })}
+                        className={`flex-1 text-[10px] py-1 rounded-md border transition-colors ${
+                          point.severity === s 
+                          ? 'bg-stone-900 text-white border-stone-900' 
+                          : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        {s === 'high' ? 'كبير' : s === 'medium' ? 'متوسط' : 'بسيط'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Image Capture for Damage */}
+                  <div className="border-t pt-3 mt-3">
+                    <ImageCapture 
+                      toolName={`الضرر #${points.indexOf(point) + 1}`}
+                      images={point.images || []}
+                      onImageCapture={(image) => {
+                        updatePoint(point.id, { images: [...(point.images || []), image] });
+                      }}
+                      onRemoveImage={(index) => {
+                        const newImages = (point.images || []).filter((_, i) => i !== index);
+                        updatePoint(point.id, { images: newImages });
+                      }}
+                    />
+                  </div>
                 </div>
-
-                {/* Image Capture for Damage */}
-                <ImageCapture 
-                  toolName={`الضرر #${points.indexOf(point) + 1}`}
-                  images={point.images || []}
-                  onImageCapture={(image) => {
-                    updatePoint(point.id, { images: [...(point.images || []), image] });
-                  }}
-                  onRemoveImage={(index) => {
-                    const newImages = (point.images || []).filter((_, i) => i !== index);
-                    updatePoint(point.id, { images: newImages });
-                  }}
-                />
               </motion.div>
             )}
           </motion.div>

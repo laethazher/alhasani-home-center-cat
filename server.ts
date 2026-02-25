@@ -27,6 +27,7 @@ db.exec(`
     damagePoints TEXT,
     inspectionValues TEXT,
     toolValues TEXT,
+    toolImages TEXT,
     driverSignature TEXT,
     equipmentManagerSignature TEXT,
     logisticsManagerSignature TEXT,
@@ -65,6 +66,7 @@ async function startServer() {
         damagePoints, 
         inspectionValues, 
         toolValues,
+        toolImages,
         driverSignature,
         equipmentManagerSignature,
         logisticsManagerSignature,
@@ -73,8 +75,8 @@ async function startServer() {
 
       // Insert into SQLite
       const stmt = db.prepare(`
-        INSERT INTO reports (driverName, truckNumber, date, damagePoints, inspectionValues, toolValues, driverSignature, equipmentManagerSignature, logisticsManagerSignature, warehouseManagerSignature) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO reports (driverName, truckNumber, date, damagePoints, inspectionValues, toolValues, toolImages, driverSignature, equipmentManagerSignature, logisticsManagerSignature, warehouseManagerSignature) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       const result = stmt.run(
@@ -83,7 +85,8 @@ async function startServer() {
         date, 
         JSON.stringify(damagePoints), 
         JSON.stringify(inspectionValues), 
-        JSON.stringify(toolValues), 
+        JSON.stringify(toolValues),
+        JSON.stringify(toolImages),
         driverSignature, 
         equipmentManagerSignature, 
         logisticsManagerSignature, 
@@ -107,7 +110,8 @@ async function startServer() {
         ...r,
         damagePoints: safeParse(r.damagePoints),
         inspectionValues: safeParse(r.inspectionValues),
-        toolValues: safeParse(r.toolValues)
+        toolValues: safeParse(r.toolValues),
+        toolImages: safeParse(r.toolImages)
       }));
 
       res.json(reports);
