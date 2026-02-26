@@ -200,75 +200,30 @@ export default function App() {
         width: reportRef.current.scrollWidth,
         height: reportRef.current.scrollHeight,
         onclone: (clonedDoc: Document) => {
-          // Force light mode on cloned document FIRST (before capturing computed styles)
-          clonedDoc.documentElement.classList.remove('dark');
+          // ===== CRITICAL FIX: Replace oklch() in CSS text FIRST =====
+          // html2canvas parses CSS text directly and cannot handle oklch()
+          // We must sanitize ALL style elements before html2canvas reads them
+          const allStyleEls = clonedDoc.querySelectorAll('style');
+          allStyleEls.forEach((styleEl) => {
+            if (styleEl.textContent) {
+              // Replace oklch(...) and oklab(...) with safe fallback
+              styleEl.textContent = styleEl.textContent
+                .replace(/oklch\([^)]*\)/gi, 'rgb(0,0,0)')
+                .replace(/oklab\([^)]*\)/gi, 'rgb(0,0,0)')
+                .replace(/color-mix\([^)]*\)/gi, 'rgb(0,0,0)');
+            }
+          });
           
-          const win = clonedDoc.defaultView;
-          if (!win) return;
+          // Remove external stylesheets that might contain oklch
+          const linkEls = clonedDoc.querySelectorAll('link[rel="stylesheet"]');
+          linkEls.forEach((link) => link.remove());
+          
+          // Force light mode on cloned document
+          clonedDoc.documentElement.classList.remove('dark');
           
           const printSection = clonedDoc.getElementById('print-section');
           
-          // STEP 1: Capture all computed styles while stylesheets still exist
-          // Browser resolves oklch() → rgb() in getComputedStyle automatically
-          const styleCache = new Map<HTMLElement, Record<string, string>>();
-          const allEls = clonedDoc.querySelectorAll('*');
-          allEls.forEach((el: Element) => {
-            const htmlEl = el as HTMLElement;
-            const computed = win.getComputedStyle(htmlEl);
-            styleCache.set(htmlEl, {
-              backgroundColor: computed.backgroundColor,
-              color: computed.color,
-              borderTopColor: computed.borderTopColor,
-              borderBottomColor: computed.borderBottomColor,
-              borderLeftColor: computed.borderLeftColor,
-              borderRightColor: computed.borderRightColor,
-              display: computed.display,
-              flexDirection: computed.flexDirection,
-              justifyContent: computed.justifyContent,
-              alignItems: computed.alignItems,
-              flexWrap: computed.flexWrap,
-              textAlign: computed.textAlign,
-              fontWeight: computed.fontWeight,
-              fontSize: computed.fontSize,
-              lineHeight: computed.lineHeight,
-              padding: computed.padding,
-              margin: computed.margin,
-              borderRadius: computed.borderRadius,
-              borderWidth: computed.borderWidth,
-              borderStyle: computed.borderStyle,
-              gap: computed.gap,
-              fontFamily: computed.fontFamily,
-              position: computed.position,
-              overflow: computed.overflow,
-              flex: computed.flex,
-              flexGrow: computed.flexGrow,
-              flexShrink: computed.flexShrink,
-              flexBasis: computed.flexBasis,
-              gridTemplateColumns: computed.gridTemplateColumns,
-              gridColumn: computed.gridColumn,
-              columnGap: computed.columnGap,
-              rowGap: computed.rowGap,
-              whiteSpace: computed.whiteSpace,
-              textDecoration: computed.textDecoration,
-              letterSpacing: computed.letterSpacing,
-              boxSizing: computed.boxSizing,
-            });
-          });
-          
-          // STEP 2: Remove all stylesheets to prevent html2canvas from parsing oklch
-          const styleSheets = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
-          styleSheets.forEach((sheet) => sheet.remove());
-          
-          // STEP 3: Apply cached computed styles as inline styles (all in RGB now)
-          styleCache.forEach((styles, htmlEl) => {
-            Object.entries(styles).forEach(([prop, val]) => {
-              if (val) {
-                (htmlEl.style as any)[prop] = val;
-              }
-            });
-          });
-          
-          // STEP 4: Force light mode colors on print section
+          // Force light mode colors on print section
           if (printSection) {
             printSection.style.width = reportRef.current!.scrollWidth + 'px';
             printSection.style.padding = '50px';
@@ -281,12 +236,48 @@ export default function App() {
             printSection.style.fontFamily = '"Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif';
             printSection.style.direction = 'rtl';
             
-            const pEls = printSection.querySelectorAll('*');
-            pEls.forEach((el: Element) => {
+            // Inline computed styles on print section elements (browser resolves oklch → rgb)
+            const win = clonedDoc.defaultView;
+            if (win) {
+              const pEls = printSection.querySelectorAll('*');
+              pEls.forEach((el: Element) => {
+                const htmlEl = el as HTMLElement;
+                const computed = win.getComputedStyle(htmlEl);
+                
+                // Inline color properties (already resolved to rgb by browser)
+                htmlEl.style.backgroundColor = computed.backgroundColor;
+                htmlEl.style.color = computed.color;
+                htmlEl.style.borderTopColor = computed.borderTopColor;
+                htmlEl.style.borderBottomColor = computed.borderBottomColor;
+                htmlEl.style.borderLeftColor = computed.borderLeftColor;
+                htmlEl.style.borderRightColor = computed.borderRightColor;
+                
+                // Inline layout properties
+                htmlEl.style.display = computed.display;
+                htmlEl.style.flexDirection = computed.flexDirection;
+                htmlEl.style.justifyContent = computed.justifyContent;
+                htmlEl.style.alignItems = computed.alignItems;
+                htmlEl.style.flexWrap = computed.flexWrap;
+                htmlEl.style.textAlign = computed.textAlign;
+                htmlEl.style.fontWeight = computed.fontWeight;
+                htmlEl.style.fontSize = computed.fontSize;
+                htmlEl.style.lineHeight = computed.lineHeight;
+                htmlEl.style.padding = computed.padding;
+                htmlEl.style.margin = computed.margin;
+                htmlEl.style.borderRadius = computed.borderRadius;
+                htmlEl.style.borderWidth = computed.borderWidth;
+                htmlEl.style.borderStyle = computed.borderStyle;
+                htmlEl.style.fontFamily = computed.fontFamily;
+                htmlEl.style.gap = computed.gap;
+              });
+            }
+            
+            // Force dark backgrounds → white, light text → dark
+            const pEls2 = printSection.querySelectorAll('*');
+            pEls2.forEach((el: Element) => {
               const htmlEl = el as HTMLElement;
               const bg = htmlEl.style.backgroundColor;
               
-              // Dark backgrounds → white
               if (
                 bg === 'rgb(3, 7, 18)' ||
                 bg === 'rgb(12, 10, 9)' ||
@@ -302,12 +293,6 @@ export default function App() {
                 htmlEl.style.backgroundColor = '#ffffff';
               }
               
-              // Light/muted backgrounds to light mode equivalents
-              if (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
-                htmlEl.style.backgroundColor = 'transparent';
-              }
-              
-              // Light text → dark text (dark mode text colors)
               const color = htmlEl.style.color;
               if (
                 color === 'rgb(231, 229, 228)' ||
@@ -320,9 +305,12 @@ export default function App() {
                 htmlEl.style.color = '#1c1917';
               }
             });
+            
+            printSection.style.backgroundColor = '#ffffff';
+            printSection.style.color = '#1c1917';
           }
           
-          // STEP 5: Ensure images render correctly
+          // Ensure images render correctly
           const imgs = clonedDoc.querySelectorAll('img');
           imgs.forEach((img: HTMLImageElement) => {
             img.style.maxWidth = '100%';
