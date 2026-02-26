@@ -167,136 +167,144 @@ export default function App() {
     
     setIsExporting(true);
     try {
-      // Scroll to top to ensure full capture
+      // Scroll the modal container to top to ensure full capture
+      const modalContainer = reportRef.current.closest('.overflow-y-auto');
+      if (modalContainer) modalContainer.scrollTop = 0;
       window.scrollTo(0, 0);
       
-      // Ensure images are loaded
-      const images = reportRef.current.getElementsByTagName('img');
-      const loadPromises = Array.from(images).map(img => {
-        const image = img as HTMLImageElement;
-        if (image.complete) return Promise.resolve();
-        return new Promise(resolve => {
-          image.onload = resolve;
-          image.onerror = resolve;
-        });
-      });
+      // Wait for any pending image loads
+      const allImages = reportRef.current.querySelectorAll('img') as NodeListOf<HTMLImageElement>;
+      await Promise.all(
+        Array.from(allImages).map((img: HTMLImageElement) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise<void>(resolve => {
+                img.onload = () => resolve();
+                img.onerror = () => resolve();
+              })
+        )
+      );
       
-      await Promise.all(loadPromises);
-      
-      // Extra wait for layout stability
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // Small pause for layout stability
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       const canvas = await html2canvas(reportRef.current, {
-        scale: 3,
+        scale: 2,
         useCORS: true,
+        allowTaint: true,
         logging: false,
         backgroundColor: '#ffffff',
-        allowTaint: false,
         scrollX: 0,
-        scrollY: 0,
-        windowWidth: 900,
-        onclone: (clonedDoc) => {
-          const el = clonedDoc.getElementById('print-section');
-          if (el) {
-            el.style.width = '900px';
-            el.style.padding = '50px';
-            el.style.margin = '0';
-            el.style.display = 'block';
-            el.style.backgroundColor = '#ffffff';
-            el.style.color = '#000000';
-          }
-          // Remove dark mode class from cloned document
+        scrollY: -window.scrollY,
+        windowWidth: reportRef.current.scrollWidth,
+        width: reportRef.current.scrollWidth,
+        height: reportRef.current.scrollHeight,
+        onclone: (clonedDoc: Document) => {
+          // Force light mode on cloned document
           clonedDoc.documentElement.classList.remove('dark');
           
-          // Optimize images for better quality and ensure dimensions
-          const images = clonedDoc.querySelectorAll('img');
-          images.forEach((img: any) => {
-            img.style.WebkitPrintColorAdjust = 'exact';
-            img.style.printColorAdjust = 'exact';
-            img.style.width = '100%';
+          const printSection = clonedDoc.getElementById('print-section');
+          if (printSection) {
+            printSection.style.width = reportRef.current!.scrollWidth + 'px';
+            printSection.style.padding = '50px';
+            printSection.style.margin = '0';
+            printSection.style.display = 'block';
+            printSection.style.backgroundColor = '#ffffff';
+            printSection.style.color = '#000000';
+            printSection.style.position = 'relative';
+            printSection.style.overflow = 'visible';
+          }
+          
+          // Force all elements to light mode colors
+          const allEls = clonedDoc.querySelectorAll('*');
+          allEls.forEach((el: Element) => {
+            const htmlEl = el as HTMLElement;
+            const computed = clonedDoc.defaultView?.getComputedStyle(htmlEl);
+            if (!computed) return;
+            
+            const bg = computed.backgroundColor;
+            // Dark backgrounds → white
+            if (
+              bg === 'rgb(3, 7, 18)' ||
+              bg === 'rgb(12, 10, 9)' ||
+              bg === 'rgb(28, 25, 23)' ||
+              bg === 'rgb(41, 37, 36)' ||
+              bg === 'rgb(68, 64, 60)' ||
+              bg.startsWith('rgba(3, 7, 18') ||
+              bg.startsWith('rgba(12, 10, 9') ||
+              bg.startsWith('rgba(28, 25, 23')
+            ) {
+              htmlEl.style.backgroundColor = '#ffffff';
+            }
+            
+            // Light text → dark text
+            const color = computed.color;
+            if (
+              color === 'rgb(231, 229, 228)' ||
+              color === 'rgb(214, 211, 209)' ||
+              color === 'rgb(168, 162, 158)' ||
+              color === 'rgb(120, 113, 108)'
+            ) {
+              htmlEl.style.color = '#1c1917';
+            }
+          });
+          
+          // Ensure images render correctly
+          const imgs = clonedDoc.querySelectorAll('img');
+          imgs.forEach((img: HTMLImageElement) => {
+            img.style.maxWidth = '100%';
             img.style.height = 'auto';
             img.style.display = 'block';
-            img.style.minHeight = '350px';
-            img.style.maxHeight = '600px';
-            img.style.objectFit = 'contain';
-            img.crossOrigin = 'anonymous';
-          });
-          
-          // Ensure image containers have proper dimensions
-          const imgDivs = clonedDoc.querySelectorAll('div[style*="flexDirection"]');
-          imgDivs.forEach((div: any) => {
-            div.style.width = '100%';
-            div.style.display = 'flex';
-          });
-          
-          // Force light mode styles for text and backgrounds
-          const allElements = clonedDoc.querySelectorAll('*');
-          allElements.forEach((el: any) => {
-            const styles = window.getComputedStyle(el);
-            if (styles.backgroundColor === 'rgba(3, 7, 18, 0.85)' || 
-                styles.backgroundColor === 'rgb(3, 7, 18)' ||
-                styles.backgroundColor.includes('stone-900') ||
-                styles.backgroundColor.includes('stone-950')) {
-              el.style.backgroundColor = '#ffffff';
-              el.style.color = '#000000';
-            }
           });
         }
       });
 
+      // Generate PDF from canvas using page slicing
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
 
-      const margin = 6;
-      const renderWidth = pdfWidth - margin * 2;
-      const renderHeight = pdfHeight - margin * 2;
-      const mmPerPx = renderWidth / canvas.width;
-      const pageHeightPx = Math.floor(renderHeight / mmPerPx);
+      const margin = 5;
+      const usableWidth = pdfWidth - margin * 2;
+      const usableHeight = pdfHeight - margin * 2;
+      const pxPerMm = canvas.width / usableWidth;
+      const pageHeightPx = Math.floor(usableHeight * pxPerMm);
 
-      const pageCanvas = document.createElement('canvas');
-      const pageContext = pageCanvas.getContext('2d');
+      let yOffset = 0;
+      let pageIndex = 0;
 
-      if (!pageContext) {
-        throw new Error('Unable to create PDF page canvas context');
+      while (yOffset < canvas.height) {
+        const sliceH = Math.min(pageHeightPx, canvas.height - yOffset);
+
+        // Create a temporary canvas for this page slice
+        const tmpCanvas = document.createElement('canvas');
+        tmpCanvas.width = canvas.width;
+        tmpCanvas.height = sliceH;
+        const tmpCtx = tmpCanvas.getContext('2d');
+        if (!tmpCtx) throw new Error('Canvas context unavailable');
+
+        tmpCtx.fillStyle = '#ffffff';
+        tmpCtx.fillRect(0, 0, tmpCanvas.width, tmpCanvas.height);
+        tmpCtx.drawImage(canvas, 0, yOffset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+
+        const imgData = tmpCanvas.toDataURL('image/jpeg', 0.92);
+        const sliceHeightMm = sliceH / pxPerMm;
+
+        if (pageIndex > 0) pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', margin, margin, usableWidth, sliceHeightMm);
+
+        yOffset += sliceH;
+        pageIndex++;
       }
 
-      let offsetY = 0;
-      while (offsetY < canvas.height) {
-        const sliceHeight = Math.min(pageHeightPx, canvas.height - offsetY);
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeight;
+      // Safe filename
+      const truck = String(viewingReport.truckNumber || 'truck').replace(/[^a-zA-Z0-9\u0600-\u06FF_-]/g, '-');
+      const dt = String(viewingReport.date || new Date().toISOString().slice(0, 10));
+      pdf.save(`report-${truck}-${dt}.pdf`);
 
-        pageContext.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
-        pageContext.drawImage(
-          canvas,
-          0,
-          offsetY,
-          canvas.width,
-          sliceHeight,
-          0,
-          0,
-          canvas.width,
-          sliceHeight,
-        );
-
-        const pageImage = pageCanvas.toDataURL('image/jpeg', 0.98);
-        const pageHeightMm = sliceHeight * mmPerPx;
-
-        if (offsetY > 0) {
-          pdf.addPage();
-        }
-
-        pdf.addImage(pageImage, 'JPEG', margin, margin, renderWidth, pageHeightMm);
-        offsetY += sliceHeight;
-      }
-
-      const safeTruckNumber = String(viewingReport.truckNumber ?? 'truck').replace(/[^\p{L}\p{N}_-]+/gu, '-');
-      const safeDate = String(viewingReport.date ?? new Date().toISOString().slice(0, 10)).replace(/[^\d-]+/g, '-');
-      pdf.save(`report-${safeTruckNumber}-${safeDate}.pdf`);
-    } catch (error) {
-      console.error("PDF Export failed:", error);
-      alert("فشل في تصدير ملف PDF. يرجى المحاولة مرة أخرى.");
+    } catch (error: any) {
+      console.error('PDF Export failed:', error?.message || error);
+      alert('فشل في تصدير ملف PDF: ' + (error?.message || 'خطأ غير معروف'));
     } finally {
       setIsExporting(false);
     }
