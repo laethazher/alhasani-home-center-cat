@@ -181,13 +181,11 @@ html.dark .input-field {
 /* Ensure print-section is always in light mode */
 #print-section {
   background-color: #ffffff !important;
-  color: #000000 !important;
+  color: #1c1917 !important;
 }
 
-#print-section,
 #print-section * {
-  background-color: unset !important;
-  color: unset !important;
+  /* Do not unset colors - let inline styles and light mode classes work */
 }
 
 #print-section h1,
@@ -200,19 +198,18 @@ html.dark .input-field {
 #print-section span,
 #print-section div,
 #print-section label {
-  color: #000000 !important;
+  color: #1c1917 !important;
   background-color: transparent !important;
 }
 
 /* Override dark mode styles for print section */
 html.dark #print-section {
   background-color: #ffffff !important;
-  color: #000000 !important;
+  color: #1c1917 !important;
 }
 
-html.dark #print-section,
 html.dark #print-section * {
-  background-color: var(--bg-light, transparent) !important;
+  /* Handled by inline styles during PDF export */
 }
 
 /* Light mode background */

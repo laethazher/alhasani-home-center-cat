@@ -200,56 +200,129 @@ export default function App() {
         width: reportRef.current.scrollWidth,
         height: reportRef.current.scrollHeight,
         onclone: (clonedDoc: Document) => {
-          // Force light mode on cloned document
+          // Force light mode on cloned document FIRST (before capturing computed styles)
           clonedDoc.documentElement.classList.remove('dark');
           
+          const win = clonedDoc.defaultView;
+          if (!win) return;
+          
           const printSection = clonedDoc.getElementById('print-section');
+          
+          // STEP 1: Capture all computed styles while stylesheets still exist
+          // Browser resolves oklch() → rgb() in getComputedStyle automatically
+          const styleCache = new Map<HTMLElement, Record<string, string>>();
+          const allEls = clonedDoc.querySelectorAll('*');
+          allEls.forEach((el: Element) => {
+            const htmlEl = el as HTMLElement;
+            const computed = win.getComputedStyle(htmlEl);
+            styleCache.set(htmlEl, {
+              backgroundColor: computed.backgroundColor,
+              color: computed.color,
+              borderTopColor: computed.borderTopColor,
+              borderBottomColor: computed.borderBottomColor,
+              borderLeftColor: computed.borderLeftColor,
+              borderRightColor: computed.borderRightColor,
+              display: computed.display,
+              flexDirection: computed.flexDirection,
+              justifyContent: computed.justifyContent,
+              alignItems: computed.alignItems,
+              flexWrap: computed.flexWrap,
+              textAlign: computed.textAlign,
+              fontWeight: computed.fontWeight,
+              fontSize: computed.fontSize,
+              lineHeight: computed.lineHeight,
+              padding: computed.padding,
+              margin: computed.margin,
+              borderRadius: computed.borderRadius,
+              borderWidth: computed.borderWidth,
+              borderStyle: computed.borderStyle,
+              gap: computed.gap,
+              fontFamily: computed.fontFamily,
+              position: computed.position,
+              overflow: computed.overflow,
+              flex: computed.flex,
+              flexGrow: computed.flexGrow,
+              flexShrink: computed.flexShrink,
+              flexBasis: computed.flexBasis,
+              gridTemplateColumns: computed.gridTemplateColumns,
+              gridColumn: computed.gridColumn,
+              columnGap: computed.columnGap,
+              rowGap: computed.rowGap,
+              whiteSpace: computed.whiteSpace,
+              textDecoration: computed.textDecoration,
+              letterSpacing: computed.letterSpacing,
+              boxSizing: computed.boxSizing,
+            });
+          });
+          
+          // STEP 2: Remove all stylesheets to prevent html2canvas from parsing oklch
+          const styleSheets = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+          styleSheets.forEach((sheet) => sheet.remove());
+          
+          // STEP 3: Apply cached computed styles as inline styles (all in RGB now)
+          styleCache.forEach((styles, htmlEl) => {
+            Object.entries(styles).forEach(([prop, val]) => {
+              if (val) {
+                (htmlEl.style as any)[prop] = val;
+              }
+            });
+          });
+          
+          // STEP 4: Force light mode colors on print section
           if (printSection) {
             printSection.style.width = reportRef.current!.scrollWidth + 'px';
             printSection.style.padding = '50px';
             printSection.style.margin = '0';
             printSection.style.display = 'block';
             printSection.style.backgroundColor = '#ffffff';
-            printSection.style.color = '#000000';
+            printSection.style.color = '#1c1917';
             printSection.style.position = 'relative';
             printSection.style.overflow = 'visible';
+            printSection.style.fontFamily = '"Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif';
+            printSection.style.direction = 'rtl';
+            
+            const pEls = printSection.querySelectorAll('*');
+            pEls.forEach((el: Element) => {
+              const htmlEl = el as HTMLElement;
+              const bg = htmlEl.style.backgroundColor;
+              
+              // Dark backgrounds → white
+              if (
+                bg === 'rgb(3, 7, 18)' ||
+                bg === 'rgb(12, 10, 9)' ||
+                bg === 'rgb(28, 25, 23)' ||
+                bg === 'rgb(41, 37, 36)' ||
+                bg === 'rgb(68, 64, 60)' ||
+                bg === 'rgb(15, 14, 13)' ||
+                bg.startsWith('rgba(3, 7, 18') ||
+                bg.startsWith('rgba(12, 10, 9') ||
+                bg.startsWith('rgba(28, 25, 23') ||
+                bg.startsWith('rgba(15, 14, 13')
+              ) {
+                htmlEl.style.backgroundColor = '#ffffff';
+              }
+              
+              // Light/muted backgrounds to light mode equivalents
+              if (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+                htmlEl.style.backgroundColor = 'transparent';
+              }
+              
+              // Light text → dark text (dark mode text colors)
+              const color = htmlEl.style.color;
+              if (
+                color === 'rgb(231, 229, 228)' ||
+                color === 'rgb(214, 211, 209)' ||
+                color === 'rgb(168, 162, 158)' ||
+                color === 'rgb(120, 113, 108)' ||
+                color === 'rgb(245, 245, 244)' ||
+                color === 'rgb(250, 250, 249)'
+              ) {
+                htmlEl.style.color = '#1c1917';
+              }
+            });
           }
           
-          // Force all elements to light mode colors
-          const allEls = clonedDoc.querySelectorAll('*');
-          allEls.forEach((el: Element) => {
-            const htmlEl = el as HTMLElement;
-            const computed = clonedDoc.defaultView?.getComputedStyle(htmlEl);
-            if (!computed) return;
-            
-            const bg = computed.backgroundColor;
-            // Dark backgrounds → white
-            if (
-              bg === 'rgb(3, 7, 18)' ||
-              bg === 'rgb(12, 10, 9)' ||
-              bg === 'rgb(28, 25, 23)' ||
-              bg === 'rgb(41, 37, 36)' ||
-              bg === 'rgb(68, 64, 60)' ||
-              bg.startsWith('rgba(3, 7, 18') ||
-              bg.startsWith('rgba(12, 10, 9') ||
-              bg.startsWith('rgba(28, 25, 23')
-            ) {
-              htmlEl.style.backgroundColor = '#ffffff';
-            }
-            
-            // Light text → dark text
-            const color = computed.color;
-            if (
-              color === 'rgb(231, 229, 228)' ||
-              color === 'rgb(214, 211, 209)' ||
-              color === 'rgb(168, 162, 158)' ||
-              color === 'rgb(120, 113, 108)'
-            ) {
-              htmlEl.style.color = '#1c1917';
-            }
-          });
-          
-          // Ensure images render correctly
+          // STEP 5: Ensure images render correctly
           const imgs = clonedDoc.querySelectorAll('img');
           imgs.forEach((img: HTMLImageElement) => {
             img.style.maxWidth = '100%';
