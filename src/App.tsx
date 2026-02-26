@@ -31,7 +31,7 @@ import { InspectionForm } from './components/InspectionForm';
 import { ToolInventory } from './components/ToolInventory';
 import { SignaturePad } from './components/SignaturePad';
 import { cn } from './lib/utils';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from './constants';
 
@@ -187,174 +187,51 @@ export default function App() {
       
       // Small pause for layout stability
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // ===== CRITICAL: Sanitize oklch() from ALL stylesheets in the LIVE document =====
-      // html2canvas reads CSS from the live DOM before onclone runs.
-      // We must replace oklch/oklab/color-mix in CSS text BEFORE calling html2canvas.
-      const originalStyles: { el: HTMLStyleElement; text: string }[] = [];
-      document.querySelectorAll('style').forEach((styleEl) => {
-        if (styleEl.textContent && /oklch|oklab|color-mix/i.test(styleEl.textContent)) {
-          originalStyles.push({ el: styleEl as HTMLStyleElement, text: styleEl.textContent });
-          styleEl.textContent = styleEl.textContent
-            .replace(/oklch\([^)]*\)/gi, 'rgb(128, 128, 128)')
-            .replace(/oklab\([^)]*\)/gi, 'rgb(128, 128, 128)')
-            .replace(/color-mix\([^)]*\)/gi, 'rgb(128, 128, 128)');
-        }
-      });
-      
-      let canvas: HTMLCanvasElement;
-      try {
-        canvas = await html2canvas(reportRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        scrollX: 0,
-        scrollY: -window.scrollY,
-        windowWidth: reportRef.current.scrollWidth,
-        width: reportRef.current.scrollWidth,
-        height: reportRef.current.scrollHeight,
-        onclone: (clonedDoc: Document) => {
-          // Force light mode on cloned document FIRST (before capturing computed styles)
-          clonedDoc.documentElement.classList.remove('dark');
-          
-          const win = clonedDoc.defaultView;
-          if (!win) return;
-          
-          const printSection = clonedDoc.getElementById('print-section');
-          
-          // STEP 1: Capture all computed styles while stylesheets still exist
-          // Browser resolves oklch() → rgb() in getComputedStyle automatically
-          const styleCache = new Map<HTMLElement, Record<string, string>>();
-          const allEls = clonedDoc.querySelectorAll('*');
-          allEls.forEach((el: Element) => {
-            const htmlEl = el as HTMLElement;
-            const computed = win.getComputedStyle(htmlEl);
-            styleCache.set(htmlEl, {
-              backgroundColor: computed.backgroundColor,
-              color: computed.color,
-              borderTopColor: computed.borderTopColor,
-              borderBottomColor: computed.borderBottomColor,
-              borderLeftColor: computed.borderLeftColor,
-              borderRightColor: computed.borderRightColor,
-              display: computed.display,
-              flexDirection: computed.flexDirection,
-              justifyContent: computed.justifyContent,
-              alignItems: computed.alignItems,
-              flexWrap: computed.flexWrap,
-              textAlign: computed.textAlign,
-              fontWeight: computed.fontWeight,
-              fontSize: computed.fontSize,
-              lineHeight: computed.lineHeight,
-              padding: computed.padding,
-              margin: computed.margin,
-              borderRadius: computed.borderRadius,
-              borderWidth: computed.borderWidth,
-              borderStyle: computed.borderStyle,
-              gap: computed.gap,
-              fontFamily: computed.fontFamily,
-              position: computed.position,
-              overflow: computed.overflow,
-              flex: computed.flex,
-              flexGrow: computed.flexGrow,
-              flexShrink: computed.flexShrink,
-              flexBasis: computed.flexBasis,
-              gridTemplateColumns: computed.gridTemplateColumns,
-              gridColumn: computed.gridColumn,
-              columnGap: computed.columnGap,
-              rowGap: computed.rowGap,
-              whiteSpace: computed.whiteSpace,
-              textDecoration: computed.textDecoration,
-              letterSpacing: computed.letterSpacing,
-              boxSizing: computed.boxSizing,
-            });
-          });
-          
-          // STEP 2: Remove all stylesheets to prevent html2canvas from parsing oklch
-          const styleSheets = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
-          styleSheets.forEach((sheet) => sheet.remove());
-          
-          // STEP 3: Apply cached computed styles as inline styles (all in RGB now)
-          styleCache.forEach((styles, htmlEl) => {
-            Object.entries(styles).forEach(([prop, val]) => {
-              if (val) {
-                (htmlEl.style as any)[prop] = val;
-              }
-            });
-          });
-          
-          // STEP 4: Force light mode colors on print section
-          if (printSection) {
-            printSection.style.width = reportRef.current!.scrollWidth + 'px';
-            printSection.style.padding = '50px';
-            printSection.style.margin = '0';
-            printSection.style.display = 'block';
-            printSection.style.backgroundColor = '#ffffff';
-            printSection.style.color = '#1c1917';
-            printSection.style.position = 'relative';
-            printSection.style.overflow = 'visible';
-            printSection.style.fontFamily = '"Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif';
-            printSection.style.direction = 'rtl';
-            
-            const pEls = printSection.querySelectorAll('*');
-            pEls.forEach((el: Element) => {
-              const htmlEl = el as HTMLElement;
-              const bg = htmlEl.style.backgroundColor;
-              
-              // Dark backgrounds → white
-              if (
-                bg === 'rgb(3, 7, 18)' ||
-                bg === 'rgb(12, 10, 9)' ||
-                bg === 'rgb(28, 25, 23)' ||
-                bg === 'rgb(41, 37, 36)' ||
-                bg === 'rgb(68, 64, 60)' ||
-                bg === 'rgb(15, 14, 13)' ||
-                bg.startsWith('rgba(3, 7, 18') ||
-                bg.startsWith('rgba(12, 10, 9') ||
-                bg.startsWith('rgba(28, 25, 23') ||
-                bg.startsWith('rgba(15, 14, 13')
-              ) {
-                htmlEl.style.backgroundColor = '#ffffff';
-              }
-              
-              // Light/muted backgrounds to light mode equivalents
-              if (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
-                htmlEl.style.backgroundColor = 'transparent';
-              }
-              
-              // Light text → dark text (dark mode text colors)
-              const color = htmlEl.style.color;
-              if (
-                color === 'rgb(231, 229, 228)' ||
-                color === 'rgb(214, 211, 209)' ||
-                color === 'rgb(168, 162, 158)' ||
-                color === 'rgb(120, 113, 108)' ||
-                color === 'rgb(245, 245, 244)' ||
-                color === 'rgb(250, 250, 249)'
-              ) {
-                htmlEl.style.color = '#1c1917';
-              }
-            });
-          }
-          
-          // STEP 5: Ensure images render correctly
-          const imgs = clonedDoc.querySelectorAll('img');
-          imgs.forEach((img: HTMLImageElement) => {
-            img.style.maxWidth = '100%';
-            img.style.height = 'auto';
-            img.style.display = 'block';
-          });
-        }
-      });
-      } finally {
-        // ===== RESTORE original stylesheets so the live page isn't affected =====
-        originalStyles.forEach(({ el, text }) => {
-          el.textContent = text;
-        });
-      }
 
-      // Generate PDF from canvas using page slicing
+      // Force light mode temporarily for PDF export
+      const wasDark = document.documentElement.classList.contains('dark');
+      if (wasDark) {
+        document.documentElement.classList.remove('dark');
+      }
+      
+      // Force light mode inline styles on print section
+      const printSection = reportRef.current;
+      const originalBg = printSection.style.backgroundColor;
+      const originalColor = printSection.style.color;
+      printSection.style.backgroundColor = '#ffffff';
+      printSection.style.color = '#1c1917';
+      
+      // Wait for repaint after class change
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Use html-to-image (uses browser's native rendering, supports oklch natively)
+      const dataUrl = await toPng(reportRef.current, {
+        quality: 1.0,
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        style: {
+          backgroundColor: '#ffffff',
+          color: '#1c1917',
+        },
+      });
+      
+      // Restore dark mode if it was active
+      if (wasDark) {
+        document.documentElement.classList.add('dark');
+      }
+      printSection.style.backgroundColor = originalBg;
+      printSection.style.color = originalColor;
+
+      // Load image to get dimensions
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load captured image'));
+        img.src = dataUrl;
+      });
+
+      // Generate PDF from image using page slicing
       const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
@@ -362,25 +239,32 @@ export default function App() {
       const margin = 5;
       const usableWidth = pdfWidth - margin * 2;
       const usableHeight = pdfHeight - margin * 2;
-      const pxPerMm = canvas.width / usableWidth;
+      const pxPerMm = img.width / usableWidth;
       const pageHeightPx = Math.floor(usableHeight * pxPerMm);
 
       let yOffset = 0;
       let pageIndex = 0;
 
-      while (yOffset < canvas.height) {
-        const sliceH = Math.min(pageHeightPx, canvas.height - yOffset);
+      // Create a working canvas for slicing
+      const srcCanvas = document.createElement('canvas');
+      srcCanvas.width = img.width;
+      srcCanvas.height = img.height;
+      const srcCtx = srcCanvas.getContext('2d');
+      if (!srcCtx) throw new Error('Canvas context unavailable');
+      srcCtx.drawImage(img, 0, 0);
 
-        // Create a temporary canvas for this page slice
+      while (yOffset < img.height) {
+        const sliceH = Math.min(pageHeightPx, img.height - yOffset);
+
         const tmpCanvas = document.createElement('canvas');
-        tmpCanvas.width = canvas.width;
+        tmpCanvas.width = img.width;
         tmpCanvas.height = sliceH;
         const tmpCtx = tmpCanvas.getContext('2d');
         if (!tmpCtx) throw new Error('Canvas context unavailable');
 
         tmpCtx.fillStyle = '#ffffff';
         tmpCtx.fillRect(0, 0, tmpCanvas.width, tmpCanvas.height);
-        tmpCtx.drawImage(canvas, 0, yOffset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+        tmpCtx.drawImage(srcCanvas, 0, yOffset, img.width, sliceH, 0, 0, img.width, sliceH);
 
         const imgData = tmpCanvas.toDataURL('image/jpeg', 0.92);
         const sliceHeightMm = sliceH / pxPerMm;
