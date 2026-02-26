@@ -178,3 +178,65 @@ html.dark .input-field {
   }
 }
 
+/* Ensure print-section is always in light mode */
+#print-section {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+#print-section,
+#print-section * {
+  background-color: unset !important;
+  color: unset !important;
+}
+
+#print-section h1,
+#print-section h2,
+#print-section h3,
+#print-section h4,
+#print-section h5,
+#print-section h6,
+#print-section p,
+#print-section span,
+#print-section div,
+#print-section label {
+  color: #000000 !important;
+  background-color: transparent !important;
+}
+
+/* Override dark mode styles for print section */
+html.dark #print-section {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+html.dark #print-section,
+html.dark #print-section * {
+  background-color: var(--bg-light, transparent) !important;
+}
+
+/* Light mode background */
+#print-section [class*="bg-white"],
+#print-section [class*="bg-stone-50"] {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 255 255 / var(--tw-bg-opacity)) !important;
+}
+
+/* Ensure text is always dark in print section */
+#print-section [class*="text-stone"],
+#print-section [class*="text-gray"] {
+  color: #000000 !important;
+}
+
+#print-section [class*="dark:text"],
+#print-section [class*="dark:bg"] {
+  color: inherit !important;
+  background-color: inherit !important;
+}
+
+/* Image quality settings for PDF export */
+#print-section img {
+  image-rendering: high-quality;
+  -ms-interpolation-mode: nearest-neighbor;
+}
+

@@ -32,7 +32,7 @@ import { ToolInventory } from './components/ToolInventory';
 import { SignaturePad } from './components/SignaturePad';
 import { cn } from './lib/utils';
 import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from './constants';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
@@ -43,7 +43,13 @@ export default function App() {
   const [submitted, setSubmitted] = useState(false);
   const [savedReports, setSavedReports] = useState<any[]>([]);
   const [viewingReport, setViewingReport] = useState<any | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem('darkMode') === 'true';
+    } catch {
+      return false;
+    }
+  });
   
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -64,12 +70,12 @@ export default function App() {
   const [warehouseManagerSignature, setWarehouseManagerSignature] = useState('');
 
   useEffect(() => {
-    // Load dark mode preference from localStorage
-    const savedDarkMode = localStorage.getItem('darkMode') === 'true';
-    setIsDarkMode(savedDarkMode);
-    updateDarkMode(savedDarkMode);
     fetchReports();
   }, []);
+
+  useEffect(() => {
+    updateDarkMode(isDarkMode);
+  }, [isDarkMode]);
 
   const updateDarkMode = (isDark: boolean) => {
     if (isDark) {
@@ -77,18 +83,16 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('darkMode', isDark.toString());
+    try {
+      localStorage.setItem('darkMode', isDark.toString());
+    } catch {
+      // Ignore storage errors (e.g. private mode restrictions)
+    }
   };
 
   const toggleDarkMode = () => {
-    const newDarkMode = !isDarkMode;
-    setIsDarkMode(newDarkMode);
-    updateDarkMode(newDarkMode);
+    setIsDarkMode((prev) => !prev);
   };
-
-  useEffect(() => {
-    fetchReports();
-  }, []);
 
   const [cacheBuster] = useState(() => Date.now());
 
@@ -180,13 +184,13 @@ export default function App() {
       await Promise.all(loadPromises);
       
       // Extra wait for layout stability
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       const canvas = await html2canvas(reportRef.current, {
         scale: 3,
         useCORS: true,
         logging: false,
-        backgroundColor: '#fafaf9',
+        backgroundColor: '#ffffff',
         allowTaint: false,
         scrollX: 0,
         scrollY: 0,
@@ -198,7 +202,12 @@ export default function App() {
             el.style.padding = '50px';
             el.style.margin = '0';
             el.style.display = 'block';
+            el.style.backgroundColor = '#ffffff';
+            el.style.color = '#000000';
           }
+          // Remove dark mode class from cloned document
+          clonedDoc.documentElement.classList.remove('dark');
+          
           // Optimize images for better quality and ensure dimensions
           const images = clonedDoc.querySelectorAll('img');
           images.forEach((img: any) => {
@@ -210,43 +219,84 @@ export default function App() {
             img.style.minHeight = '350px';
             img.style.maxHeight = '600px';
             img.style.objectFit = 'contain';
+            img.crossOrigin = 'anonymous';
           });
+          
           // Ensure image containers have proper dimensions
           const imgDivs = clonedDoc.querySelectorAll('div[style*="flexDirection"]');
           imgDivs.forEach((div: any) => {
             div.style.width = '100%';
             div.style.display = 'flex';
           });
+          
+          // Force light mode styles for text and backgrounds
+          const allElements = clonedDoc.querySelectorAll('*');
+          allElements.forEach((el: any) => {
+            const styles = window.getComputedStyle(el);
+            if (styles.backgroundColor === 'rgba(3, 7, 18, 0.85)' || 
+                styles.backgroundColor === 'rgb(3, 7, 18)' ||
+                styles.backgroundColor.includes('stone-900') ||
+                styles.backgroundColor.includes('stone-950')) {
+              el.style.backgroundColor = '#ffffff';
+              el.style.color = '#000000';
+            }
+          });
         }
       });
-      
-      const imgData = canvas.toDataURL('image/jpeg', 1.0);
-      const pdf = new jsPDF('p', 'mm', 'a4');
+
+      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const imgWidth = pdfWidth - 2;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      // Add first page with margins
-      pdf.addImage(imgData, 'JPEG', 1, 1, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-      
-      // Add subsequent pages if needed
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 1, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
+
+      const margin = 6;
+      const renderWidth = pdfWidth - margin * 2;
+      const renderHeight = pdfHeight - margin * 2;
+      const mmPerPx = renderWidth / canvas.width;
+      const pageHeightPx = Math.floor(renderHeight / mmPerPx);
+
+      const pageCanvas = document.createElement('canvas');
+      const pageContext = pageCanvas.getContext('2d');
+
+      if (!pageContext) {
+        throw new Error('Unable to create PDF page canvas context');
       }
-      
-      pdf.save(`report-${viewingReport.truckNumber}-${viewingReport.date}.pdf`);
+
+      let offsetY = 0;
+      while (offsetY < canvas.height) {
+        const sliceHeight = Math.min(pageHeightPx, canvas.height - offsetY);
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeight;
+
+        pageContext.clearRect(0, 0, pageCanvas.width, pageCanvas.height);
+        pageContext.drawImage(
+          canvas,
+          0,
+          offsetY,
+          canvas.width,
+          sliceHeight,
+          0,
+          0,
+          canvas.width,
+          sliceHeight,
+        );
+
+        const pageImage = pageCanvas.toDataURL('image/jpeg', 0.98);
+        const pageHeightMm = sliceHeight * mmPerPx;
+
+        if (offsetY > 0) {
+          pdf.addPage();
+        }
+
+        pdf.addImage(pageImage, 'JPEG', margin, margin, renderWidth, pageHeightMm);
+        offsetY += sliceHeight;
+      }
+
+      const safeTruckNumber = String(viewingReport.truckNumber ?? 'truck').replace(/[^\p{L}\p{N}_-]+/gu, '-');
+      const safeDate = String(viewingReport.date ?? new Date().toISOString().slice(0, 10)).replace(/[^\d-]+/g, '-');
+      pdf.save(`report-${safeTruckNumber}-${safeDate}.pdf`);
     } catch (error) {
       console.error("PDF Export failed:", error);
-      alert("فشل في تصدير ملف PDF. يرجى التأكد من اتصال الإنترنت والمحاولة مرة أخرى.");
+      alert("فشل في تصدير ملف PDF. يرجى المحاولة مرة أخرى.");
     } finally {
       setIsExporting(false);
     }

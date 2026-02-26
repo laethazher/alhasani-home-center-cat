@@ -15,8 +15,8 @@ export const InspectionForm: React.FC<InspectionFormProps> = ({ values, onChange
           key={item.id}
           className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer group ${
             values[item.id] 
-            ? 'bg-green-50 border-green-200 text-green-900' 
-            : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300'
+            ? 'bg-green-50 border-green-200 text-green-900 dark:bg-green-950/40 dark:border-green-800 dark:text-green-200' 
+            : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300 dark:bg-stone-800 dark:border-stone-700 dark:text-stone-300 dark:hover:border-stone-500'
           }`}
         >
           <div className="flex items-center gap-3">

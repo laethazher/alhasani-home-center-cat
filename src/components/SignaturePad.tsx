@@ -30,7 +30,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ label, onSave, defau
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-center">
-        <label className="text-sm font-bold text-stone-600">{label}</label>
+        <label className="text-sm font-bold text-stone-600 dark:text-stone-300">{label}</label>
         <button 
           onClick={clear}
           className="text-stone-400 dark:text-stone-500 hover:text-red-600 dark:hover:text-red-400 transition-colors p-1"
@@ -39,7 +39,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ label, onSave, defau
           <RotateCcw className="w-4 h-4" />
         </button>
       </div>
-      <div className="border-2 border-stone-200 rounded-xl bg-white overflow-hidden h-40 relative">
+      <div className="border-2 border-stone-200 dark:border-stone-700 rounded-xl bg-white dark:bg-stone-800 overflow-hidden h-40 relative">
         {defaultValue ? (
           <img src={defaultValue} alt="Signature" className="w-full h-full object-contain p-2" />
         ) : (
