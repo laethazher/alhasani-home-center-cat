@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
 const USE_PG = !!process.env.DATABASE_URL;
 console.log("Database mode:", USE_PG ? "✅ PostgreSQL" : "⚠️  SQLite (local only)");
 
-// ─── Database abstraction layer ───
+// ─── Database abstraction ───
 let pgPool: pg.Pool | null = null;
 let sqliteDb: InstanceType<typeof Database> | null = null;
 
@@ -23,7 +23,6 @@ if (USE_PG) {
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
   });
-  // Create table if it doesn't exist
   pgPool.query(`
     CREATE TABLE IF NOT EXISTS reports (
       id SERIAL PRIMARY KEY,
@@ -41,7 +40,7 @@ if (USE_PG) {
       createdat TIMESTAMP DEFAULT NOW()
     );
   `).then(() => console.log("✅ PostgreSQL table ready"))
-    .catch((e) => console.error("❌ PostgreSQL init error:", e.message));
+    .catch((e: any) => console.error("❌ PostgreSQL init error:", e.message));
 } else {
   const dbPath = path.resolve(__dirname, "reports.db");
   sqliteDb = new Database(dbPath);
@@ -63,7 +62,7 @@ if (USE_PG) {
       createdat DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  console.log("✅ SQLite database initialized at", dbPath);
+  console.log("✅ SQLite initialized at", dbPath);
 }
 
 function safeParse(v: any) {
@@ -104,7 +103,7 @@ async function startServer() {
       if (USE_PG && pgPool) {
         const result = await pgPool.query(
           `INSERT INTO reports (drivername, trucknumber, date, damagepoints, inspectionvalues, toolvalues, toolimages, driversignature, equipmentmanagersignature, logisticsmanagersignature, warehousemanagersignature) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
           [
             driverName, truckNumber, date,
             JSON.stringify(damagePoints),
@@ -132,8 +131,8 @@ async function startServer() {
         );
         res.json({ success: true, id: result.lastInsertRowid });
       }
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error("Save error:", error?.message || error);
       res.status(500).json({ success: false, error: "Failed to save report" });
     }
   });
@@ -175,8 +174,8 @@ async function startServer() {
       }
 
       res.json(reports);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error("Fetch error:", error?.message || error);
       res.status(500).json({ success: false, error: "Failed to fetch reports" });
     }
   });
