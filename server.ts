@@ -83,6 +83,11 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
 
+  // ─── Ping endpoint for UptimeRobot ───
+  app.get("/ping", (_req, res) => {
+    res.status(200).json({ status: "alive", timestamp: new Date().toISOString() });
+  });
+
   // API Route to save report
   app.post("/api/reports", async (req, res) => {
     try {
