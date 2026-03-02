@@ -312,6 +312,11 @@ export default function Layout({
             </motion.div>
           </AnimatePresence>
         </main>
+
+        {/* Watermark */}
+        <div className="text-[10px] text-stone-400/50 dark:text-stone-600/50 text-center py-1 select-none">
+          Created by LaethAlkawaz
+        </div>
       </div>
     </div>
   );
