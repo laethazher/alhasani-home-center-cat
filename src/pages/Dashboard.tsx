@@ -71,7 +71,7 @@ export default function Dashboard({ profile, onNavigate }: DashboardProps) {
       {/* Welcome */}
       <div>
         <h2 className="text-2xl md:text-3xl font-extrabold">
-          مرحباً، {profile.full_name || 'مستخدم'} 👋
+          مرحباً بك في Alhasani Home Center Logistics 👋
         </h2>
         <p className="text-stone-500 dark:text-stone-400 mt-1">
           اختر أحد الأقسام للبدء
