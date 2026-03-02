@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: alhasani-home-center-cat
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_SUPABASE_URL
+        value: https://jxwzaoogmqzcqgnldwpm.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4d3phb29nbXF6Y3Fnbmxkd3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5MjU1NjUsImV4cCI6MjA4NzUwMTU2NX0.S2nhRPw8lQF1VX-_N3j1ZVBgmrnIEbdtBm2Ty9bO7GM
