@@ -1201,8 +1201,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                           </div>
                         )}
-                        {/* Archive: show assistant return summary */}
-                        {req.status === 'exited' && req.assistant_ids.length > 0 && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
+                        {/* Archive: show assistant return summary — temporary only */}
+                        {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_ids.length > 0 && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-1">
                             {req.assistant_ids.map((aId, i) => {
                               const aName = req.assistant_names[i] || 'مساعد';
@@ -1340,8 +1340,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     </div>
                   )}
 
-                  {/* ── Assistant Return Confirmation (Gate Guard + Admin view) ── */}
-                  {req.status === 'exited' && req.assistant_ids.length > 0 && (
+                  {/* ── Assistant Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
+                  {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_ids.length > 0 && (
                     <div className="mt-3 p-3 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700">
                       <p className="text-xs font-semibold text-stone-600 dark:text-stone-400 mb-2 flex items-center gap-1.5">
                         <RotateCcw className="w-3.5 h-3.5" />
