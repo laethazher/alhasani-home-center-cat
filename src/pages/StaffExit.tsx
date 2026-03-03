@@ -61,6 +61,53 @@ const playNotificationSound = () => {
   }
 };
 
+/* ── Overdue Alert Sound (urgent) ── */
+const playOverdueAlertSound = () => {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'square';
+    // Urgent beep pattern
+    osc.frequency.setValueAtTime(1000, ctx.currentTime);
+    osc.frequency.setValueAtTime(600, ctx.currentTime + 0.15);
+    osc.frequency.setValueAtTime(1000, ctx.currentTime + 0.3);
+    osc.frequency.setValueAtTime(600, ctx.currentTime + 0.45);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.6);
+  } catch {
+    /* ignore */
+  }
+};
+
+/* ── Overdue Helper ── */
+function getOverdueInfo(req: ExitRequest, now: Date): { isOverdue: boolean; delayMinutes: number; delayText: string } | null {
+  if (req.exit_type !== 'temporary' || !req.exit_duration_minutes || !req.exited_at || req.status !== 'exited') return null;
+  // Check if ALL assistants have returned
+  if (req.assistant_ids.length > 0) {
+    const returns = req.assistant_returns || {};
+    const allReturned = req.assistant_ids.every((id) => String(id) in returns);
+    if (allReturned) return null;
+  }
+  const exitedTime = new Date(req.exited_at).getTime();
+  const allowedMs = req.exit_duration_minutes * 60 * 1000;
+  const deadline = exitedTime + allowedMs;
+  const diff = now.getTime() - deadline;
+  if (diff <= 0) return { isOverdue: false, delayMinutes: 0, delayText: '' };
+  const delayMinutes = Math.floor(diff / (1000 * 60));
+  const hours = Math.floor(delayMinutes / 60);
+  const mins = delayMinutes % 60;
+  let delayText = '';
+  if (hours > 0) delayText = `${hours} ساعة${mins > 0 ? ` و ${mins} دقيقة` : ''}`;
+  else if (mins > 0) delayText = `${mins} دقيقة`;
+  else delayText = 'أقل من دقيقة';
+  return { isOverdue: true, delayMinutes, delayText };
+}
+
 /* ── Date Helpers ── */
 function getDateKey(dateStr: string): string {
   const d = new Date(dateStr);
@@ -458,6 +505,31 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const prevApprovedCount = useRef(0);
   const [flashNotification, setFlashNotification] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  /* ── Live "now" ticker for overdue tracking ── */
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 10000); // update every 10s
+    return () => clearInterval(id);
+  }, []);
+
+  /* ── Overdue alert notification ── */
+  const prevOverdueIdsRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    const currentOverdue = new Set<number>();
+    for (const req of requests) {
+      const info = getOverdueInfo(req, now);
+      if (info?.isOverdue) currentOverdue.add(req.id);
+    }
+    // Check for newly overdue
+    for (const id of currentOverdue) {
+      if (!prevOverdueIdsRef.current.has(id)) {
+        if (soundEnabled) playOverdueAlertSound();
+        break; // one alert per cycle
+      }
+    }
+    prevOverdueIdsRef.current = currentOverdue;
+  }, [requests, now, soundEnabled]);
 
   /* ── Fetch data ── */
   const fetchRequests = useCallback(async () => {
@@ -1266,9 +1338,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 'bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-sm border transition-all',
                 req.status === 'pending' && 'border-red-200 dark:border-red-900/50',
                 req.status === 'approved' && 'border-yellow-200 dark:border-yellow-900/50',
-                req.status === 'exited' && 'border-emerald-200 dark:border-emerald-900/50',
+                req.status === 'exited' && !getOverdueInfo(req, now)?.isOverdue && 'border-emerald-200 dark:border-emerald-900/50',
                 req.status === 'rejected' && 'border-stone-200 dark:border-stone-800',
                 isGateGuard && req.status === 'approved' && 'ring-2 ring-yellow-400/50 dark:ring-yellow-500/30',
+                getOverdueInfo(req, now)?.isOverdue && 'border-red-400 dark:border-red-700 ring-2 ring-red-300/50 dark:ring-red-800/50 bg-red-50/30 dark:bg-red-950/20',
               )}
             >
               <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -1291,6 +1364,29 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                     </span>
                   </div>
+
+                  {/* ── Overdue Alert Banner ── */}
+                  {(() => {
+                    const overdueInfo = getOverdueInfo(req, now);
+                    if (!overdueInfo?.isOverdue) return null;
+                    return (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="flex items-center gap-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-800"
+                      >
+                        <div className="flex items-center justify-center w-9 h-9 rounded-full bg-red-100 dark:bg-red-900/40 flex-shrink-0">
+                          <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 animate-pulse" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-red-700 dark:text-red-300">تجاوز وقت الخروج المحدد!</p>
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                            مدة التأخير: <span className="font-bold">{overdueInfo.delayText}</span>
+                          </p>
+                        </div>
+                      </motion.div>
+                    );
+                  })()}
 
                   <div className="grid sm:grid-cols-2 gap-3">
                     {req.driver_name && (
@@ -1342,8 +1438,18 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
                   {/* ── Assistant Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
                   {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_ids.length > 0 && (
-                    <div className="mt-3 p-3 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700">
-                      <p className="text-xs font-semibold text-stone-600 dark:text-stone-400 mb-2 flex items-center gap-1.5">
+                    <div className={cn(
+                      'mt-3 p-3 rounded-xl border',
+                      getOverdueInfo(req, now)?.isOverdue
+                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
+                        : 'bg-stone-50 dark:bg-stone-800/50 border-stone-200 dark:border-stone-700'
+                    )}>
+                      <p className={cn(
+                        'text-xs font-semibold mb-2 flex items-center gap-1.5',
+                        getOverdueInfo(req, now)?.isOverdue
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-stone-600 dark:text-stone-400'
+                      )}>
                         <RotateCcw className="w-3.5 h-3.5" />
                         تأكيد عودة المساعدين
                       </p>
@@ -1353,23 +1459,31 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           const returns = req.assistant_returns || {};
                           const returnedAt = returns[String(aId)];
                           const hasReturned = !!returnedAt;
+                          const overdueNow = !hasReturned ? getOverdueInfo(req, now) : null;
+                          const isAssistantOverdue = overdueNow?.isOverdue;
 
                           return (
                             <div key={aId} className={cn(
                               'flex items-center justify-between gap-3 px-3 py-2 rounded-lg',
                               hasReturned
                                 ? 'bg-emerald-50 dark:bg-emerald-900/20'
-                                : 'bg-amber-50 dark:bg-amber-900/20'
+                                : isAssistantOverdue
+                                  ? 'bg-red-50 dark:bg-red-900/20'
+                                  : 'bg-amber-50 dark:bg-amber-900/20'
                             )}>
                               <div className="flex items-center gap-2 flex-1 min-w-0">
                                 {hasReturned ? (
                                   <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                                ) : isAssistantOverdue ? (
+                                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 animate-pulse" />
                                 ) : (
                                   <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 animate-pulse" />
                                 )}
                                 <span className={cn(
                                   'text-sm font-medium truncate',
-                                  hasReturned ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300'
+                                  hasReturned ? 'text-emerald-800 dark:text-emerald-300'
+                                    : isAssistantOverdue ? 'text-red-800 dark:text-red-300'
+                                    : 'text-amber-800 dark:text-amber-300'
                                 )}>
                                   {aName}
                                 </span>
@@ -1379,8 +1493,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                                   </span>
                                 )}
                                 {!hasReturned && req.exited_at && (
-                                  <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0">
-                                    مازال خارج — {formatDuration(req.exited_at, new Date().toISOString())}
+                                  <span className={cn(
+                                    'text-xs flex-shrink-0',
+                                    isAssistantOverdue ? 'text-red-600 dark:text-red-400 font-bold' : 'text-amber-600 dark:text-amber-400'
+                                  )}>
+                                    {isAssistantOverdue
+                                      ? `متأخر — ${overdueNow.delayText}` 
+                                      : `مازال خارج — ${formatDuration(req.exited_at, now.toISOString())}`
+                                    }
                                   </span>
                                 )}
                               </div>
