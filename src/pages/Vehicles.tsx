@@ -41,6 +41,7 @@ export default function Vehicles() {
     plate_number: '', model: '', vehicle_type: 'كانتر', color: '', year: '',
     chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available' as VehicleStatus,
     license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
+    has_logo: false,
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -135,6 +136,7 @@ export default function Vehicles() {
     plate_number: '', model: '', vehicle_type: 'كانتر', color: '', year: '',
       chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available',
       license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
+      has_logo: false,
     });
     setEditingVehicle(null);
     setFormError('');
@@ -163,6 +165,7 @@ export default function Vehicles() {
       image_url: v.image_url || '',
       notes: v.notes || '',
       assigned_driver_id: v.assigned_driver_id || '',
+      has_logo: v.has_logo ?? false,
     });
     setShowForm(true);
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
@@ -188,6 +191,7 @@ export default function Vehicles() {
       image_url: formData.image_url.trim() || null,
       notes: formData.notes.trim() || null,
       assigned_driver_id: formData.assigned_driver_id || null,
+      has_logo: formData.has_logo,
     };
 
     if (editingVehicle) {
@@ -416,6 +420,21 @@ export default function Vehicles() {
                     </div>
                   </div>
                   <div>
+                    <label className="text-xs text-stone-500 mb-1 block">اللوكو</label>
+                    <div className="flex gap-2">
+                      <button onClick={() => setFormData({ ...formData, has_logo: true })}
+                        className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                          formData.has_logo ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' : 'border-stone-200 dark:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-700')}>
+                        تحتوي
+                      </button>
+                      <button onClick={() => setFormData({ ...formData, has_logo: false })}
+                        className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                          !formData.has_logo ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700' : 'border-stone-200 dark:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-700')}>
+                        لا تحتوي
+                      </button>
+                    </div>
+                  </div>
+                  <div>
                     <label className="text-xs text-stone-500 mb-1 block">السائق المسؤول</label>
                     <select value={formData.assigned_driver_id} onChange={(e) => setFormData({ ...formData, assigned_driver_id: e.target.value })}
                       className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm cursor-pointer">
@@ -547,6 +566,10 @@ export default function Vehicles() {
                       )}
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300">
                         <Gauge className="w-3 h-3" /> {v.odometer_km.toLocaleString()} كم
+                      </span>
+                      <span className={cn('flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium',
+                        v.has_logo ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300')}>
+                        لوكو: {v.has_logo ? 'نعم' : 'لا'}
                       </span>
                     </div>
 

@@ -83,6 +83,7 @@ export interface Vehicle {
   image_url: string | null;
   notes: string | null;
   assigned_driver_id: string | null;
+  has_logo: boolean;
   created_at: string;
   updated_at: string;
 }
