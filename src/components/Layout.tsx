@@ -37,10 +37,10 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard',  label: 'لوحة التحكم',      icon: LayoutDashboard, roles: 'all' },
-  { key: 'vehicles',   label: 'جرد المركبات',      icon: Truck,           roles: 'all' },
+  { key: 'dashboard',  label: 'لوحة التحكم',      icon: LayoutDashboard, roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
+  { key: 'vehicles',   label: 'جرد المركبات',      icon: Truck,           roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
   { key: 'staff-exit', label: 'إخراج الكادر',      icon: DoorOpen,        roles: 'all' },
-  { key: 'reports',    label: 'التقارير',           icon: FileText,        roles: 'all' },
+  { key: 'reports',    label: 'التقارير',           icon: FileText,        roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
   { key: 'users',      label: 'إدارة المستخدمين',  icon: UserCog,         roles: ['admin'] },
   { key: 'settings',   label: 'الإعدادات',          icon: Settings,        roles: ['admin'] },
 ];
@@ -51,6 +51,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   manager:    'مدير',
   warehouse:  'مستودع',
   logistics:  'لوجستيات',
+  gate_guard: 'حارس البوابة',
 };
 
 /* ── Props ── */

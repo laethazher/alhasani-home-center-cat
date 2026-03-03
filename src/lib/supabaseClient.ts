@@ -17,7 +17,38 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
 
 /* ── Types ── */
 
-export type UserRole = 'admin' | 'driver' | 'manager' | 'warehouse' | 'logistics';
+export type UserRole = 'admin' | 'driver' | 'manager' | 'warehouse' | 'logistics' | 'gate_guard';
+
+/* ── Staff Exit Types ── */
+
+export type StaffRole = 'driver' | 'assistant';
+
+export interface StaffMember {
+  id: string;
+  full_name: string;
+  role: StaffRole;
+  city: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export type ExitRequestStatus = 'pending' | 'approved' | 'rejected' | 'exited';
+
+export interface ExitRequest {
+  id: string;
+  driver_id: string;
+  driver_name: string;
+  assistant_ids: string[];
+  assistant_names: string[];
+  status: ExitRequestStatus;
+  notes: string | null;
+  created_by: string;
+  approved_at: string | null;
+  approved_by: string | null;
+  exited_at: string | null;
+  gate_guard_id: string | null;
+  created_at: string;
+}
 
 export interface UserProfile {
   id: string;

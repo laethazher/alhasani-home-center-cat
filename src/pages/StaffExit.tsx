@@ -1,19 +1,779 @@
-import { motion } from 'framer-motion';
-import { DoorOpen } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  DoorOpen,
+  Plus,
+  Search,
+  Check,
+  X,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  LogOut as LogOutIcon,
+  ChevronDown,
+  Bell,
+  Volume2,
+  Users,
+  Loader2,
+  Trash2,
+} from 'lucide-react';
+import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabaseClient';
+import type {
+  UserProfile,
+  StaffMember,
+  ExitRequest,
+  ExitRequestStatus,
+} from '../lib/supabaseClient';
 
-export default function StaffExit() {
+/* ── Notification Sound ── */
+const playNotificationSound = () => {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+  } catch {
+    /* ignore */
+  }
+};
+
+/* ── Status Config ── */
+const STATUS_CONFIG: Record<ExitRequestStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
+  pending:  { label: 'قيد الانتظار', color: 'text-red-600 dark:text-red-400',     bgColor: 'bg-red-100 dark:bg-red-900/30',       icon: Clock },
+  approved: { label: 'تمت الموافقة', color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',  icon: CheckCircle2 },
+  exited:   { label: 'غادر',         color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30', icon: DoorOpen },
+  rejected: { label: 'مرفوض',        color: 'text-stone-500 dark:text-stone-400',    bgColor: 'bg-stone-100 dark:bg-stone-800/30',    icon: XCircle },
+};
+
+/* ── Live Clock ── */
+function LiveClock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const timeStr = now.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateStr = now.toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold">إخراج الكادر</h2>
+    <div className="text-center">
+      <div className="text-3xl font-bold tabular-nums text-stone-900 dark:text-white">{timeStr}</div>
+      <div className="text-sm text-stone-500 dark:text-stone-400 mt-1">{dateStr}</div>
+    </div>
+  );
+}
 
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="w-20 h-20 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-4">
-          <DoorOpen className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />
+/* ── Status Badge ── */
+function StatusBadge({ status }: { status: ExitRequestStatus }) {
+  const cfg = STATUS_CONFIG[status];
+  const Icon = cfg.icon;
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold', cfg.bgColor, cfg.color)}>
+      <Icon className="w-3.5 h-3.5" />
+      {cfg.label}
+    </span>
+  );
+}
+
+/* ── Searchable Multi-Select Dropdown ── */
+interface MultiSelectProps {
+  label: string;
+  items: StaffMember[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  placeholder?: string;
+}
+
+function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اختر...' }: MultiSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = items.filter((m) => m.full_name.includes(search));
+  const selectedNames = items.filter((m) => selectedIds.includes(m.id)).map((m) => m.full_name);
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          'w-full flex items-center justify-between px-4 py-3 rounded-xl border text-sm text-right',
+          'border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800',
+          'hover:border-blue-400 dark:hover:border-blue-500 transition-colors',
+          open && 'ring-2 ring-blue-500/30 border-blue-500'
+        )}
+      >
+        <span className={cn('truncate', selectedIds.length === 0 && 'text-stone-400')}>
+          {selectedIds.length > 0 ? `${selectedNames.slice(0, 2).join(' ، ')}${selectedIds.length > 2 ? ` +${selectedIds.length - 2}` : ''}` : placeholder}
+        </span>
+        <ChevronDown className={cn('w-4 h-4 text-stone-400 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="absolute z-50 mt-1 w-full bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl shadow-xl max-h-60 overflow-hidden"
+          >
+            <div className="p-2 border-b border-stone-100 dark:border-stone-700">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 dark:bg-stone-700/50">
+                <Search className="w-4 h-4 text-stone-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="بحث..."
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 text-stone-900 dark:text-white"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto max-h-44 p-1">
+              {filtered.length === 0 ? (
+                <div className="text-center text-sm text-stone-400 py-4">لا توجد نتائج</div>
+              ) : (
+                filtered.map((m) => {
+                  const selected = selectedIds.includes(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        onChange(selected ? selectedIds.filter((id) => id !== m.id) : [...selectedIds, m.id]);
+                      }}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors',
+                        selected ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
+                      )}
+                    >
+                      <div className={cn(
+                        'w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                        selected ? 'bg-blue-600 border-blue-600' : 'border-stone-300 dark:border-stone-600'
+                      )}>
+                        {selected && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      {m.full_name}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ── Single Select Dropdown ── */
+interface SingleSelectProps {
+  label: string;
+  items: StaffMember[];
+  selectedId: string;
+  onChange: (id: string, name: string) => void;
+  placeholder?: string;
+}
+
+function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اختر...' }: SingleSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = items.filter((m) => m.full_name.includes(search));
+  const selectedName = items.find((m) => m.id === selectedId)?.full_name || '';
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          'w-full flex items-center justify-between px-4 py-3 rounded-xl border text-sm text-right',
+          'border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800',
+          'hover:border-blue-400 dark:hover:border-blue-500 transition-colors',
+          open && 'ring-2 ring-blue-500/30 border-blue-500'
+        )}
+      >
+        <span className={cn('truncate', !selectedId && 'text-stone-400')}>{selectedName || placeholder}</span>
+        <ChevronDown className={cn('w-4 h-4 text-stone-400 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="absolute z-50 mt-1 w-full bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 rounded-xl shadow-xl max-h-60 overflow-hidden"
+          >
+            <div className="p-2 border-b border-stone-100 dark:border-stone-700">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-stone-50 dark:bg-stone-700/50">
+                <Search className="w-4 h-4 text-stone-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="بحث..."
+                  className="flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 text-stone-900 dark:text-white"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto max-h-44 p-1">
+              {filtered.length === 0 ? (
+                <div className="text-center text-sm text-stone-400 py-4">لا توجد نتائج</div>
+              ) : (
+                filtered.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(m.id, m.full_name);
+                      setOpen(false);
+                      setSearch('');
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors',
+                      m.id === selectedId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
+                    )}
+                  >
+                    {m.full_name}
+                  </button>
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════
+   ██  MAIN COMPONENT
+   ════════════════════════════════════════════ */
+
+interface StaffExitProps {
+  profile: UserProfile;
+  userId: string;
+}
+
+export default function StaffExit({ profile, userId }: StaffExitProps) {
+  const role = profile.role;
+  const isAdmin = role === 'admin';
+  const isGateGuard = role === 'gate_guard';
+
+  /* ── State ── */
+  const [requests, setRequests] = useState<ExitRequest[]>([]);
+  const [drivers, setDrivers] = useState<StaffMember[]>([]);
+  const [assistants, setAssistants] = useState<StaffMember[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ExitRequestStatus | 'all'>('all');
+
+  /* Create form */
+  const [showForm, setShowForm] = useState(false);
+  const [formDriverId, setFormDriverId] = useState('');
+  const [formDriverName, setFormDriverName] = useState('');
+  const [formAssistantIds, setFormAssistantIds] = useState<string[]>([]);
+  const [formNotes, setFormNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  /* Gate guard notification */
+  const prevApprovedCount = useRef(0);
+  const [flashNotification, setFlashNotification] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  /* ── Fetch data ── */
+  const fetchRequests = useCallback(async () => {
+    const { data } = await supabase
+      .from('exit_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (data) {
+      // Check for new approved requests (gate guard notification)
+      if (isGateGuard) {
+        const approvedCount = data.filter((r: ExitRequest) => r.status === 'approved').length;
+        if (approvedCount > prevApprovedCount.current && prevApprovedCount.current > 0) {
+          setFlashNotification(true);
+          if (soundEnabled) playNotificationSound();
+          setTimeout(() => setFlashNotification(false), 3000);
+        }
+        prevApprovedCount.current = approvedCount;
+      }
+      setRequests(data);
+    }
+  }, [isGateGuard, soundEnabled]);
+
+  const fetchStaff = useCallback(async () => {
+    const { data } = await supabase
+      .from('staff_members')
+      .select('*')
+      .eq('is_active', true)
+      .order('full_name');
+    if (data) {
+      setDrivers(data.filter((m: StaffMember) => m.role === 'driver'));
+      setAssistants(data.filter((m: StaffMember) => m.role === 'assistant'));
+    }
+  }, []);
+
+  useEffect(() => {
+    Promise.all([fetchRequests(), fetchStaff()]).finally(() => setLoadingData(false));
+  }, [fetchRequests, fetchStaff]);
+
+  /* Real-time subscription */
+  useEffect(() => {
+    const channel = supabase
+      .channel('exit_requests_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exit_requests' }, () => {
+        fetchRequests();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchRequests]);
+
+  /* Auto-refresh for gate guard every 10s */
+  useEffect(() => {
+    if (!isGateGuard) return;
+    const id = setInterval(fetchRequests, 10000);
+    return () => clearInterval(id);
+  }, [isGateGuard, fetchRequests]);
+
+  /* ── Actions ── */
+  const handleCreate = async () => {
+    if (!formDriverId) return;
+    setSubmitting(true);
+    const assistantNames = assistants
+      .filter((a) => formAssistantIds.includes(a.id))
+      .map((a) => a.full_name);
+
+    const { error } = await supabase.from('exit_requests').insert({
+      driver_id: formDriverId,
+      driver_name: formDriverName,
+      assistant_ids: formAssistantIds,
+      assistant_names: assistantNames,
+      notes: formNotes || null,
+      created_by: userId,
+      status: 'pending',
+    });
+
+    if (!error) {
+      setShowForm(false);
+      setFormDriverId('');
+      setFormDriverName('');
+      setFormAssistantIds([]);
+      setFormNotes('');
+      await fetchRequests();
+    }
+    setSubmitting(false);
+  };
+
+  const handleApprove = async (id: string) => {
+    await supabase
+      .from('exit_requests')
+      .update({ status: 'approved', approved_by: userId, approved_at: new Date().toISOString() })
+      .eq('id', id);
+    await fetchRequests();
+  };
+
+  const handleReject = async (id: string) => {
+    await supabase
+      .from('exit_requests')
+      .update({ status: 'rejected', approved_by: userId, approved_at: new Date().toISOString() })
+      .eq('id', id);
+    await fetchRequests();
+  };
+
+  const handleConfirmExit = async (id: string) => {
+    await supabase
+      .from('exit_requests')
+      .update({ status: 'exited', gate_guard_id: userId, exited_at: new Date().toISOString() })
+      .eq('id', id);
+    await fetchRequests();
+  };
+
+  const handleDelete = async (id: string) => {
+    await supabase.from('exit_requests').delete().eq('id', id);
+    await fetchRequests();
+  };
+
+  /* ── Filtered requests ── */
+  const filtered = requests.filter((r) => {
+    // Gate guard only sees approved
+    if (isGateGuard && r.status !== 'approved') return false;
+    // Status filter
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    // Search
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      return (
+        r.driver_name.toLowerCase().includes(term) ||
+        r.assistant_names.some((n) => n.toLowerCase().includes(term)) ||
+        (r.notes?.toLowerCase().includes(term) ?? false)
+      );
+    }
+    return true;
+  });
+
+  /* ── Stats ── */
+  const stats = {
+    pending: requests.filter((r) => r.status === 'pending').length,
+    approved: requests.filter((r) => r.status === 'approved').length,
+    exited: requests.filter((r) => r.status === 'exited').length,
+    rejected: requests.filter((r) => r.status === 'rejected').length,
+  };
+
+  /* ── Loading ── */
+  if (loadingData) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* ── Header ── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-stone-900 dark:text-white flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+              <DoorOpen className="w-5 h-5 text-white" />
+            </div>
+            {isGateGuard ? 'بوابة الخروج' : 'إخراج الكادر'}
+          </h2>
+          <p className="text-stone-500 dark:text-stone-400 mt-1">
+            {isGateGuard ? 'تأكيد مغادرة الكوادر المعتمدة' : 'إنشاء وإدارة طلبات خروج الكوادر'}
+          </p>
         </div>
-        <h3 className="text-lg font-bold mb-1">لا توجد سجلات بعد</h3>
-        <p className="text-stone-500 dark:text-stone-400 text-sm max-w-xs">
-          سيتم عرض سجلات إخراج الكادر هنا
-        </p>
+
+        <LiveClock />
+      </div>
+
+      {/* ── Gate Guard Notification Flash ── */}
+      <AnimatePresence>
+        {flashNotification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="bg-gradient-to-r from-yellow-500 to-amber-500 text-white p-4 rounded-2xl shadow-lg flex items-center gap-3"
+          >
+            <Bell className="w-6 h-6 animate-bounce" />
+            <span className="font-bold text-lg">طلب خروج جديد يحتاج تأكيدك!</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Stats Cards ── */}
+      {isAdmin && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'قيد الانتظار', value: stats.pending,  color: 'from-red-500 to-rose-600' },
+            { label: 'تمت الموافقة', value: stats.approved, color: 'from-yellow-500 to-amber-600' },
+            { label: 'غادر',         value: stats.exited,   color: 'from-emerald-500 to-teal-600' },
+            { label: 'مرفوض',        value: stats.rejected, color: 'from-stone-400 to-stone-500' },
+          ].map((s) => (
+            <motion.div
+              key={s.label}
+              whileHover={{ y: -2 }}
+              className="bg-white dark:bg-stone-900 rounded-2xl p-4 shadow-sm border border-stone-200 dark:border-stone-800"
+            >
+              <div className={cn('w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center mb-3', s.color)}>
+                <span className="text-lg font-bold text-white">{s.value}</span>
+              </div>
+              <p className="text-sm font-medium text-stone-600 dark:text-stone-400">{s.label}</p>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Search & Filters ── */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex-1 relative">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="بحث بالاسم أو الملاحظات..."
+            className="w-full pr-10 pl-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none transition-all text-stone-900 dark:text-white placeholder:text-stone-400"
+          />
+        </div>
+
+        {isAdmin && (
+          <div className="flex gap-2 flex-wrap">
+            {(['all', 'pending', 'approved', 'exited', 'rejected'] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={cn(
+                  'px-4 py-2.5 rounded-xl text-sm font-medium transition-all',
+                  statusFilter === s
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25'
+                    : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-400 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700'
+                )}
+              >
+                {s === 'all' ? 'الكل' : STATUS_CONFIG[s].label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isGateGuard && (
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className={cn(
+              'px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2',
+              soundEnabled
+                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                : 'bg-stone-100 dark:bg-stone-800 text-stone-500'
+            )}
+          >
+            <Volume2 className="w-4 h-4" />
+            {soundEnabled ? 'الصوت مفعل' : 'الصوت مغلق'}
+          </button>
+        )}
+      </div>
+
+      {/* ── Create New Request (Admin) ── */}
+      {isAdmin && (
+        <div>
+          {!showForm ? (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowForm(true)}
+              className="w-full sm:w-auto flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:shadow-emerald-500/30 transition-all"
+            >
+              <Plus className="w-5 h-5" />
+              إنشاء طلب خروج جديد
+            </motion.button>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white dark:bg-stone-900 rounded-2xl p-6 shadow-lg border border-stone-200 dark:border-stone-800"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-emerald-500" />
+                  طلب خروج جديد
+                </h3>
+                <button
+                  onClick={() => setShowForm(false)}
+                  className="p-2 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+                >
+                  <X className="w-5 h-5 text-stone-500" />
+                </button>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-6">
+                <SingleSelect
+                  label="السائق"
+                  items={drivers}
+                  selectedId={formDriverId}
+                  onChange={(id, name) => { setFormDriverId(id); setFormDriverName(name); }}
+                  placeholder="اختر السائق..."
+                />
+                <MultiSelect
+                  label="المساعدين"
+                  items={assistants}
+                  selectedIds={formAssistantIds}
+                  onChange={setFormAssistantIds}
+                  placeholder="اختر المساعدين..."
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">ملاحظات (اختياري)</label>
+                <textarea
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  rows={2}
+                  className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 resize-none text-stone-900 dark:text-white placeholder:text-stone-400"
+                  placeholder="أي ملاحظات إضافية..."
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowForm(false)}
+                  className="px-5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-400 text-sm font-medium hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
+                >
+                  إلغاء
+                </button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleCreate}
+                  disabled={!formDriverId || submitting}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  إنشاء الطلب
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </div>
+      )}
+
+      {/* ── Requests List ── */}
+      <div className="space-y-3">
+        {filtered.length === 0 ? (
+          <div className="text-center py-20">
+            <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800/50 flex items-center justify-center mx-auto mb-4">
+              <Users className="w-8 h-8 text-stone-400" />
+            </div>
+            <p className="text-stone-500 dark:text-stone-400 font-medium">
+              {isGateGuard ? 'لا توجد طلبات خروج معتمدة حالياً' : 'لا توجد طلبات خروج'}
+            </p>
+          </div>
+        ) : (
+          filtered.map((req, index) => (
+            <motion.div
+              key={req.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className={cn(
+                'bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-sm border transition-all',
+                req.status === 'pending' && 'border-red-200 dark:border-red-900/50',
+                req.status === 'approved' && 'border-yellow-200 dark:border-yellow-900/50',
+                req.status === 'exited' && 'border-emerald-200 dark:border-emerald-900/50',
+                req.status === 'rejected' && 'border-stone-200 dark:border-stone-800',
+                isGateGuard && req.status === 'approved' && 'ring-2 ring-yellow-400/50 dark:ring-yellow-500/30',
+              )}
+            >
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                {/* Info */}
+                <div className="flex-1 space-y-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <StatusBadge status={req.status} />
+                    <span className="text-xs text-stone-400">
+                      {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+                    </span>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
+                      <p className="font-semibold text-stone-900 dark:text-white">{req.driver_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-stone-500 dark:text-stone-400">
+                        المساعدين ({req.assistant_names.length})
+                      </span>
+                      <p className="text-sm text-stone-700 dark:text-stone-300">
+                        {req.assistant_names.length > 0 ? req.assistant_names.join(' ، ') : 'لا يوجد'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {req.notes && (
+                    <div className="text-sm text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 px-3 py-2 rounded-lg">
+                      <span className="text-xs font-medium text-stone-400">ملاحظات:</span> {req.notes}
+                    </div>
+                  )}
+
+                  {req.exited_at && (
+                    <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Admin: Approve/Reject pending */}
+                  {isAdmin && req.status === 'pending' && (
+                    <>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleApprove(req.id)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-medium shadow-md"
+                      >
+                        <Check className="w-4 h-4" />
+                        موافقة
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleReject(req.id)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 text-sm font-medium hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                        رفض
+                      </motion.button>
+                    </>
+                  )}
+
+                  {/* Gate Guard: Confirm Exit */}
+                  {isGateGuard && req.status === 'approved' && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleConfirmExit(req.id)}
+                      className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold shadow-lg shadow-blue-600/30 text-base"
+                    >
+                      <LogOutIcon className="w-5 h-5" />
+                      تأكيد المغادرة
+                    </motion.button>
+                  )}
+
+                  {/* Admin: Delete any request */}
+                  {isAdmin && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleDelete(req.id)}
+                      className="p-2 rounded-xl text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      title="حذف"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </motion.button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          ))
+        )}
       </div>
     </div>
   );
