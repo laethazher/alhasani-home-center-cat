@@ -532,9 +532,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   }, []);
 
   /* ── Overdue alert notification ── */
-  const prevOverdueIdsRef = useRef<Set<number>>(new Set());
+  const prevOverdueIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const currentOverdue = new Set<number>();
+    const currentOverdue = new Set<string>();
     for (const req of requests) {
       const info = getOverdueInfo(req, now);
       if (info?.isOverdue) currentOverdue.add(req.id);
