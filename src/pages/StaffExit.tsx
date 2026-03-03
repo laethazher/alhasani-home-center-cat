@@ -1192,14 +1192,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       const vId = e.target.value;
                       setFormVehicleId(vId);
                       const v = vehicles.find((v) => String(v.id) === vId);
-                      setFormVehiclePlate(v ? `${v.plate_number}${v.model ? ' - ' + v.model : ''}` : '');
+                      setFormVehiclePlate(v ? `${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}` : '');
                     }}
                     className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white"
                   >
                     <option value="">اختر المركبة...</option>
                     {vehicles.map((v) => (
                       <option key={v.id} value={String(v.id)}>
-                        {v.plate_number}{v.model ? ` - ${v.model}` : ''}
+                        {v.plate_number}{v.vehicle_type ? ` - ${v.vehicle_type}` : ''}
                       </option>
                     ))}
                   </select>

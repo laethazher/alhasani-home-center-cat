@@ -10,7 +10,6 @@ import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleStatus, StaffMember, ExitRequest } from '../lib/supabaseClient';
 
 /* ── Constants ── */
-const VEHICLE_TYPES = ['كانتر', 'كيا'];
 const FUEL_TYPES = ['ديزل', 'بنزين', 'كهربائي', 'هجين'];
 const COLORS = ['أبيض', 'أسود', 'فضي', 'أحمر', 'أزرق', 'أخضر', 'أصفر', 'رمادي', 'بني', 'برتقالي'];
 const MAINTENANCE_TYPES = ['صيانة دورية', 'تغيير زيت', 'تغيير إطارات', 'فحص فرامل', 'إصلاح محرك', 'كهرباء', 'بودي', 'أخرى'];
@@ -32,13 +31,13 @@ export default function Vehicles() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<VehicleStatus | 'all'>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
+
 
   /* Form state */
   const [showForm, setShowForm] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [formData, setFormData] = useState({
-    plate_number: '', model: '', vehicle_type: 'كانتر', color: '', year: '',
+    plate_number: '', vehicle_type: '', color: '', year: '',
     chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available' as VehicleStatus,
     license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
     has_logo: false,
@@ -82,18 +81,16 @@ export default function Vehicles() {
   const filtered = useMemo(() => {
     let list = vehicles;
     if (statusFilter !== 'all') list = list.filter((v) => v.status === statusFilter);
-    if (typeFilter !== 'all') list = list.filter((v) => v.vehicle_type === typeFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((v) =>
         v.plate_number.toLowerCase().includes(q) ||
-        (v.model || '').toLowerCase().includes(q) ||
         (v.chassis_number || '').toLowerCase().includes(q) ||
         (v.vehicle_type || '').toLowerCase().includes(q)
       );
     }
     return list;
-  }, [vehicles, statusFilter, typeFilter, search]);
+  }, [vehicles, statusFilter, search]);
 
   const stats = useMemo(() => ({
     total: vehicles.length,
@@ -133,7 +130,7 @@ export default function Vehicles() {
   /* ── Helpers ── */
   const resetForm = () => {
     setFormData({
-    plate_number: '', model: '', vehicle_type: 'كانتر', color: '', year: '',
+    plate_number: '', vehicle_type: '', color: '', year: '',
       chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available',
       license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
       has_logo: false,
@@ -152,8 +149,7 @@ export default function Vehicles() {
     setEditingVehicle(v);
     setFormData({
       plate_number: v.plate_number,
-      model: v.model || '',
-      vehicle_type: v.vehicle_type || 'كانتر',
+      vehicle_type: v.vehicle_type || '',
       color: v.color || '',
       year: v.year ? String(v.year) : '',
       chassis_number: v.chassis_number || '',
@@ -178,8 +174,7 @@ export default function Vehicles() {
 
     const payload = {
       plate_number: formData.plate_number.trim(),
-      model: formData.model.trim() || null,
-      vehicle_type: formData.vehicle_type,
+      vehicle_type: formData.vehicle_type.trim() || null,
       color: formData.color || null,
       year: formData.year ? Number(formData.year) : null,
       chassis_number: formData.chassis_number.trim() || null,
@@ -310,7 +305,7 @@ export default function Vehicles() {
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-          <input type="text" placeholder="بحث بالرقم، الموديل، الشاسي..."
+          <input type="text" placeholder="بحث بالرقم، النوع، الشاسي..."
             value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
         </div>
@@ -318,11 +313,6 @@ export default function Vehicles() {
           className="px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm cursor-pointer">
           <option value="all">كل الحالات</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm cursor-pointer">
-          <option value="all">كل الأنواع</option>
-          {VEHICLE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
 
@@ -355,17 +345,10 @@ export default function Vehicles() {
                       className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: 12345 أ" />
                   </div>
                   <div>
-                    <label className="text-xs text-stone-500 mb-1 block">الموديل</label>
-                    <input type="text" value={formData.model}
-                      onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: تويوتا هايلكس" />
-                  </div>
-                  <div>
                     <label className="text-xs text-stone-500 mb-1 block">نوع المركبة</label>
-                    <select value={formData.vehicle_type} onChange={(e) => setFormData({ ...formData, vehicle_type: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm cursor-pointer">
-                      {VEHICLE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
+                    <input type="text" value={formData.vehicle_type}
+                      onChange={(e) => setFormData({ ...formData, vehicle_type: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: تويوتا هايلكس" />
                   </div>
                   <div>
                     <label className="text-xs text-stone-500 mb-1 block">اللون</label>
@@ -527,28 +510,53 @@ export default function Vehicles() {
 
                   {/* Card Header */}
                   <div className="p-4 pb-3">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className={cn('w-11 h-11 rounded-xl flex items-center justify-center', sc.bgColor)}>
+                    {/* Top row: status badge + vehicle type */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', sc.bgColor)}>
                           <Truck className={cn('w-5 h-5', sc.color)} />
                         </div>
-                        <div>
-                          <h3 className="font-bold text-sm">{v.plate_number}</h3>
-                          <p className="text-xs text-stone-500 dark:text-stone-400">{v.model || v.vehicle_type || '—'}</p>
-                        </div>
+                        <span className={cn('px-2.5 py-1 rounded-lg text-xs font-medium', sc.bgColor, sc.color)}>
+                          {sc.label}
+                        </span>
+                        {v.has_logo && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">لوكو</span>
+                        )}
                       </div>
-                      <span className={cn('px-2.5 py-1 rounded-lg text-xs font-medium', sc.bgColor, sc.color)}>
-                        {sc.label}
-                      </span>
+                      {v.vehicle_type && (
+                        <span className="text-xs font-medium text-stone-500 dark:text-stone-400 bg-stone-100 dark:bg-stone-700 px-2.5 py-1 rounded-lg">
+                          {v.vehicle_type}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Main info: Driver name + plate */}
+                    <div className="mb-3">
+                      {v.assigned_driver_id && driverMap.has(v.assigned_driver_id) ? (
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                            <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-sm text-stone-900 dark:text-white">{driverMap.get(v.assigned_driver_id)}</h3>
+                            <p className="text-xs text-stone-500 dark:text-stone-400 font-medium tracking-wide">{v.plate_number}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="w-8 h-8 rounded-full bg-stone-100 dark:bg-stone-700 flex items-center justify-center">
+                            <Truck className="w-4 h-4 text-stone-500 dark:text-stone-400" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-sm text-stone-900 dark:text-white">{v.plate_number}</h3>
+                            <p className="text-xs text-stone-400 dark:text-stone-500">بدون سائق معيّن</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Quick info */}
                     <div className="flex flex-wrap gap-2 text-xs">
-                      {v.vehicle_type && (
-                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300">
-                          <Truck className="w-3 h-3" /> {v.vehicle_type}
-                        </span>
-                      )}
                       {v.color && (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300">
                           <Palette className="w-3 h-3" /> {v.color}
@@ -567,10 +575,11 @@ export default function Vehicles() {
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300">
                         <Gauge className="w-3 h-3" /> {v.odometer_km.toLocaleString()} كم
                       </span>
-                      <span className={cn('flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium',
-                        v.has_logo ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300')}>
-                        لوكو: {v.has_logo ? 'نعم' : 'لا'}
-                      </span>
+                      {!v.has_logo && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300">
+                          بدون لوكو
+                        </span>
+                      )}
                     </div>
 
                     {/* Alerts */}
@@ -596,13 +605,6 @@ export default function Vehicles() {
                             <Clock className="w-3.5 h-3.5" /> التأمين ينتهي قريباً ({v.insurance_expiry})
                           </div>
                         )}
-                      </div>
-                    )}
-
-                    {/* Driver */}
-                    {v.assigned_driver_id && driverMap.has(v.assigned_driver_id) && (
-                      <div className="mt-2 flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
-                        <User className="w-3.5 h-3.5" /> السائق: {driverMap.get(v.assigned_driver_id)}
                       </div>
                     )}
 
@@ -659,7 +661,7 @@ export default function Vehicles() {
                         <div className="p-4 space-y-3 text-xs">
                           <div className="grid grid-cols-2 gap-2">
                             <div><span className="text-stone-400">رقم الشاسي:</span> <span className="font-medium">{v.chassis_number || '—'}</span></div>
-                            <div><span className="text-stone-400">الموديل:</span> <span className="font-medium">{v.model || '—'}</span></div>
+                            <div><span className="text-stone-400">النوع:</span> <span className="font-medium">{v.vehicle_type || '—'}</span></div>
                             <div><span className="text-stone-400">الرخصة:</span> <span className={cn('font-medium', licenseExp ? 'text-red-600' : licenseSoon ? 'text-orange-600' : '')}>{v.license_expiry || '—'}</span></div>
                             <div><span className="text-stone-400">التأمين:</span> <span className={cn('font-medium', insuranceExp ? 'text-red-600' : insuranceSoon ? 'text-orange-600' : '')}>{v.insurance_expiry || '—'}</span></div>
                             <div><span className="text-stone-400">آخر تحديث:</span> <span className="font-medium">{new Date(v.updated_at).toLocaleDateString('ar-IQ')}</span></div>
