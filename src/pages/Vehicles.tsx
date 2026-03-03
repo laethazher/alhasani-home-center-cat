@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleStatus, StaffMember, ExitRequest } from '../lib/supabaseClient';
 
 /* ── Constants ── */
+const VEHICLE_TYPES = ['كانتر', 'كيا'];
 const FUEL_TYPES = ['ديزل', 'بنزين', 'كهربائي', 'هجين'];
 const COLORS = ['أبيض', 'أسود', 'فضي', 'أحمر', 'أزرق', 'أخضر', 'أصفر', 'رمادي', 'بني', 'برتقالي'];
 const MAINTENANCE_TYPES = ['صيانة دورية', 'تغيير زيت', 'تغيير إطارات', 'فحص فرامل', 'إصلاح محرك', 'كهرباء', 'بودي', 'أخرى'];
@@ -37,7 +38,7 @@ export default function Vehicles() {
   const [showForm, setShowForm] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [formData, setFormData] = useState({
-    plate_number: '', vehicle_type: '', color: '', year: '',
+    plate_number: '', vehicle_type: 'كانتر', color: '', year: '',
     chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available' as VehicleStatus,
     license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
     has_logo: false,
@@ -115,7 +116,7 @@ export default function Vehicles() {
     return map;
   }, [maintenance]);
 
-  const driverMap = useMemo(() => new Map(staff.map((s) => [s.id, s.full_name])), [staff]);
+  const driverMap = useMemo(() => new Map(staff.map((s) => [String(s.id), s.full_name])), [staff]);
 
   const usageByVehicle = useMemo(() => {
     const map = new Map<number, ExitRequest[]>();
@@ -130,7 +131,7 @@ export default function Vehicles() {
   /* ── Helpers ── */
   const resetForm = () => {
     setFormData({
-    plate_number: '', vehicle_type: '', color: '', year: '',
+    plate_number: '', vehicle_type: 'كانتر', color: '', year: '',
       chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available',
       license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
       has_logo: false,
@@ -149,7 +150,7 @@ export default function Vehicles() {
     setEditingVehicle(v);
     setFormData({
       plate_number: v.plate_number,
-      vehicle_type: v.vehicle_type || '',
+      vehicle_type: v.vehicle_type || 'كانتر',
       color: v.color || '',
       year: v.year ? String(v.year) : '',
       chassis_number: v.chassis_number || '',
@@ -174,7 +175,7 @@ export default function Vehicles() {
 
     const payload = {
       plate_number: formData.plate_number.trim(),
-      vehicle_type: formData.vehicle_type.trim() || null,
+      vehicle_type: formData.vehicle_type,
       color: formData.color || null,
       year: formData.year ? Number(formData.year) : null,
       chassis_number: formData.chassis_number.trim() || null,
@@ -346,9 +347,10 @@ export default function Vehicles() {
                   </div>
                   <div>
                     <label className="text-xs text-stone-500 mb-1 block">نوع المركبة</label>
-                    <input type="text" value={formData.vehicle_type}
-                      onChange={(e) => setFormData({ ...formData, vehicle_type: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: تويوتا هايلكس" />
+                    <select value={formData.vehicle_type} onChange={(e) => setFormData({ ...formData, vehicle_type: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm cursor-pointer">
+                      {VEHICLE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="text-xs text-stone-500 mb-1 block">اللون</label>
@@ -422,7 +424,7 @@ export default function Vehicles() {
                     <select value={formData.assigned_driver_id} onChange={(e) => setFormData({ ...formData, assigned_driver_id: e.target.value })}
                       className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm cursor-pointer">
                       <option value="">بدون تعيين</option>
-                      {staff.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                      {staff.map((s) => <option key={String(s.id)} value={String(s.id)}>{s.full_name}</option>)}
                     </select>
                   </div>
                 </div>
