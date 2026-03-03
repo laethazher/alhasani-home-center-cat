@@ -532,11 +532,18 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* ── Overdue alert notification ── */
   const prevOverdueIdsRef = useRef<Set<string>>(new Set());
+  const isInitialMountRef = useRef(true);
   useEffect(() => {
     const currentOverdue = new Set<string>();
     for (const req of requests) {
       const info = getOverdueInfo(req, now);
       if (info?.isOverdue) currentOverdue.add(req.id);
+    }
+    // On initial mount, just record current overdue without playing sound
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      prevOverdueIdsRef.current = currentOverdue;
+      return;
     }
     // Check for newly overdue
     for (const id of currentOverdue) {

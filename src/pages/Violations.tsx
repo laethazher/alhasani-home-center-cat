@@ -141,40 +141,48 @@ export default function Violations() {
       if (req.driver_id) {
         const dId = req.driver_id;
         const dName = req.driver_name || 'سائق';
-        // Driver is considered late if any assistant is still out and overdue,
-        // or if the whole exit is overdue (no returns tracking for driver specifically)
-        // We track driver violations based on the exit deadline vs now (if no assistants returned)
         const returns = req.assistant_returns || {};
-        const allReturned = req.assistant_ids.length === 0 || req.assistant_ids.every((id) => String(id) in returns);
-        
-        if (!allReturned) {
-          const delayMs = now.getTime() - deadline;
-          if (delayMs > 0) {
-            const delayMinutes = Math.floor(delayMs / (1000 * 60));
-            if (!map.has(dId)) {
-              map.set(dId, {
-                staffId: dId,
-                staffName: staffMap.get(dId)?.full_name || dName,
-                staffRole: 'driver',
-                totalViolations: 0,
-                totalDelayMinutes: 0,
-                records: [],
-              });
-            }
-            const entry = map.get(dId)!;
-            entry.totalViolations++;
-            entry.totalDelayMinutes += delayMinutes;
-            entry.records.push({
-              requestId: req.id,
-              exitDate: req.exited_at!,
-              exitReason: req.exit_reason,
-              allowedMinutes: req.exit_duration_minutes,
-              delayMinutes,
-              delayText: formatDelay(delayMinutes),
-              returned: allReturned,
-              returnedAt: null,
+        const driverReturnedAt = returns[dId];
+
+        let driverDelayMs = 0;
+        let driverIsViolation = false;
+
+        if (driverReturnedAt) {
+          // Driver returned — check if late
+          const returnTime = new Date(driverReturnedAt).getTime();
+          driverDelayMs = returnTime - deadline;
+          driverIsViolation = driverDelayMs > 0;
+        } else {
+          // Driver not returned yet — check if overdue
+          driverDelayMs = now.getTime() - deadline;
+          driverIsViolation = driverDelayMs > 0;
+        }
+
+        if (driverIsViolation) {
+          const delayMinutes = Math.floor(driverDelayMs / (1000 * 60));
+          if (!map.has(dId)) {
+            map.set(dId, {
+              staffId: dId,
+              staffName: staffMap.get(dId)?.full_name || dName,
+              staffRole: 'driver',
+              totalViolations: 0,
+              totalDelayMinutes: 0,
+              records: [],
             });
           }
+          const entry = map.get(dId)!;
+          entry.totalViolations++;
+          entry.totalDelayMinutes += delayMinutes;
+          entry.records.push({
+            requestId: req.id,
+            exitDate: req.exited_at!,
+            exitReason: req.exit_reason,
+            allowedMinutes: req.exit_duration_minutes,
+            delayMinutes,
+            delayText: formatDelay(delayMinutes),
+            returned: !!driverReturnedAt,
+            returnedAt: driverReturnedAt || null,
+          });
         }
       }
     }
