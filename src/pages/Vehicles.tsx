@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleStatus, StaffMember, ExitRequest } from '../lib/supabaseClient';
 
 /* ── Constants ── */
-const VEHICLE_TYPES = ['شاحنة', 'بيكب', 'ونيت', 'سيارة', 'باص', 'رافعة', 'أخرى'];
+const VEHICLE_TYPES = ['كانتر', 'كيا'];
 const FUEL_TYPES = ['ديزل', 'بنزين', 'كهربائي', 'هجين'];
 const COLORS = ['أبيض', 'أسود', 'فضي', 'أحمر', 'أزرق', 'أخضر', 'أصفر', 'رمادي', 'بني', 'برتقالي'];
 const MAINTENANCE_TYPES = ['صيانة دورية', 'تغيير زيت', 'تغيير إطارات', 'فحص فرامل', 'إصلاح محرك', 'كهرباء', 'بودي', 'أخرى'];
@@ -38,7 +38,7 @@ export default function Vehicles() {
   const [showForm, setShowForm] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [formData, setFormData] = useState({
-    plate_number: '', model: '', vehicle_type: 'شاحنة', color: '', year: '',
+    plate_number: '', model: '', vehicle_type: 'كانتر', color: '', year: '',
     chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available' as VehicleStatus,
     license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
   });
@@ -132,7 +132,7 @@ export default function Vehicles() {
   /* ── Helpers ── */
   const resetForm = () => {
     setFormData({
-      plate_number: '', model: '', vehicle_type: 'شاحنة', color: '', year: '',
+    plate_number: '', model: '', vehicle_type: 'كانتر', color: '', year: '',
       chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available',
       license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
     });
@@ -151,7 +151,7 @@ export default function Vehicles() {
     setFormData({
       plate_number: v.plate_number,
       model: v.model || '',
-      vehicle_type: v.vehicle_type || 'شاحنة',
+      vehicle_type: v.vehicle_type || 'كانتر',
       color: v.color || '',
       year: v.year ? String(v.year) : '',
       chassis_number: v.chassis_number || '',
