@@ -16,6 +16,9 @@ import {
   Users,
   Loader2,
   Trash2,
+  History,
+  ArrowRight,
+  Calendar,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -46,6 +49,40 @@ const playNotificationSound = () => {
     /* ignore */
   }
 };
+
+/* ── Date Helpers ── */
+function getDateKey(dateStr: string): string {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getTodayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getDayLabel(dateKey: string): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dateKey + 'T00:00:00');
+  const diffDays = Math.round((today.getTime() - target.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'اليوم';
+  if (diffDays === 1) return 'أمس';
+  if (diffDays === 2) return 'أول أمس';
+  return `تاريخ ${target.toLocaleDateString('ar-IQ', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+}
+
+function groupByDate(items: ExitRequest[]): { dateKey: string; label: string; requests: ExitRequest[] }[] {
+  const map = new Map<string, ExitRequest[]>();
+  items.forEach((r) => {
+    const key = getDateKey(r.created_at);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(r);
+  });
+  return Array.from(map.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([key, reqs]) => ({ dateKey: key, label: getDayLabel(key), requests: reqs }));
+}
 
 /* ── Status Config ── */
 const STATUS_CONFIG: Record<ExitRequestStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
@@ -311,6 +348,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [formNotes, setFormNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  /* Archive view */
+  const [showArchive, setShowArchive] = useState(false);
+
   /* Gate guard notification */
   const prevApprovedCount = useRef(0);
   const [flashNotification, setFlashNotification] = useState(false);
@@ -429,8 +469,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     await fetchRequests();
   };
 
-  /* ── Filtered requests ── */
-  const filtered = requests.filter((r) => {
+  /* ── Split today vs archive ── */
+  const todayKey = getTodayKey();
+  const todayRequests = requests.filter((r) => getDateKey(r.created_at) === todayKey);
+  const archiveRequests = requests.filter((r) => getDateKey(r.created_at) !== todayKey);
+  const archiveGroups = groupByDate(archiveRequests);
+
+  /* ── Filtered requests (today only) ── */
+  const filtered = todayRequests.filter((r) => {
     // Gate guard only sees approved
     if (isGateGuard && r.status !== 'approved') return false;
     // Status filter
@@ -447,12 +493,28 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     return true;
   });
 
-  /* ── Stats ── */
+  /* ── Filter archive by search ── */
+  const filteredArchiveGroups = archiveGroups.map((g) => ({
+    ...g,
+    requests: g.requests.filter((r) => {
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        return (
+          r.driver_name.toLowerCase().includes(term) ||
+          r.assistant_names.some((n) => n.toLowerCase().includes(term)) ||
+          (r.notes?.toLowerCase().includes(term) ?? false)
+        );
+      }
+      return true;
+    }),
+  })).filter((g) => g.requests.length > 0);
+
+  /* ── Stats (today only) ── */
   const stats = {
-    pending: requests.filter((r) => r.status === 'pending').length,
-    approved: requests.filter((r) => r.status === 'approved').length,
-    exited: requests.filter((r) => r.status === 'exited').length,
-    rejected: requests.filter((r) => r.status === 'rejected').length,
+    pending: todayRequests.filter((r) => r.status === 'pending').length,
+    approved: todayRequests.filter((r) => r.status === 'approved').length,
+    exited: todayRequests.filter((r) => r.status === 'exited').length,
+    rejected: todayRequests.filter((r) => r.status === 'rejected').length,
   };
 
   /* ── Loading ── */
@@ -482,6 +544,27 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
         <LiveClock />
       </div>
+
+      {/* ── Archive Toggle Button ── */}
+      {!isGateGuard && (
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setShowArchive(!showArchive)}
+          className={cn(
+            'w-full sm:w-auto flex items-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all',
+            showArchive
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25'
+              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800'
+          )}
+        >
+          {showArchive ? (
+            <><ArrowRight className="w-5 h-5" /> العودة لإخراجات اليوم</>
+          ) : (
+            <><History className="w-5 h-5" /> سجل إخراجات الكادر {archiveRequests.length > 0 && <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2 py-0.5 rounded-full text-xs">{archiveRequests.length}</span>}</>
+          )}
+        </motion.button>
+      )}
 
       {/* ── Gate Guard Notification Flash ── */}
       <AnimatePresence>
@@ -652,7 +735,92 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         </div>
       )}
 
-      {/* ── Requests List ── */}
+      {/* ── ARCHIVE VIEW ── */}
+      {showArchive && !isGateGuard && (
+        <div className="space-y-6">
+          {filteredArchiveGroups.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800/50 flex items-center justify-center mx-auto mb-4">
+                <History className="w-8 h-8 text-stone-400" />
+              </div>
+              <p className="text-stone-500 dark:text-stone-400 font-medium">لا توجد سجلات سابقة</p>
+            </div>
+          ) : (
+            filteredArchiveGroups.map((group) => (
+              <div key={group.dateKey} className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                    <Calendar className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="text-lg font-bold text-stone-900 dark:text-white">{group.label}</h3>
+                  <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2.5 py-0.5 rounded-full text-xs font-medium">{group.requests.length} طلب</span>
+                </div>
+                {group.requests.map((req, index) => (
+                  <motion.div
+                    key={req.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.03 }}
+                    className={cn(
+                      'bg-white dark:bg-stone-900 rounded-2xl p-5 shadow-sm border transition-all',
+                      req.status === 'pending' && 'border-red-200 dark:border-red-900/50',
+                      req.status === 'approved' && 'border-yellow-200 dark:border-yellow-900/50',
+                      req.status === 'exited' && 'border-emerald-200 dark:border-emerald-900/50',
+                      req.status === 'rejected' && 'border-stone-200 dark:border-stone-800',
+                    )}
+                  >
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <StatusBadge status={req.status} />
+                          <span className="text-xs text-stone-400">
+                            {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </span>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div>
+                            <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
+                            <p className="font-semibold text-stone-900 dark:text-white">{req.driver_name}</p>
+                          </div>
+                          <div>
+                            <span className="text-xs text-stone-500 dark:text-stone-400">المساعدين ({req.assistant_names.length})</span>
+                            <p className="text-sm text-stone-700 dark:text-stone-300">{req.assistant_names.length > 0 ? req.assistant_names.join(' ، ') : 'لا يوجد'}</p>
+                          </div>
+                        </div>
+                        {req.notes && (
+                          <div className="text-sm text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 px-3 py-2 rounded-lg">
+                            <span className="text-xs font-medium text-stone-400">ملاحظات:</span> {req.notes}
+                          </div>
+                        )}
+                        {req.exited_at && (
+                          <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </div>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleDelete(req.id)}
+                          className="p-2 rounded-xl text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                          title="حذف"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </motion.button>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── TODAY Requests List ── */}
+      {!showArchive && (
       <div className="space-y-3">
         {filtered.length === 0 ? (
           <div className="text-center py-20">
@@ -660,7 +828,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               <Users className="w-8 h-8 text-stone-400" />
             </div>
             <p className="text-stone-500 dark:text-stone-400 font-medium">
-              {isGateGuard ? 'لا توجد طلبات خروج معتمدة حالياً' : 'لا توجد طلبات خروج'}
+              {isGateGuard ? 'لا توجد طلبات خروج معتمدة حالياً' : 'لا توجد طلبات خروج لليوم'}
             </p>
           </div>
         ) : (
@@ -775,6 +943,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
           ))
         )}
       </div>
+      )}
     </div>
   );
 }
