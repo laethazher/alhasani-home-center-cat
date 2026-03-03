@@ -224,9 +224,10 @@ interface MultiSelectProps {
   onChange: (ids: string[]) => void;
   placeholder?: string;
   disabledInfo?: Map<string, string>;
+  violationCounts?: Map<string, number>;
 }
 
-function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اختر...', disabledInfo }: MultiSelectProps) {
+function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اختر...', disabledInfo, violationCounts }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -317,7 +318,15 @@ function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اخ�
                         {!isDisabled && selected && <Check className="w-3 h-3 text-white" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
+                          {!isDisabled && violationCounts?.has(m.id) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              {violationCounts.get(m.id)} مخالفة
+                            </span>
+                          )}
+                        </div>
                         {isDisabled && (
                           <div className="flex items-center gap-1 mt-0.5 text-xs text-amber-600 dark:text-amber-400">
                             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
@@ -345,9 +354,10 @@ interface SingleSelectProps {
   onChange: (id: string, name: string) => void;
   placeholder?: string;
   disabledInfo?: Map<string, string>;
+  violationCounts?: Map<string, number>;
 }
 
-function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اختر...', disabledInfo }: SingleSelectProps) {
+function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اختر...', disabledInfo, violationCounts }: SingleSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -440,7 +450,15 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
                       )}
                     >
                       <div className="flex-1 min-w-0">
-                        <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
+                          {!isDisabled && violationCounts?.has(m.id) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              {violationCounts.get(m.id)} مخالفة
+                            </span>
+                          )}
+                        </div>
                         {isDisabled && (
                           <div className="flex items-center gap-1 mt-0.5 text-xs text-amber-600 dark:text-amber-400">
                             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
@@ -748,6 +766,36 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     }
     return map;
   }, [todayRequests]);
+  /* ── Compute violation counts per staff ── */
+  const violationCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const req of requests) {
+      if (req.exit_type !== 'temporary' || !req.exited_at || !req.exit_duration_minutes || req.status !== 'exited') continue;
+      const exitedTime = new Date(req.exited_at).getTime();
+      const deadline = exitedTime + req.exit_duration_minutes * 60 * 1000;
+      const now = Date.now();
+      // Check assistants
+      for (const aId of req.assistant_ids) {
+        const returns = req.assistant_returns || {};
+        const returnedAt = returns[String(aId)];
+        if (returnedAt) {
+          if (new Date(returnedAt).getTime() > deadline) map.set(String(aId), (map.get(String(aId)) || 0) + 1);
+        } else {
+          if (now > deadline) map.set(String(aId), (map.get(String(aId)) || 0) + 1);
+        }
+      }
+      // Check driver
+      if (req.driver_id) {
+        const returns = req.assistant_returns || {};
+        const allReturned = req.assistant_ids.length === 0 || req.assistant_ids.every((id) => String(id) in returns);
+        if (!allReturned && now > deadline) {
+          map.set(req.driver_id, (map.get(req.driver_id) || 0) + 1);
+        }
+      }
+    }
+    return map;
+  }, [requests]);
+
   const archiveRequests = requests.filter((r) => getDateKey(r.created_at) !== todayKey);
   const archiveGroups = groupByDate(archiveRequests);
 
@@ -1081,6 +1129,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   onChange={(id, name) => { setFormDriverId(id); setFormDriverName(name); }}
                   placeholder="اختر السائق أو اتركه فارغاً..."
                   disabledInfo={usedStaffInfo}
+                  violationCounts={violationCounts}
                 />
                 <MultiSelect
                   label="المساعدين"
@@ -1089,6 +1138,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   onChange={setFormAssistantIds}
                   placeholder="اختر المساعدين..."
                   disabledInfo={usedStaffInfo}
+                  violationCounts={violationCounts}
                 />
               </div>
 

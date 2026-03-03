@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Reports from './pages/Reports';
 import Vehicles from './pages/Vehicles';
 import StaffExit from './pages/StaffExit';
+import Violations from './pages/Violations';
 import UsersManagement from './pages/UsersManagement';
 
 export default function App() {
@@ -78,6 +79,8 @@ export default function App() {
         return <Vehicles />;
       case 'staff-exit':
         return <StaffExit profile={profile} userId={user.id} />;
+      case 'violations':
+        return <Violations />;
       case 'users':
         return <UsersManagement />;
       case 'settings':

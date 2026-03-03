@@ -15,6 +15,7 @@ import {
   ArrowRight,
   UserCircle,
   DoorOpen,
+  Shield,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
@@ -26,6 +27,7 @@ export type PageKey =
   | 'vehicles'
   | 'reports'
   | 'staff-exit'
+  | 'violations'
   | 'users'
   | 'settings';
 
@@ -40,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard',  label: 'لوحة التحكم',      icon: LayoutDashboard, roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
   { key: 'vehicles',   label: 'جرد المركبات',      icon: Truck,           roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
   { key: 'staff-exit', label: 'إخراج الكادر',      icon: DoorOpen,        roles: 'all' },
+  { key: 'violations', label: 'سجل المخالفات',   icon: Shield,          roles: ['admin'] },
   { key: 'reports',    label: 'التقارير',           icon: FileText,        roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
   { key: 'users',      label: 'إدارة المستخدمين',  icon: UserCog,         roles: ['admin'] },
   { key: 'settings',   label: 'الإعدادات',          icon: Settings,        roles: ['admin'] },
