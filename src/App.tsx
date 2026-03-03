@@ -28,7 +28,15 @@ export default function App() {
     try { localStorage.setItem('darkMode', String(isDarkMode)); } catch { /* noop */ }
   }, [isDarkMode]);
 
-  /* ── Loading state ── */
+  /* Gate guard defaults to staff-exit page */
+  const role = profile?.role;
+  useEffect(() => {
+    if (role === 'gate_guard' && activePage === 'dashboard') {
+      setActivePage('staff-exit');
+    }
+  }, [role, activePage]);
+
+  /* Loading state */
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white dark:bg-stone-950">
@@ -44,18 +52,18 @@ export default function App() {
     );
   }
 
-  /* ── Not logged in ── */
+  /* Not logged in */
   if (!user || !profile) {
     return <LoginPage />;
   }
 
-  /* ── Authenticated ── */
-  const role = profile.role;
+  /* Authenticated */
 
-  /* Role-based page guard — redirect to dashboard if unauthorized */
+  /* Role-based page guard */
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
+    if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
     return activePage;
   })();
 
@@ -68,7 +76,7 @@ export default function App() {
       case 'vehicles':
         return <Vehicles />;
       case 'staff-exit':
-        return <StaffExit />;
+        return <StaffExit profile={profile} userId={user.id} />;
       case 'users':
         return <UsersManagement />;
       case 'settings':
