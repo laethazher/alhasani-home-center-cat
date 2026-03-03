@@ -87,12 +87,11 @@ const playOverdueAlertSound = () => {
 /* ── Overdue Helper ── */
 function getOverdueInfo(req: ExitRequest, now: Date): { isOverdue: boolean; delayMinutes: number; delayText: string } | null {
   if (req.exit_type !== 'temporary' || !req.exit_duration_minutes || !req.exited_at || req.status !== 'exited') return null;
-  // Check if ALL assistants have returned
-  if (req.assistant_ids.length > 0) {
-    const returns = req.assistant_returns || {};
-    const allReturned = req.assistant_ids.every((id) => String(id) in returns);
-    if (allReturned) return null;
-  }
+  // Check if ALL staff (driver + assistants) have returned
+  const returns = req.assistant_returns || {};
+  const allAssistantsReturned = req.assistant_ids.length === 0 || req.assistant_ids.every((id) => String(id) in returns);
+  const driverReturned = !req.driver_id || (req.driver_id in returns);
+  if (allAssistantsReturned && driverReturned) return null;
   const exitedTime = new Date(req.exited_at).getTime();
   const allowedMs = req.exit_duration_minutes * 60 * 1000;
   const deadline = exitedTime + allowedMs;
@@ -683,11 +682,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     await fetchRequests();
   };
 
-  const handleConfirmReturn = async (requestId: string, assistantId: string) => {
+  const handleConfirmReturn = async (requestId: string, staffId: string) => {
     const request = requests.find((r) => r.id === requestId);
     if (!request) return;
     const currentReturns = request.assistant_returns || {};
-    const updatedReturns = { ...currentReturns, [String(assistantId)]: new Date().toISOString() };
+    const updatedReturns = { ...currentReturns, [String(staffId)]: new Date().toISOString() };
     await supabase
       .from('exit_requests')
       .update({ assistant_returns: updatedReturns })
@@ -787,9 +786,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       // Check driver
       if (req.driver_id) {
         const returns = req.assistant_returns || {};
-        const allReturned = req.assistant_ids.length === 0 || req.assistant_ids.every((id) => String(id) in returns);
-        if (!allReturned && now > deadline) {
-          map.set(req.driver_id, (map.get(req.driver_id) || 0) + 1);
+        const driverReturnedAt = returns[req.driver_id];
+        if (driverReturnedAt) {
+          if (new Date(driverReturnedAt).getTime() > deadline) map.set(req.driver_id, (map.get(req.driver_id) || 0) + 1);
+        } else {
+          if (now > deadline) map.set(req.driver_id, (map.get(req.driver_id) || 0) + 1);
         }
       }
     }
@@ -805,10 +806,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     if (isGateGuard) {
       if (r.status === 'approved') { /* show */ }
       else if (r.status === 'exited') {
-        if (r.assistant_ids.length === 0) return false;
+        if (r.exit_type !== 'temporary') return false;
         const returns = r.assistant_returns || {};
-        const allReturned = r.assistant_ids.every((id) => String(id) in returns);
-        if (allReturned) return false;
+        const allAssistantsReturned = r.assistant_ids.length === 0 || r.assistant_ids.every((id) => String(id) in returns);
+        const driverReturned = !r.driver_id || (r.driver_id in returns);
+        if (allAssistantsReturned && driverReturned) return false;
       } else {
         return false;
       }
@@ -1323,9 +1325,26 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                           </div>
                         )}
-                        {/* Archive: show assistant return summary — temporary only */}
-                        {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_ids.length > 0 && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
+                        {/* Archive: show return summary — temporary only */}
+                        {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-1">
+                            {/* Driver return badge */}
+                            {req.driver_id && (() => {
+                              const returnedAt = (req.assistant_returns || {})[req.driver_id!];
+                              return (
+                                <span className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
+                                  returnedAt
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
+                                )}>
+                                  {returnedAt ? <CheckCircle2 className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
+                                  {req.driver_name} (سائق)
+                                  {returnedAt && req.exited_at && ` (${formatDuration(req.exited_at, returnedAt)})`}
+                                </span>
+                              );
+                            })()}
+                            {/* Assistant return badges */}
                             {req.assistant_ids.map((aId, i) => {
                               const aName = req.assistant_names[i] || 'مساعد';
                               const returnedAt = (req.assistant_returns || {})[String(aId)];
@@ -1487,7 +1506,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   )}
 
                   {/* ── Assistant Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
-                  {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_ids.length > 0 && (
+                  {req.status === 'exited' && req.exit_type === 'temporary' && (req.driver_id || req.assistant_ids.length > 0) && (
                     <div className={cn(
                       'mt-3 p-3 rounded-xl border',
                       getOverdueInfo(req, now)?.isOverdue
@@ -1501,9 +1520,73 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           : 'text-stone-600 dark:text-stone-400'
                       )}>
                         <RotateCcw className="w-3.5 h-3.5" />
-                        تأكيد عودة المساعدين
+                        تأكيد العودة
                       </p>
                       <div className="space-y-2">
+                        {/* Driver return confirmation */}
+                        {req.driver_id && (() => {
+                          const returns = req.assistant_returns || {};
+                          const returnedAt = returns[req.driver_id!];
+                          const hasReturned = !!returnedAt;
+                          const overdueNow = !hasReturned ? getOverdueInfo(req, now) : null;
+                          const isDriverOverdue = overdueNow?.isOverdue;
+                          return (
+                            <div className={cn(
+                              'flex items-center justify-between gap-3 px-3 py-2 rounded-lg',
+                              hasReturned
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                                : isDriverOverdue
+                                  ? 'bg-red-50 dark:bg-red-900/20'
+                                  : 'bg-amber-50 dark:bg-amber-900/20'
+                            )}>
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                {hasReturned ? (
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                                ) : isDriverOverdue ? (
+                                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 animate-pulse" />
+                                ) : (
+                                  <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 animate-pulse" />
+                                )}
+                                <span className={cn(
+                                  'text-sm font-medium truncate',
+                                  hasReturned ? 'text-emerald-800 dark:text-emerald-300'
+                                    : isDriverOverdue ? 'text-red-800 dark:text-red-300'
+                                    : 'text-amber-800 dark:text-amber-300'
+                                )}>
+                                  {req.driver_name} <span className="text-xs opacity-70">(سائق)</span>
+                                </span>
+                                {hasReturned && req.exited_at && (
+                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+                                    ({formatDuration(req.exited_at, returnedAt)})
+                                  </span>
+                                )}
+                                {!hasReturned && req.exited_at && (
+                                  <span className={cn(
+                                    'text-xs flex-shrink-0',
+                                    isDriverOverdue ? 'text-red-600 dark:text-red-400 font-bold' : 'text-amber-600 dark:text-amber-400'
+                                  )}>
+                                    {isDriverOverdue
+                                      ? `متأخر — ${overdueNow.delayText}`
+                                      : `مازال خارج — ${formatDuration(req.exited_at, now.toISOString())}`
+                                    }
+                                  </span>
+                                )}
+                              </div>
+                              {!hasReturned && isGateGuard && (
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => handleConfirmReturn(req.id, req.driver_id!)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-sm flex-shrink-0"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  تأكيد العودة
+                                </motion.button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {/* Assistant return confirmations */}
                         {req.assistant_ids.map((aId, i) => {
                           const aName = req.assistant_names[i] || 'مساعد';
                           const returns = req.assistant_returns || {};
