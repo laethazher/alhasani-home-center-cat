@@ -108,6 +108,11 @@ export default function Reports({ userId }: ReportsProps) {
       return;
     }
 
+    if (!driverSignature) {
+      alert('يرجى إضافة توقيع السائق');
+      return;
+    }
+
     const payload = {
       driverName,
       truckNumber,
@@ -119,7 +124,7 @@ export default function Reports({ userId }: ReportsProps) {
       driverSignature,
       equipmentManagerSignature,
       logisticsManagerSignature,
-      warehouseManagerSignature,
+      warehouseManagerSignature
     };
 
     console.log("Payload size:", JSON.stringify(payload).length);
@@ -135,10 +140,10 @@ export default function Reports({ userId }: ReportsProps) {
         inspection_values: inspectionValues,
         tool_values: toolValues,
         tool_images: toolImages,
-        driver_signature: driverSignature || null,
-        equipment_manager: equipmentManagerSignature || null,
-        logistics_manager: logisticsManagerSignature || null,
-        warehouse_manager: warehouseManagerSignature || null,
+        driver_signature: driverSignature,
+        equipment_manager: equipmentManagerSignature,
+        logistics_manager: logisticsManagerSignature,
+        warehouse_manager: warehouseManagerSignature,
       });
 
       if (error) throw error;
