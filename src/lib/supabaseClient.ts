@@ -42,6 +42,10 @@ export interface ExitRequest {
   assistant_names: string[];
   status: ExitRequestStatus;
   notes: string | null;
+  exit_reason: string | null;
+  vehicle_id: number | null;
+  vehicle_plate: string | null;
+  assistant_returns: Record<string, string> | null;
   created_by: string;
   approved_at: string | null;
   approved_by: string | null;

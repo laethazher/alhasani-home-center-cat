@@ -20,14 +20,23 @@ import {
   ArrowRight,
   Calendar,
   AlertTriangle,
+  Truck,
+  RotateCcw,
+  Timer,
+  FileText,
+  Download,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import type {
   UserProfile,
   StaffMember,
   ExitRequest,
   ExitRequestStatus,
+  Vehicle,
 } from '../lib/supabaseClient';
 
 /* ── Notification Sound ── */
@@ -83,6 +92,27 @@ function groupByDate(items: ExitRequest[]): { dateKey: string; label: string; re
   return Array.from(map.entries())
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([key, reqs]) => ({ dateKey: key, label: getDayLabel(key), requests: reqs }));
+}
+
+/* ── Exit Reasons ── */
+const EXIT_REASONS = [
+  'توصيل بضاعة',
+  'نقل بضاعة',
+  'جلب بضاعة',
+  'صيانة مركبة',
+  'مهمة إدارية',
+  'أخرى',
+] as const;
+
+/* ── Duration Helper ── */
+function formatDuration(from: string, to: string): string {
+  const diff = new Date(to).getTime() - new Date(from).getTime();
+  if (diff < 0) return '—';
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours > 0) return `${hours} ساعة${minutes > 0 ? ` و ${minutes} دقيقة` : ''}`;
+  if (minutes > 0) return `${minutes} دقيقة`;
+  return 'أقل من دقيقة';
 }
 
 /* ── Status Config ── */
@@ -379,12 +409,18 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExitRequestStatus | 'all'>('all');
 
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+
   /* Create form */
   const [showForm, setShowForm] = useState(false);
   const [formDriverId, setFormDriverId] = useState('');
   const [formDriverName, setFormDriverName] = useState('');
   const [formAssistantIds, setFormAssistantIds] = useState<string[]>([]);
   const [formNotes, setFormNotes] = useState('');
+  const [formExitReason, setFormExitReason] = useState('');
+  const [formCustomReason, setFormCustomReason] = useState('');
+  const [formVehicleId, setFormVehicleId] = useState<string>('');
+  const [formVehiclePlate, setFormVehiclePlate] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   /* Archive view */
@@ -428,9 +464,17 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     }
   }, []);
 
+  const fetchVehicles = useCallback(async () => {
+    const { data } = await supabase
+      .from('vehicles')
+      .select('*')
+      .order('plate_number');
+    if (data) setVehicles(data);
+  }, []);
+
   useEffect(() => {
-    Promise.all([fetchRequests(), fetchStaff()]).finally(() => setLoadingData(false));
-  }, [fetchRequests, fetchStaff]);
+    Promise.all([fetchRequests(), fetchStaff(), fetchVehicles()]).finally(() => setLoadingData(false));
+  }, [fetchRequests, fetchStaff, fetchVehicles]);
 
   /* Real-time subscription */
   useEffect(() => {
@@ -458,12 +502,17 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       .filter((a) => formAssistantIds.includes(a.id))
       .map((a) => a.full_name);
 
+    const finalReason = formExitReason === 'أخرى' ? formCustomReason : formExitReason;
+
     const { error } = await supabase.from('exit_requests').insert({
       driver_id: formDriverId,
       driver_name: formDriverName,
       assistant_ids: formAssistantIds,
       assistant_names: assistantNames,
       notes: formNotes || null,
+      exit_reason: finalReason || null,
+      vehicle_id: formVehicleId ? Number(formVehicleId) : null,
+      vehicle_plate: formVehiclePlate || null,
       created_by: userId,
       status: 'pending',
     });
@@ -474,6 +523,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       setFormDriverName('');
       setFormAssistantIds([]);
       setFormNotes('');
+      setFormExitReason('');
+      setFormCustomReason('');
+      setFormVehicleId('');
+      setFormVehiclePlate('');
       await fetchRequests();
     }
     setSubmitting(false);
@@ -508,6 +561,61 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     await fetchRequests();
   };
 
+  const handleConfirmReturn = async (requestId: string, assistantId: string) => {
+    const request = requests.find((r) => r.id === requestId);
+    if (!request) return;
+    const currentReturns = request.assistant_returns || {};
+    const updatedReturns = { ...currentReturns, [String(assistantId)]: new Date().toISOString() };
+    await supabase
+      .from('exit_requests')
+      .update({ assistant_returns: updatedReturns })
+      .eq('id', requestId);
+    await fetchRequests();
+  };
+
+  /* ── Export Functions ── */
+  const getExportData = (reqs: ExitRequest[]) => reqs.map((r) => ({
+    'الحالة': STATUS_CONFIG[r.status].label,
+    'السائق': r.driver_name,
+    'المساعدين': r.assistant_names.join(' ، ') || 'لا يوجد',
+    'سبب الخروج': r.exit_reason || '—',
+    'المركبة': r.vehicle_plate || '—',
+    'ملاحظات': r.notes || '—',
+    'تاريخ الإنشاء': new Date(r.created_at).toLocaleString('ar-IQ'),
+    'تاريخ المغادرة': r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
+  }));
+
+  const exportExcel = (reqs: ExitRequest[], filename: string) => {
+    const data = getExportData(reqs);
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'إخراجات الكادر');
+    XLSX.writeFile(wb, `${filename}.xlsx`);
+  };
+
+  const exportPDF = (reqs: ExitRequest[], filename: string) => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const columns = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
+    const rows = reqs.map((r) => [
+      STATUS_CONFIG[r.status].label,
+      r.driver_name,
+      r.assistant_names.join(' ، ') || 'لا يوجد',
+      r.exit_reason || '—',
+      r.vehicle_plate || '—',
+      new Date(r.created_at).toLocaleString('ar-IQ'),
+      r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
+    ]);
+    doc.setFont('Helvetica');
+    autoTable(doc, {
+      head: [columns],
+      body: rows,
+      styles: { font: 'Helvetica', fontSize: 8, halign: 'right' },
+      headStyles: { fillColor: [16, 185, 129], halign: 'right' },
+      margin: { top: 15 },
+    });
+    doc.save(`${filename}.pdf`);
+  };
+
   /* ── Split today vs archive ── */
   const todayKey = getTodayKey();
   const todayRequests = requests.filter((r) => getDateKey(r.created_at) === todayKey);
@@ -539,8 +647,18 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* ── Filtered requests (today only) ── */
   const filtered = todayRequests.filter((r) => {
-    // Gate guard only sees approved
-    if (isGateGuard && r.status !== 'approved') return false;
+    // Gate guard sees approved + exited (with unconfirmed returns)
+    if (isGateGuard) {
+      if (r.status === 'approved') { /* show */ }
+      else if (r.status === 'exited') {
+        if (r.assistant_ids.length === 0) return false;
+        const returns = r.assistant_returns || {};
+        const allReturned = r.assistant_ids.every((id) => String(id) in returns);
+        if (allReturned) return false;
+      } else {
+        return false;
+      }
+    }
     // Status filter
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     // Search
@@ -607,8 +725,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         <LiveClock />
       </div>
 
-      {/* ── Archive Toggle Button ── */}
+      {/* ── Archive Toggle & Export Buttons ── */}
       {!isGateGuard && (
+        <div className="flex flex-wrap gap-3">
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
@@ -626,6 +745,39 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             <><History className="w-5 h-5" /> سجل إخراجات الكادر {archiveRequests.length > 0 && <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2 py-0.5 rounded-full text-xs">{archiveRequests.length}</span>}</>
           )}
         </motion.button>
+
+        {/* Export Buttons */}
+        {isAdmin && (
+          <>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                const data = showArchive ? archiveRequests : todayRequests;
+                const name = showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
+                exportExcel(data, name);
+              }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-medium text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all"
+            >
+              <Download className="w-4 h-4" />
+              تصدير Excel
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                const data = showArchive ? archiveRequests : todayRequests;
+                const name = showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
+                exportPDF(data, name);
+              }}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-medium text-sm hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
+            >
+              <Download className="w-4 h-4" />
+              تصدير PDF
+            </motion.button>
+          </>
+        )}
+        </div>
       )}
 
       {/* ── Gate Guard Notification Flash ── */}
@@ -765,6 +917,61 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 />
               </div>
 
+              {/* Exit Reason & Vehicle */}
+              <div className="grid md:grid-cols-2 gap-6 mt-4">
+                {/* Exit Reason */}
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <FileText className="w-4 h-4 inline ml-1" />
+                    سبب الخروج
+                  </label>
+                  <select
+                    value={formExitReason}
+                    onChange={(e) => setFormExitReason(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white"
+                  >
+                    <option value="">اختر السبب...</option>
+                    {EXIT_REASONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  {formExitReason === 'أخرى' && (
+                    <input
+                      type="text"
+                      value={formCustomReason}
+                      onChange={(e) => setFormCustomReason(e.target.value)}
+                      placeholder="اكتب السبب..."
+                      className="w-full mt-2 px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white placeholder:text-stone-400"
+                    />
+                  )}
+                </div>
+
+                {/* Vehicle Selector */}
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <Truck className="w-4 h-4 inline ml-1" />
+                    المركبة
+                  </label>
+                  <select
+                    value={formVehicleId}
+                    onChange={(e) => {
+                      const vId = e.target.value;
+                      setFormVehicleId(vId);
+                      const v = vehicles.find((v) => String(v.id) === vId);
+                      setFormVehiclePlate(v ? `${v.plate_number}${v.model ? ' - ' + v.model : ''}` : '');
+                    }}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white"
+                  >
+                    <option value="">اختر المركبة...</option>
+                    {vehicles.map((v) => (
+                      <option key={v.id} value={String(v.id)}>
+                        {v.plate_number}{v.model ? ` - ${v.model}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div className="mt-4">
                 <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">ملاحظات (اختياري)</label>
                 <textarea
@@ -851,6 +1058,22 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             <p className="text-sm text-stone-700 dark:text-stone-300">{req.assistant_names.length > 0 ? req.assistant_names.join(' ، ') : 'لا يوجد'}</p>
                           </div>
                         </div>
+                        {(req.exit_reason || req.vehicle_plate) && (
+                          <div className="flex flex-wrap gap-2">
+                            {req.exit_reason && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">
+                                <FileText className="w-3 h-3" />
+                                {req.exit_reason}
+                              </span>
+                            )}
+                            {req.vehicle_plate && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300">
+                                <Truck className="w-3 h-3" />
+                                {req.vehicle_plate}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {req.notes && (
                           <div className="text-sm text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 px-3 py-2 rounded-lg">
                             <span className="text-xs font-medium text-stone-400">ملاحظات:</span> {req.notes}
@@ -860,6 +1083,27 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </div>
+                        )}
+                        {/* Archive: show assistant return summary */}
+                        {req.status === 'exited' && req.assistant_ids.length > 0 && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {req.assistant_ids.map((aId, i) => {
+                              const aName = req.assistant_names[i] || 'مساعد';
+                              const returnedAt = (req.assistant_returns || {})[String(aId)];
+                              return (
+                                <span key={aId} className={cn(
+                                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
+                                  returnedAt
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                                    : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
+                                )}>
+                                  {returnedAt ? <CheckCircle2 className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
+                                  {aName}
+                                  {returnedAt && req.exited_at && ` (${formatDuration(req.exited_at, returnedAt)})`}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -936,6 +1180,24 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     </div>
                   </div>
 
+                  {/* Exit Reason & Vehicle */}
+                  {(req.exit_reason || req.vehicle_plate) && (
+                    <div className="flex flex-wrap gap-3">
+                      {req.exit_reason && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">
+                          <FileText className="w-3 h-3" />
+                          {req.exit_reason}
+                        </span>
+                      )}
+                      {req.vehicle_plate && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300">
+                          <Truck className="w-3 h-3" />
+                          {req.vehicle_plate}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {req.notes && (
                     <div className="text-sm text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 px-3 py-2 rounded-lg">
                       <span className="text-xs font-medium text-stone-400">ملاحظات:</span> {req.notes}
@@ -946,6 +1208,68 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     <div className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+                    </div>
+                  )}
+
+                  {/* ── Assistant Return Confirmation (Gate Guard + Admin view) ── */}
+                  {req.status === 'exited' && req.assistant_ids.length > 0 && (
+                    <div className="mt-3 p-3 rounded-xl bg-stone-50 dark:bg-stone-800/50 border border-stone-200 dark:border-stone-700">
+                      <p className="text-xs font-semibold text-stone-600 dark:text-stone-400 mb-2 flex items-center gap-1.5">
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        تأكيد عودة المساعدين
+                      </p>
+                      <div className="space-y-2">
+                        {req.assistant_ids.map((aId, i) => {
+                          const aName = req.assistant_names[i] || 'مساعد';
+                          const returns = req.assistant_returns || {};
+                          const returnedAt = returns[String(aId)];
+                          const hasReturned = !!returnedAt;
+
+                          return (
+                            <div key={aId} className={cn(
+                              'flex items-center justify-between gap-3 px-3 py-2 rounded-lg',
+                              hasReturned
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                                : 'bg-amber-50 dark:bg-amber-900/20'
+                            )}>
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                {hasReturned ? (
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                                ) : (
+                                  <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 animate-pulse" />
+                                )}
+                                <span className={cn(
+                                  'text-sm font-medium truncate',
+                                  hasReturned ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-800 dark:text-amber-300'
+                                )}>
+                                  {aName}
+                                </span>
+                                {hasReturned && req.exited_at && (
+                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+                                    ({formatDuration(req.exited_at, returnedAt)})
+                                  </span>
+                                )}
+                                {!hasReturned && req.exited_at && (
+                                  <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0">
+                                    مازال خارج — {formatDuration(req.exited_at, new Date().toISOString())}
+                                  </span>
+                                )}
+                              </div>
+                              {!hasReturned && isGateGuard && (
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => handleConfirmReturn(req.id, String(aId))}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-sm flex-shrink-0"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  تأكيد العودة
+                                </motion.button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>

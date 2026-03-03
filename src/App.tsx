@@ -36,7 +36,7 @@ export default function App() {
     }
   }, [role, activePage]);
 
-  /* Loading state */
+  /* ── Loading state ── */
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white dark:bg-stone-950">
@@ -52,17 +52,18 @@ export default function App() {
     );
   }
 
-  /* Not logged in */
+  /* ── Not logged in ── */
   if (!user || !profile) {
     return <LoginPage />;
   }
 
-  /* Authenticated */
+  /* ── Authenticated ── */
 
-  /* Role-based page guard */
+  /* Role-based page guard — redirect to dashboard if unauthorized */
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
+    // Gate guard can only access staff-exit and dashboard
     if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
     return activePage;
   })();
