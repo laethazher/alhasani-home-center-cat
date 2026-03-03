@@ -56,8 +56,8 @@ export default function DashboardCard({
 
       {/* Text */}
       <div className="relative z-10">
-        <h3 className="text-lg font-bold mb-1">{title}</h3>
-        <p className="text-sm text-stone-500 dark:text-stone-400 leading-relaxed">
+        <h3 className="text-lg font-bold mb-1 text-stone-900 dark:text-white">{title}</h3>
+        <p className="text-sm text-stone-500 dark:text-stone-300 leading-relaxed">
           {description}
         </p>
       </div>

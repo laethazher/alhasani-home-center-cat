@@ -282,7 +282,7 @@ export default function Layout({
               </motion.button>
             )}
 
-            <h1 className="text-lg font-bold hidden sm:block">
+            <h1 className="text-lg font-bold hidden sm:block text-stone-900 dark:text-white">
               {visibleItems.find((i) => i.key === activePage)?.label ?? 'لوحة التحكم'}
             </h1>
           </div>
@@ -314,8 +314,8 @@ export default function Layout({
         </main>
 
         {/* Watermark */}
-        <div className="text-[10px] text-stone-400/50 dark:text-stone-600/50 text-center py-1 select-none">
-          Created by LaethAlkawaz & Mohammed Ibrahim
+        <div className="text-[11px] text-stone-400 dark:text-stone-500 text-center py-2 select-none">
+          Created by LaethAlkawaz &amp; Mohammed Ibrahim
         </div>
       </div>
     </div>

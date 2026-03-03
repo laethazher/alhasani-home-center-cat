@@ -70,10 +70,10 @@ export default function Dashboard({ profile, onNavigate }: DashboardProps) {
     <div className="space-y-8">
       {/* Welcome */}
       <div>
-        <h2 className="text-2xl md:text-3xl font-extrabold">
+        <h2 className="text-2xl md:text-3xl font-extrabold text-stone-900 dark:text-white">
           مرحباً بك في Alhasani Home Center Logistics 👋
         </h2>
-        <p className="text-stone-500 dark:text-stone-400 mt-1">
+        <p className="text-stone-500 dark:text-stone-300 mt-1">
           اختر أحد الأقسام للبدء
         </p>
       </div>
