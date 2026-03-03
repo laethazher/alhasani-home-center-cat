@@ -207,7 +207,10 @@ export default function Vehicles() {
 
   /* ── Delete vehicle ── */
   const handleDelete = async (id: number) => {
-    await supabase.from('vehicles').delete().eq('id', id);
+    const { error } = await supabase.from('vehicles').delete().eq('id', id);
+    if (error) {
+      alert('فشل حذف المركبة: ' + error.message);
+    }
     setDeleteConfirm(null);
     await fetchData();
   };
