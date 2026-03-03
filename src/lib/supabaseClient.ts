@@ -34,15 +34,19 @@ export interface StaffMember {
 
 export type ExitRequestStatus = 'pending' | 'approved' | 'rejected' | 'exited';
 
+export type ExitType = 'permanent' | 'temporary';
+
 export interface ExitRequest {
   id: string;
-  driver_id: string;
+  driver_id: string | null;
   driver_name: string;
   assistant_ids: string[];
   assistant_names: string[];
   status: ExitRequestStatus;
   notes: string | null;
   exit_reason: string | null;
+  exit_type: ExitType;
+  exit_duration_minutes: number | null;
   vehicle_id: number | null;
   vehicle_plate: string | null;
   assistant_returns: Record<string, string> | null;

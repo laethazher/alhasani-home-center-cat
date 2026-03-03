@@ -36,6 +36,7 @@ import type {
   StaffMember,
   ExitRequest,
   ExitRequestStatus,
+  ExitType,
   Vehicle,
 } from '../lib/supabaseClient';
 
@@ -102,6 +103,20 @@ const EXIT_REASONS = [
   'صيانة مركبة',
   'مهمة إدارية',
   'أخرى',
+] as const;
+
+/* ── Exit Duration Options (minutes) ── */
+const EXIT_DURATION_OPTIONS = [
+  { value: 5,   label: '5 دقائق' },
+  { value: 10,  label: '10 دقائق' },
+  { value: 15,  label: '15 دقيقة' },
+  { value: 20,  label: '20 دقيقة' },
+  { value: 30,  label: '30 دقيقة' },
+  { value: 45,  label: '45 دقيقة' },
+  { value: 60,  label: 'ساعة' },
+  { value: 90,  label: 'ساعة ونص' },
+  { value: 120, label: 'ساعتين' },
+  { value: 180, label: '3 ساعات' },
 ] as const;
 
 /* ── Duration Helper ── */
@@ -340,6 +355,17 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
               </div>
             </div>
             <div className="overflow-y-auto max-h-44 p-1">
+              {/* Clear selection option */}
+              {selectedId && (
+                <button
+                  type="button"
+                  onClick={() => { onChange('', ''); setOpen(false); setSearch(''); }}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 mb-1 border-b border-stone-100 dark:border-stone-700"
+                >
+                  <X className="w-4 h-4" />
+                  إزالة الاختيار
+                </button>
+              )}
               {filtered.length === 0 ? (
                 <div className="text-center text-sm text-stone-400 py-4">لا توجد نتائج</div>
               ) : (
@@ -421,6 +447,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [formCustomReason, setFormCustomReason] = useState('');
   const [formVehicleId, setFormVehicleId] = useState<string>('');
   const [formVehiclePlate, setFormVehiclePlate] = useState('');
+  const [formExitType, setFormExitType] = useState<ExitType>('permanent');
+  const [formDurationMinutes, setFormDurationMinutes] = useState<number>(30);
   const [submitting, setSubmitting] = useState(false);
 
   /* Archive view */
@@ -496,7 +524,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* ── Actions ── */
   const handleCreate = async () => {
-    if (!formDriverId) return;
+    if (!formDriverId && formAssistantIds.length === 0) return;
     setSubmitting(true);
     const assistantNames = assistants
       .filter((a) => formAssistantIds.includes(a.id))
@@ -505,12 +533,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     const finalReason = formExitReason === 'أخرى' ? formCustomReason : formExitReason;
 
     const { error } = await supabase.from('exit_requests').insert({
-      driver_id: formDriverId,
-      driver_name: formDriverName,
+      driver_id: formDriverId || null,
+      driver_name: formDriverName || '',
       assistant_ids: formAssistantIds,
       assistant_names: assistantNames,
       notes: formNotes || null,
       exit_reason: finalReason || null,
+      exit_type: formExitType,
+      exit_duration_minutes: formExitType === 'temporary' ? formDurationMinutes : null,
       vehicle_id: formVehicleId ? Number(formVehicleId) : null,
       vehicle_plate: formVehiclePlate || null,
       created_by: userId,
@@ -527,6 +557,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       setFormCustomReason('');
       setFormVehicleId('');
       setFormVehiclePlate('');
+      setFormExitType('permanent');
+      setFormDurationMinutes(30);
       await fetchRequests();
     }
     setSubmitting(false);
@@ -576,7 +608,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   /* ── Export Functions ── */
   const getExportData = (reqs: ExitRequest[]) => reqs.map((r) => ({
     'الحالة': STATUS_CONFIG[r.status].label,
-    'السائق': r.driver_name,
+    'نوع الخروج': r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
+    'السائق': r.driver_name || '—',
     'المساعدين': r.assistant_names.join(' ، ') || 'لا يوجد',
     'سبب الخروج': r.exit_reason || '—',
     'المركبة': r.vehicle_plate || '—',
@@ -628,15 +661,16 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       const d = new Date(req.created_at);
       const time = d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
       const date = d.toLocaleDateString('ar-IQ');
-      // Mark driver as used
-      if (!map.has(req.driver_id)) {
+      // Mark driver as used (if present)
+      if (req.driver_id && !map.has(req.driver_id)) {
         map.set(req.driver_id, `خرج بتاريخ ${date} الساعة ${time}`);
       }
       // Mark each assistant as used
       for (let i = 0; i < req.assistant_ids.length; i++) {
         const aId = req.assistant_ids[i];
         if (!map.has(aId)) {
-          map.set(aId, `خرج مع السائق ${req.driver_name} بتاريخ ${date} الساعة ${time}`);
+          const withDriver = req.driver_name ? ` مع السائق ${req.driver_name}` : '';
+          map.set(aId, `خرج${withDriver} بتاريخ ${date} الساعة ${time}`);
         }
       }
     }
@@ -898,13 +932,82 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 </button>
               </div>
 
+              {/* ── Exit Type Toggle ── */}
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-2">نوع الخروج</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormExitType('permanent')}
+                    className={cn(
+                      'flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl border-2 text-sm font-bold transition-all',
+                      formExitType === 'permanent'
+                        ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 shadow-md shadow-blue-600/10'
+                        : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-500 dark:text-stone-400 hover:border-stone-300 dark:hover:border-stone-600'
+                    )}
+                  >
+                    <DoorOpen className="w-5 h-5" />
+                    خروج دائم
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormExitType('temporary')}
+                    className={cn(
+                      'flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl border-2 text-sm font-bold transition-all',
+                      formExitType === 'temporary'
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 shadow-md shadow-amber-500/10'
+                        : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-500 dark:text-stone-400 hover:border-stone-300 dark:hover:border-stone-600'
+                    )}
+                  >
+                    <Timer className="w-5 h-5" />
+                    خروج مؤقت
+                  </button>
+                </div>
+
+                {/* Duration Selector (only for temporary) */}
+                <AnimatePresence>
+                  {formExitType === 'temporary' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3">
+                        <label className="block text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1.5">
+                          <Clock className="w-3.5 h-3.5 inline ml-1" />
+                          مدة الخروج
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {EXIT_DURATION_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setFormDurationMinutes(opt.value)}
+                              className={cn(
+                                'px-3 py-2 rounded-lg text-xs font-semibold transition-all',
+                                formDurationMinutes === opt.value
+                                  ? 'bg-amber-500 text-white shadow-md shadow-amber-500/25'
+                                  : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30'
+                              )}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
               <div className="grid md:grid-cols-2 gap-6">
                 <SingleSelect
-                  label="السائق"
+                  label="السائق (اختياري)"
                   items={drivers}
                   selectedId={formDriverId}
                   onChange={(id, name) => { setFormDriverId(id); setFormDriverName(name); }}
-                  placeholder="اختر السائق..."
+                  placeholder="اختر السائق أو اتركه فارغاً..."
                   disabledInfo={usedStaffInfo}
                 />
                 <MultiSelect
@@ -994,7 +1097,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleCreate}
-                  disabled={!formDriverId || submitting}
+                  disabled={!formDriverId && formAssistantIds.length === 0 || submitting}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -1044,15 +1147,28 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       <div className="flex-1 space-y-3">
                         <div className="flex items-center gap-3 flex-wrap">
                           <StatusBadge status={req.status} />
+                          {req.exit_type === 'temporary' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                              <Timer className="w-3 h-3" />
+                              مؤقت {req.exit_duration_minutes ? `(${req.exit_duration_minutes} دقيقة)` : ''}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                              <DoorOpen className="w-3 h-3" />
+                              دائم
+                            </span>
+                          )}
                           <span className="text-xs text-stone-400">
                             {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                           </span>
                         </div>
                         <div className="grid sm:grid-cols-2 gap-3">
+                          {req.driver_name && (
                           <div>
                             <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
                             <p className="font-semibold text-stone-900 dark:text-white">{req.driver_name}</p>
                           </div>
+                          )}
                           <div>
                             <span className="text-xs text-stone-500 dark:text-stone-400">المساعدين ({req.assistant_names.length})</span>
                             <p className="text-sm text-stone-700 dark:text-stone-300">{req.assistant_names.length > 0 ? req.assistant_names.join(' ، ') : 'لا يوجد'}</p>
@@ -1160,16 +1276,29 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 <div className="flex-1 space-y-3">
                   <div className="flex items-center gap-3 flex-wrap">
                     <StatusBadge status={req.status} />
+                    {req.exit_type === 'temporary' ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                        <Timer className="w-3 h-3" />
+                        مؤقت {req.exit_duration_minutes ? `(${req.exit_duration_minutes} دقيقة)` : ''}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                        <DoorOpen className="w-3 h-3" />
+                        دائم
+                      </span>
+                    )}
                     <span className="text-xs text-stone-400">
                       {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                     </span>
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-3">
+                    {req.driver_name && (
                     <div>
                       <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
                       <p className="font-semibold text-stone-900 dark:text-white">{req.driver_name}</p>
                     </div>
+                    )}
                     <div>
                       <span className="text-xs text-stone-500 dark:text-stone-400">
                         المساعدين ({req.assistant_names.length})
