@@ -108,11 +108,6 @@ export default function Reports({ userId }: ReportsProps) {
       return;
     }
 
-    if (!driverSignature) {
-      alert('يرجى إضافة توقيع السائق');
-      return;
-    }
-
     const payload = {
       driverName,
       truckNumber,
