@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DoorOpen,
@@ -19,6 +19,7 @@ import {
   History,
   ArrowRight,
   Calendar,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -130,9 +131,10 @@ interface MultiSelectProps {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   placeholder?: string;
+  disabledInfo?: Map<string, string>;
 }
 
-function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اختر...' }: MultiSelectProps) {
+function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اختر...', disabledInfo }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -194,25 +196,43 @@ function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اخ�
               ) : (
                 filtered.map((m) => {
                   const selected = selectedIds.includes(m.id);
+                  const disabledMsg = disabledInfo?.get(m.id);
+                  const isDisabled = !!disabledMsg;
                   return (
                     <button
                       key={m.id}
                       type="button"
+                      disabled={isDisabled}
                       onClick={() => {
+                        if (isDisabled) return;
                         onChange(selected ? selectedIds.filter((id) => id !== m.id) : [...selectedIds, m.id]);
                       }}
                       className={cn(
                         'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors',
-                        selected ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
+                        isDisabled
+                          ? 'opacity-60 cursor-not-allowed bg-stone-50 dark:bg-stone-800/30'
+                          : selected
+                            ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                            : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
                       )}
                     >
                       <div className={cn(
                         'w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-colors',
-                        selected ? 'bg-blue-600 border-blue-600' : 'border-stone-300 dark:border-stone-600'
+                        isDisabled ? 'bg-stone-300 dark:bg-stone-600 border-stone-300 dark:border-stone-600'
+                        : selected ? 'bg-blue-600 border-blue-600' : 'border-stone-300 dark:border-stone-600'
                       )}>
-                        {selected && <Check className="w-3 h-3 text-white" />}
+                        {isDisabled && <X className="w-3 h-3 text-white" />}
+                        {!isDisabled && selected && <Check className="w-3 h-3 text-white" />}
                       </div>
-                      {m.full_name}
+                      <div className="flex-1 min-w-0">
+                        <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
+                        {isDisabled && (
+                          <div className="flex items-center gap-1 mt-0.5 text-xs text-amber-600 dark:text-amber-400">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                            <span>{disabledMsg}</span>
+                          </div>
+                        )}
+                      </div>
                     </button>
                   );
                 })
@@ -232,9 +252,10 @@ interface SingleSelectProps {
   selectedId: string;
   onChange: (id: string, name: string) => void;
   placeholder?: string;
+  disabledInfo?: Map<string, string>;
 }
 
-function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اختر...' }: SingleSelectProps) {
+function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اختر...', disabledInfo }: SingleSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -292,23 +313,41 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
               {filtered.length === 0 ? (
                 <div className="text-center text-sm text-stone-400 py-4">لا توجد نتائج</div>
               ) : (
-                filtered.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      onChange(m.id, m.full_name);
-                      setOpen(false);
-                      setSearch('');
-                    }}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors',
-                      m.id === selectedId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
-                    )}
-                  >
-                    {m.full_name}
-                  </button>
-                ))
+                filtered.map((m) => {
+                  const disabledMsg = disabledInfo?.get(m.id);
+                  const isDisabled = !!disabledMsg;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => {
+                        if (isDisabled) return;
+                        onChange(m.id, m.full_name);
+                        setOpen(false);
+                        setSearch('');
+                      }}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors',
+                        isDisabled
+                          ? 'opacity-60 cursor-not-allowed bg-stone-50 dark:bg-stone-800/30'
+                          : m.id === selectedId
+                            ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
+                            : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
+                      )}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
+                        {isDisabled && (
+                          <div className="flex items-center gap-1 mt-0.5 text-xs text-amber-600 dark:text-amber-400">
+                            <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                            <span>{disabledMsg}</span>
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
               )}
             </div>
           </motion.div>
@@ -472,6 +511,29 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   /* ── Split today vs archive ── */
   const todayKey = getTodayKey();
   const todayRequests = requests.filter((r) => getDateKey(r.created_at) === todayKey);
+
+  /* ── Compute used staff for today (exclude rejected) ── */
+  const usedStaffInfo = useMemo(() => {
+    const map = new Map<string, string>();
+    const activeToday = todayRequests.filter((r) => r.status !== 'rejected');
+    for (const req of activeToday) {
+      const d = new Date(req.created_at);
+      const time = d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
+      const date = d.toLocaleDateString('ar-IQ');
+      // Mark driver as used
+      if (!map.has(req.driver_id)) {
+        map.set(req.driver_id, `خرج بتاريخ ${date} الساعة ${time}`);
+      }
+      // Mark each assistant as used
+      for (let i = 0; i < req.assistant_ids.length; i++) {
+        const aId = req.assistant_ids[i];
+        if (!map.has(aId)) {
+          map.set(aId, `خرج مع السائق ${req.driver_name} بتاريخ ${date} الساعة ${time}`);
+        }
+      }
+    }
+    return map;
+  }, [todayRequests]);
   const archiveRequests = requests.filter((r) => getDateKey(r.created_at) !== todayKey);
   const archiveGroups = groupByDate(archiveRequests);
 
@@ -691,6 +753,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   selectedId={formDriverId}
                   onChange={(id, name) => { setFormDriverId(id); setFormDriverName(name); }}
                   placeholder="اختر السائق..."
+                  disabledInfo={usedStaffInfo}
                 />
                 <MultiSelect
                   label="المساعدين"
@@ -698,6 +761,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   selectedIds={formAssistantIds}
                   onChange={setFormAssistantIds}
                   placeholder="اختر المساعدين..."
+                  disabledInfo={usedStaffInfo}
                 />
               </div>
 
