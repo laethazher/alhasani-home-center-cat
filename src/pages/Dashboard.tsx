@@ -21,7 +21,7 @@ interface CardDef {
 const CARDS: CardDef[] = [
   {
     key: 'vehicles',
-    title: 'جرد المركبات',
+    title: 'المركبات',
     description: 'إدارة ومتابعة حالة جميع المركبات والمعدات',
     icon: Truck,
     gradient: 'from-blue-500 to-indigo-600',

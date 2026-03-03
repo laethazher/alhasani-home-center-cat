@@ -65,10 +65,40 @@ export interface UserProfile {
   created_at: string;
 }
 
+export type VehicleStatus = 'available' | 'maintenance' | 'broken' | 'reserved';
+
 export interface Vehicle {
   id: number;
   plate_number: string;
   model: string | null;
+  vehicle_type: string | null;
+  color: string | null;
+  year: number | null;
+  chassis_number: string | null;
+  fuel_type: string | null;
+  odometer_km: number;
+  status: VehicleStatus;
+  license_expiry: string | null;
+  insurance_expiry: string | null;
+  image_url: string | null;
+  notes: string | null;
+  assigned_driver_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VehicleMaintenance {
+  id: number;
+  vehicle_id: number;
+  maintenance_type: string;
+  description: string | null;
+  cost: number;
+  odometer_at: number | null;
+  performed_at: string;
+  next_maintenance_date: string | null;
+  next_maintenance_km: number | null;
+  performed_by: string | null;
+  notes: string | null;
   created_at: string;
 }
 
