@@ -497,6 +497,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [requests, setRequests] = useState<ExitRequest[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
   const [assistants, setAssistants] = useState<StaffMember[]>([]);
+  const driverMap = useMemo(() => new Map(drivers.map((d) => [String(d.id), d.full_name])), [drivers]);
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExitRequestStatus | 'all'>('all');
@@ -711,7 +712,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const getExportData = (reqs: ExitRequest[]) => reqs.map((r) => ({
     'الحالة': STATUS_CONFIG[r.status].label,
     'نوع الخروج': r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
-    'السائق': r.driver_name || '—',
+    'السائق': driverMap.get(String(r.driver_id)) || r.driver_name || '—',
     'المساعدين': r.assistant_names.join(' ، ') || 'لا يوجد',
     'سبب الخروج': r.exit_reason || '—',
     'المركبة': r.vehicle_plate || '—',
@@ -733,7 +734,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     const columns = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
     const rows = reqs.map((r) => [
       STATUS_CONFIG[r.status].label,
-      r.driver_name,
+      driverMap.get(String(r.driver_id)) || r.driver_name || '—',
       r.assistant_names.join(' ، ') || 'لا يوجد',
       r.exit_reason || '—',
       r.vehicle_plate || '—',
@@ -771,7 +772,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       for (let i = 0; i < req.assistant_ids.length; i++) {
         const aId = String(req.assistant_ids[i]);
         if (!map.has(aId)) {
-          const withDriver = req.driver_name ? ` مع السائق ${req.driver_name}` : '';
+          const curDriver = driverMap.get(String(req.driver_id)) || req.driver_name || '';
+          const withDriver = curDriver ? ` مع السائق ${curDriver}` : '';
           map.set(aId, `خرج${withDriver} بتاريخ ${date} الساعة ${time}`);
         }
       }
@@ -835,7 +837,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       return (
-        r.driver_name.toLowerCase().includes(term) ||
+        (driverMap.get(String(r.driver_id)) || r.driver_name || '').toLowerCase().includes(term) ||
         r.assistant_names.some((n) => n.toLowerCase().includes(term)) ||
         (r.notes?.toLowerCase().includes(term) ?? false)
       );
@@ -850,7 +852,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
         return (
-          r.driver_name.toLowerCase().includes(term) ||
+          (driverMap.get(String(r.driver_id)) || r.driver_name || '').toLowerCase().includes(term) ||
           r.assistant_names.some((n) => n.toLowerCase().includes(term)) ||
           (r.notes?.toLowerCase().includes(term) ?? false)
         );
@@ -1268,7 +1270,18 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   label="السائق (اختياري)"
                   items={drivers}
                   selectedId={formDriverId}
-                  onChange={(id, name) => { setFormDriverId(id); setFormDriverName(name); }}
+                  onChange={(id, name) => {
+                    setFormDriverId(id);
+                    setFormDriverName(name);
+                    // ربط المركبة تلقائياً
+                    if (id) {
+                      const v = vehicles.find((v) => String(v.assigned_driver_id) === id);
+                      if (v) {
+                        setFormVehicleId(String(v.id));
+                        setFormVehiclePlate(`${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}`);
+                      }
+                    }
+                  }}
                   placeholder="اختر السائق أو اتركه فارغاً..."
                   disabledInfo={usedStaffInfo}
                   violationCounts={violationCounts}
@@ -1326,6 +1339,15 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       setFormVehicleId(vId);
                       const v = vehicles.find((v) => String(v.id) === vId);
                       setFormVehiclePlate(v ? `${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}` : '');
+                      // ربط السائق تلقائياً عند اختيار المركبة
+                      if (v && v.assigned_driver_id) {
+                        setFormDriverId(String(v.assigned_driver_id));
+                        const driver = drivers.find((d) => String(d.id) === String(v.assigned_driver_id));
+                        setFormDriverName(driver ? driver.full_name : '');
+                      } else {
+                        setFormDriverId('');
+                        setFormDriverName('');
+                      }
                     }}
                     className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white"
                   >
@@ -1437,10 +1459,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           </span>
                         </div>
                         <div className="grid sm:grid-cols-2 gap-3">
-                          {req.driver_name && (
+                          {(driverMap.get(String(req.driver_id)) || req.driver_name) && (
                           <div>
                             <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
-                            <p className="font-semibold text-stone-900 dark:text-white">{req.driver_name}</p>
+                            <p className="font-semibold text-stone-900 dark:text-white">{driverMap.get(String(req.driver_id)) || req.driver_name}</p>
                           </div>
                           )}
                           <div>
@@ -1489,7 +1511,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                                     : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
                                 )}>
                                   {returnedAt ? <CheckCircle2 className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
-                                  {req.driver_name} (سائق)
+                                  {driverMap.get(String(req.driver_id)) || req.driver_name} (سائق)
                                   {returnedAt && req.exited_at && ` (${formatDuration(req.exited_at, returnedAt)})`}
                                 </span>
                               );
@@ -1608,10 +1630,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   })()}
 
                   <div className="grid sm:grid-cols-2 gap-3">
-                    {req.driver_name && (
+                    {(driverMap.get(String(req.driver_id)) || req.driver_name) && (
                     <div>
                       <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
-                      <p className="font-semibold text-stone-900 dark:text-white">{req.driver_name}</p>
+                      <p className="font-semibold text-stone-900 dark:text-white">{driverMap.get(String(req.driver_id)) || req.driver_name}</p>
                     </div>
                     )}
                     <div>

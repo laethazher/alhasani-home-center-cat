@@ -136,7 +136,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
         type: 'exit_request',
         date: r.created_at,
         title: `رحلة ${r.exit_type === 'temporary' ? 'مؤقتة' : 'دائمة'}`,
-        description: r.driver_name ? `السائق: ${r.driver_name}` : '',
+        description: driverMap.get(String(r.driver_id)) ? `السائق: ${driverMap.get(String(r.driver_id))}` : (r.driver_name ? `السائق: ${r.driver_name}` : ''),
         details: {
           ...(assistantNames ? { 'المساعدين': assistantNames } : {}),
           ...(r.exit_reason ? { 'السبب': r.exit_reason } : {}),
@@ -161,7 +161,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     const driverCounts = new Map<string, number>();
     for (const r of exitRequests) {
       if (r.driver_id && r.status !== 'rejected') {
-        const name = r.driver_name || driverMap.get(String(r.driver_id)) || 'غير معروف';
+        const name = driverMap.get(String(r.driver_id)) || r.driver_name || 'غير معروف';
         driverCounts.set(name, (driverCounts.get(name) || 0) + 1);
       }
     }
@@ -237,7 +237,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       ['الحالة', STATUS_CONFIG[vehicle.status]?.label || vehicle.status],
       ['الرخصة', vehicle.license_expiry || '—'],
       ['التأمين', vehicle.insurance_expiry || '—'],
-      ['السائق', vehicle.assigned_driver_id ? (driverMap.get(vehicle.assigned_driver_id) || '—') : '—'],
+      ['السائق', vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '—') : '—'],
     ];
     const ws1 = XLSX.utils.aoa_to_sheet([['البيان', 'القيمة'], ...infoData]);
     XLSX.utils.book_append_sheet(wb, ws1, 'بيانات المركبة');
@@ -257,7 +257,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       const tHeaders = ['التاريخ', 'السائق', 'المساعدين', 'النوع', 'المدة', 'السبب', 'الحالة'];
       const tRows = exitRequests.map((r) => [
         new Date(r.created_at).toLocaleDateString('ar-IQ'),
-        r.driver_name || '—',
+        driverMap.get(String(r.driver_id)) || r.driver_name || '—',
         (r.assistant_names || []).join('، '),
         r.exit_type === 'temporary' ? 'مؤقت' : 'دائم',
         r.exit_duration_minutes ? `${r.exit_duration_minutes} د` : '—',
@@ -307,7 +307,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       `Status: ${STATUS_CONFIG[vehicle.status]?.label || vehicle.status}`,
       `License: ${vehicle.license_expiry || '-'}`,
       `Insurance: ${vehicle.insurance_expiry || '-'}`,
-      `Driver: ${vehicle.assigned_driver_id ? (driverMap.get(vehicle.assigned_driver_id) || '-') : '-'}`,
+      `Driver: ${vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '-') : '-'}`,
     ];
     for (const line of info) { doc.text(line, 15, y); y += 6; }
 
@@ -341,7 +341,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       for (const r of exitRequests.slice(0, 20)) {
         if (y > 270) { doc.addPage(); y = 15; }
         const date = new Date(r.created_at).toLocaleDateString('en');
-        doc.text(`${date} | ${r.driver_name || '-'} | ${r.exit_type} | ${r.exit_reason || '-'}`, 15, y);
+        doc.text(`${date} | ${driverMap.get(String(r.driver_id)) || r.driver_name || '-'} | ${r.exit_type} | ${r.exit_reason || '-'}`, 15, y);
         y += 5;
       }
     }
@@ -640,7 +640,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                           <Activity className="w-4 h-4 text-sky-600 dark:text-sky-400" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-stone-900 dark:text-white">{r.driver_name || 'بدون سائق'}</p>
+                          <p className="text-sm font-semibold text-stone-900 dark:text-white">{driverMap.get(String(r.driver_id)) || r.driver_name || 'بدون سائق'}</p>
                           <p className="text-[10px] text-stone-400">{fmtDateTime(r.created_at)}</p>
                         </div>
                       </div>
