@@ -1271,16 +1271,28 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   items={drivers}
                   selectedId={formDriverId}
                   onChange={(id, name) => {
-                    setFormDriverId(id);
-                    setFormDriverName(name);
-                    // ربط المركبة تلقائياً
-                    if (id) {
-                      const v = vehicles.find((v) => String(v.assigned_driver_id) === id);
-                      if (v) {
-                        setFormVehicleId(String(v.id));
-                        setFormVehiclePlate(`${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}`);
+                      const idStr = String(id || '');
+                      setFormDriverId(idStr);
+                      setFormDriverName(name);
+                      // ربط المركبة تلقائياً (تحقق من أرقام/سلاسل وتوفير fallback)
+                      if (idStr) {
+                        const v = vehicles.find((vv) => {
+                          if (vv.assigned_driver_id == null) return false;
+                          return String(vv.assigned_driver_id) === idStr || vv.assigned_driver_id === Number(idStr);
+                        });
+                        if (v) {
+                          setFormVehicleId(String(v.id));
+                          setFormVehiclePlate(`${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}`);
+                        } else {
+                          // No vehicle assigned to this driver — clear previous vehicle selection
+                          setFormVehicleId('');
+                          setFormVehiclePlate('');
+                        }
+                      } else {
+                        // driver cleared -> clear vehicle selection
+                        setFormVehicleId('');
+                        setFormVehiclePlate('');
                       }
-                    }
                   }}
                   placeholder="اختر السائق أو اتركه فارغاً..."
                   disabledInfo={usedStaffInfo}
