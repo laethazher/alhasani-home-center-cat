@@ -518,6 +518,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   /* Archive view */
   const [showArchive, setShowArchive] = useState(false);
 
+  /* Remaining staff dropdowns */
+  const [showRemainingDrivers, setShowRemainingDrivers] = useState(false);
+  const [showRemainingAssistants, setShowRemainingAssistants] = useState(false);
+
   /* Gate guard notification */
   const prevApprovedCount = useRef(0);
   const [flashNotification, setFlashNotification] = useState(false);
@@ -860,6 +864,15 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     rejected: todayRequests.filter((r) => r.status === 'rejected').length,
   };
 
+  /* ── Remaining staff (not exited today) ── */
+  const remainingDrivers = useMemo(() => {
+    return drivers.filter((d) => !usedStaffInfo.has(String(d.id)));
+  }, [drivers, usedStaffInfo]);
+
+  const remainingAssistants = useMemo(() => {
+    return assistants.filter((a) => !usedStaffInfo.has(String(a.id)));
+  }, [assistants, usedStaffInfo]);
+
   /* ── Loading ── */
   if (loadingData) {
     return (
@@ -978,6 +991,123 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               <p className="text-sm font-medium text-stone-600 dark:text-stone-400">{s.label}</p>
             </motion.div>
           ))}
+        </div>
+      )}
+
+      {/* ── Remaining Staff Cards ── */}
+      {isAdmin && (
+        <div className="grid grid-cols-2 gap-3">
+          {/* Remaining Assistants */}
+          <div className="relative">
+            <motion.button
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => { setShowRemainingAssistants(!showRemainingAssistants); setShowRemainingDrivers(false); }}
+              className={cn(
+                'w-full flex items-center justify-between p-3 rounded-xl border transition-all',
+                showRemainingAssistants
+                  ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 shadow-md'
+                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 hover:shadow-sm'
+              )}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 flex items-center justify-center">
+                  <Users className="w-4 h-4 text-white" />
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-stone-500 dark:text-stone-400">متبقي المساعدين</p>
+                  <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{remainingAssistants.length}<span className="text-xs font-normal text-stone-400">/{assistants.length}</span></p>
+                </div>
+              </div>
+              <ChevronDown className={cn('w-4 h-4 text-stone-400 transition-transform', showRemainingAssistants && 'rotate-180')} />
+            </motion.button>
+
+            <AnimatePresence>
+              {showRemainingAssistants && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -8, height: 0 }}
+                  className="absolute z-30 left-0 right-0 mt-2 bg-white dark:bg-stone-900 rounded-xl border border-purple-200 dark:border-purple-800 shadow-xl overflow-hidden"
+                >
+                  <div className="p-2 border-b border-stone-100 dark:border-stone-800">
+                    <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 text-center">المساعدين المتواجدين ({remainingAssistants.length})</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {remainingAssistants.length === 0 ? (
+                      <p className="text-xs text-stone-400 text-center py-4">جميع المساعدين غادروا</p>
+                    ) : (
+                      remainingAssistants.map((a, i) => (
+                        <div key={a.id} className={cn(
+                          'flex items-center gap-2 px-3 py-2 text-xs',
+                          i % 2 === 0 ? 'bg-stone-50/50 dark:bg-stone-800/30' : ''
+                        )}>
+                          <div className="w-5 h-5 rounded-full bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center text-[10px] font-bold text-purple-600 dark:text-purple-400">{i + 1}</div>
+                          <span className="text-stone-700 dark:text-stone-300">{a.full_name}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Remaining Drivers */}
+          <div className="relative">
+            <motion.button
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => { setShowRemainingDrivers(!showRemainingDrivers); setShowRemainingAssistants(false); }}
+              className={cn(
+                'w-full flex items-center justify-between p-3 rounded-xl border transition-all',
+                showRemainingDrivers
+                  ? 'bg-sky-50 dark:bg-sky-900/20 border-sky-300 dark:border-sky-700 shadow-md'
+                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 hover:shadow-sm'
+              )}
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center">
+                  <Truck className="w-4 h-4 text-white" />
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-stone-500 dark:text-stone-400">متبقي السائقين</p>
+                  <p className="text-lg font-bold text-sky-600 dark:text-sky-400">{remainingDrivers.length}<span className="text-xs font-normal text-stone-400">/{drivers.length}</span></p>
+                </div>
+              </div>
+              <ChevronDown className={cn('w-4 h-4 text-stone-400 transition-transform', showRemainingDrivers && 'rotate-180')} />
+            </motion.button>
+
+            <AnimatePresence>
+              {showRemainingDrivers && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, height: 0 }}
+                  animate={{ opacity: 1, y: 0, height: 'auto' }}
+                  exit={{ opacity: 0, y: -8, height: 0 }}
+                  className="absolute z-30 left-0 right-0 mt-2 bg-white dark:bg-stone-900 rounded-xl border border-sky-200 dark:border-sky-800 shadow-xl overflow-hidden"
+                >
+                  <div className="p-2 border-b border-stone-100 dark:border-stone-800">
+                    <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 text-center">السائقين المتواجدين ({remainingDrivers.length})</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {remainingDrivers.length === 0 ? (
+                      <p className="text-xs text-stone-400 text-center py-4">جميع السائقين غادروا</p>
+                    ) : (
+                      remainingDrivers.map((d, i) => (
+                        <div key={d.id} className={cn(
+                          'flex items-center gap-2 px-3 py-2 text-xs',
+                          i % 2 === 0 ? 'bg-stone-50/50 dark:bg-stone-800/30' : ''
+                        )}>
+                          <div className="w-5 h-5 rounded-full bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center text-[10px] font-bold text-sky-600 dark:text-sky-400">{i + 1}</div>
+                          <span className="text-stone-700 dark:text-stone-300">{d.full_name}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       )}
 
