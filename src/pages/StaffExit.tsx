@@ -761,13 +761,13 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       const d = new Date(req.created_at);
       const time = d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
       const date = d.toLocaleDateString('ar-IQ');
-      // Mark driver as used (if present)
-      if (req.driver_id && !map.has(req.driver_id)) {
-        map.set(req.driver_id, `خرج بتاريخ ${date} الساعة ${time}`);
+      // Mark driver as used (if present) – String() ensures consistent key type
+      if (req.driver_id && !map.has(String(req.driver_id))) {
+        map.set(String(req.driver_id), `خرج بتاريخ ${date} الساعة ${time}`);
       }
       // Mark each assistant as used
       for (let i = 0; i < req.assistant_ids.length; i++) {
-        const aId = req.assistant_ids[i];
+        const aId = String(req.assistant_ids[i]);
         if (!map.has(aId)) {
           const withDriver = req.driver_name ? ` مع السائق ${req.driver_name}` : '';
           map.set(aId, `خرج${withDriver} بتاريخ ${date} الساعة ${time}`);
