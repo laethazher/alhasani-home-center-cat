@@ -1,3 +1,14 @@
+  // دالة تقسيم رقم اللوحة
+  function splitPlateNumber(plate: string) {
+    const parts = plate.trim().split(' ');
+    if (parts.length === 3) {
+      return { vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: parts[2] };
+    } else if (parts.length === 2) {
+      return { vehicleNumber: parts[0], provinceNumber: '', plateLetter: parts[1] };
+    } else {
+      return { vehicleNumber: plate, provinceNumber: '', plateLetter: '' };
+    }
+  }
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -40,7 +51,10 @@ export default function Vehicles() {
   const [showForm, setShowForm] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [formData, setFormData] = useState({
-    plate_number: '', vehicle_type: 'كانتر', color: '', year: '',
+    vehicleNumber: '', // رقم المركبة
+    provinceNumber: '', // رقم المحافظة
+    plateLetter: '',   // الحرف
+    vehicle_type: 'كانتر', color: '', year: '',
     chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available' as VehicleStatus,
     license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
     has_logo: false,
@@ -134,7 +148,10 @@ export default function Vehicles() {
   /* ── Helpers ── */
   const resetForm = () => {
     setFormData({
-    plate_number: '', vehicle_type: 'كانتر', color: '', year: '',
+      vehicleNumber: '',
+      provinceNumber: '',
+      plateLetter: '',
+      vehicle_type: 'كانتر', color: '', year: '',
       chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available',
       license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
       has_logo: false,
@@ -151,8 +168,26 @@ export default function Vehicles() {
 
   const openEditForm = (v: Vehicle) => {
     setEditingVehicle(v);
+    // تقسيم رقم اللوحة عند التعديل
+    let vehicleNumber = '', provinceNumber = '', plateLetter = '';
+    if (v.plate_number) {
+      // توقع الشكل: رقم مركبة [فراغ] رقم محافظة [فراغ] حرف
+      const parts = v.plate_number.trim().split(' ');
+      if (parts.length === 3) {
+        vehicleNumber = parts[0];
+        provinceNumber = parts[1];
+        plateLetter = parts[2];
+      } else if (parts.length === 2) {
+        vehicleNumber = parts[0];
+        plateLetter = parts[1];
+      } else {
+        vehicleNumber = v.plate_number;
+      }
+    }
     setFormData({
-      plate_number: v.plate_number,
+      vehicleNumber,
+      provinceNumber,
+      plateLetter,
       vehicle_type: v.vehicle_type || 'كانتر',
       color: v.color || '',
       year: v.year ? String(v.year) : '',
@@ -173,11 +208,14 @@ export default function Vehicles() {
 
   /* ── Save vehicle ── */
   const handleSaveVehicle = async () => {
-    if (!formData.plate_number.trim()) { setFormError('رقم اللوحة مطلوب'); return; }
+    if (!formData.vehicleNumber.trim() || !formData.plateLetter.trim() || !formData.provinceNumber.trim()) {
+      setFormError('جميع أجزاء رقم اللوحة مطلوبة');
+      return;
+    }
     setSaving(true); setFormError('');
 
     const payload = {
-      plate_number: formData.plate_number.trim(),
+      plate_number: `${formData.vehicleNumber.trim()} ${formData.provinceNumber.trim()} ${formData.plateLetter.trim()}`,
       vehicle_type: formData.vehicle_type,
       color: formData.color || null,
       year: formData.year ? Number(formData.year) : null,
@@ -393,10 +431,22 @@ export default function Vehicles() {
                 <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 mb-2 flex items-center gap-1"><Info className="w-3.5 h-3.5" /> البيانات الأساسية</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div>
-                    <label className="text-xs text-stone-500 mb-1 block">رقم اللوحة *</label>
-                    <input type="text" value={formData.plate_number}
-                      onChange={(e) => setFormData({ ...formData, plate_number: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: 12345 أ" />
+                    <label className="text-xs text-stone-500 mb-1 block">رقم المركبة *</label>
+                    <input type="text" value={formData.vehicleNumber}
+                      onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: 12345" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-stone-500 mb-1 block">رقم المحافظة *</label>
+                    <input type="text" value={formData.provinceNumber}
+                      onChange={(e) => setFormData({ ...formData, provinceNumber: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: 1" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-stone-500 mb-1 block">الحرف *</label>
+                    <input type="text" value={formData.plateLetter}
+                      onChange={(e) => setFormData({ ...formData, plateLetter: e.target.value.replace(/[^ء-يA-Za-z]/g, '').slice(0,1) })}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm" placeholder="مثال: أ أو A" />
                   </div>
                   <div>
                     <label className="text-xs text-stone-500 mb-1 block">نوع المركبة</label>
@@ -587,27 +637,19 @@ export default function Vehicles() {
 
                     {/* Main info: Driver name + plate */}
                     <div className="mb-3">
-                      {v.assigned_driver_id && driverMap.has(v.assigned_driver_id) ? (
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                            <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-sm text-stone-900 dark:text-white">{driverMap.get(v.assigned_driver_id)}</h3>
-                            <p className="text-xs text-stone-500 dark:text-stone-400 font-medium tracking-wide">{v.plate_number}</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className="w-8 h-8 rounded-full bg-stone-100 dark:bg-stone-700 flex items-center justify-center">
-                            <Truck className="w-4 h-4 text-stone-500 dark:text-stone-400" />
-                          </div>
-                          <div>
-                            <h3 className="font-bold text-sm text-stone-900 dark:text-white">{v.plate_number}</h3>
-                            <p className="text-xs text-stone-400 dark:text-stone-500">بدون سائق معيّن</p>
-                          </div>
-                        </div>
-                      )}
+                    <div className="flex flex-col gap-1">
+                      <div className="font-bold text-xs text-stone-500 dark:text-stone-400">رقم المركبة</div>
+                      <div className="flex items-center gap-2">
+                        {(() => {
+                          const plate = splitPlateNumber(v.plate_number);
+                          return <>
+                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-stone-900 dark:text-white border border-stone-200 dark:border-stone-600">{plate.vehicleNumber}</span>
+                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-blue-700 dark:text-blue-300 border border-stone-200 dark:border-stone-600">{plate.provinceNumber}</span>
+                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-purple-700 dark:text-purple-300 border border-stone-200 dark:border-stone-600">{plate.plateLetter}</span>
+                          </>;
+                        })()}
+                      </div>
+                    </div>
                     </div>
 
                     {/* Quick info */}

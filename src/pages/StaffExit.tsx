@@ -1332,7 +1332,17 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     <option value="">اختر المركبة...</option>
                     {vehicles.map((v) => (
                       <option key={v.id} value={String(v.id)}>
-                        {v.plate_number}{v.vehicle_type ? ` - ${v.vehicle_type}` : ''}
+                        {(() => {
+                          const parts = v.plate_number.trim().split(' ');
+                          return (
+                            <>
+                              <span style={{fontWeight:'bold'}}>{parts[0]}</span>
+                              <span style={{color:'#2563eb',fontWeight:'bold',margin:'0 4px'}}>{parts[1]}</span>
+                              <span style={{color:'#9333ea',fontWeight:'bold'}}>{parts[2]}</span>
+                              {v.vehicle_type ? ` - ${v.vehicle_type}` : ''}
+                            </>
+                          );
+                        })()}
                       </option>
                     ))}
                   </select>

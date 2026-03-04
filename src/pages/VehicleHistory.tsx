@@ -1,3 +1,14 @@
+  // دالة تقسيم رقم اللوحة (نفس دالة Vehicles)
+  function splitPlateNumber(plate: string) {
+    const parts = plate.trim().split(' ');
+    if (parts.length === 3) {
+      return { vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: parts[2] };
+    } else if (parts.length === 2) {
+      return { vehicleNumber: parts[0], provinceNumber: '', plateLetter: parts[1] };
+    } else {
+      return { vehicleNumber: plate, provinceNumber: '', plateLetter: '' };
+    }
+  }
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -404,7 +415,16 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold">{vehicle.plate_number}</h2>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const plate = splitPlateNumber(vehicle.plate_number);
+                    return <>
+                      <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-xl font-bold text-stone-900 dark:text-white border border-stone-200 dark:border-stone-600">{plate.vehicleNumber}</span>
+                      <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-xl font-bold text-blue-700 dark:text-blue-300 border border-stone-200 dark:border-stone-600">{plate.provinceNumber}</span>
+                      <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-xl font-bold text-purple-700 dark:text-purple-300 border border-stone-200 dark:border-stone-600">{plate.plateLetter}</span>
+                    </>;
+                  })()}
+                </div>
                 <span className={cn('px-2.5 py-1 rounded-lg text-xs font-medium', sc.bgColor, sc.color)}>
                   {sc.label}
                 </span>
