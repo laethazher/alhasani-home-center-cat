@@ -103,6 +103,18 @@ export interface VehicleMaintenance {
   created_at: string;
 }
 
+export type VehicleEventType = 'driver_assigned' | 'driver_removed' | 'status_changed' | 'license_renewed' | 'insurance_renewed' | 'odometer_updated' | 'note_added' | 'created';
+
+export interface VehicleEvent {
+  id: number;
+  vehicle_id: number;
+  event_type: VehicleEventType;
+  description: string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
 export interface Report {
   id: number;
   user_id: string;

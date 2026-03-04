@@ -4,10 +4,12 @@ import {
   Truck, Plus, Search, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
   Calendar, Fuel, Gauge, Shield, AlertTriangle, CheckCircle2, Clock,
   FileText, DollarSign, User, Save, Info, Palette, Activity, XCircle,
+  History,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleStatus, StaffMember, ExitRequest } from '../lib/supabaseClient';
+import VehicleHistory from './VehicleHistory';
 
 /* ── Constants ── */
 const VEHICLE_TYPES = ['كانتر', 'كيا'];
@@ -58,6 +60,7 @@ export default function Vehicles() {
   /* Expanded cards */
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [historyVehicleId, setHistoryVehicleId] = useState<number | null>(null);
 
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -193,6 +196,51 @@ export default function Vehicles() {
     if (editingVehicle) {
       const { error } = await supabase.from('vehicles').update(payload).eq('id', editingVehicle.id);
       if (error) { setFormError(error.message); setSaving(false); return; }
+
+      /* ── Auto-log changes to vehicle_events ── */
+      const events: { vehicle_id: number; event_type: string; description: string; old_value: string | null; new_value: string | null }[] = [];
+
+      // Driver change
+      const oldDriverId = editingVehicle.assigned_driver_id ? String(editingVehicle.assigned_driver_id) : null;
+      const newDriverId = payload.assigned_driver_id ? String(payload.assigned_driver_id) : null;
+      if (oldDriverId !== newDriverId) {
+        const oldName = oldDriverId ? (driverMap.get(oldDriverId) || oldDriverId) : 'بدون سائق';
+        const newName = newDriverId ? (driverMap.get(newDriverId) || newDriverId) : 'بدون سائق';
+        if (oldDriverId && newDriverId) {
+          events.push({ vehicle_id: editingVehicle.id, event_type: 'driver_removed', description: `تم إزالة السائق ${oldName}`, old_value: oldName, new_value: null });
+          events.push({ vehicle_id: editingVehicle.id, event_type: 'driver_assigned', description: `تم تعيين السائق ${newName}`, old_value: null, new_value: newName });
+        } else if (newDriverId) {
+          events.push({ vehicle_id: editingVehicle.id, event_type: 'driver_assigned', description: `تم تعيين السائق ${newName}`, old_value: null, new_value: newName });
+        } else {
+          events.push({ vehicle_id: editingVehicle.id, event_type: 'driver_removed', description: `تم إزالة السائق ${oldName}`, old_value: oldName, new_value: null });
+        }
+      }
+
+      // Status change
+      if (editingVehicle.status !== payload.status) {
+        const oldLabel = STATUS_CONFIG[editingVehicle.status]?.label || editingVehicle.status;
+        const newLabel = STATUS_CONFIG[payload.status as VehicleStatus]?.label || payload.status;
+        events.push({ vehicle_id: editingVehicle.id, event_type: 'status_changed', description: `تغيّرت الحالة من ${oldLabel} إلى ${newLabel}`, old_value: oldLabel, new_value: newLabel });
+      }
+
+      // License renewal
+      if (editingVehicle.license_expiry !== payload.license_expiry && payload.license_expiry) {
+        events.push({ vehicle_id: editingVehicle.id, event_type: 'license_renewed', description: `تم تجديد الرخصة حتى ${payload.license_expiry}`, old_value: editingVehicle.license_expiry || null, new_value: payload.license_expiry });
+      }
+
+      // Insurance renewal
+      if (editingVehicle.insurance_expiry !== payload.insurance_expiry && payload.insurance_expiry) {
+        events.push({ vehicle_id: editingVehicle.id, event_type: 'insurance_renewed', description: `تم تجديد التأمين حتى ${payload.insurance_expiry}`, old_value: editingVehicle.insurance_expiry || null, new_value: payload.insurance_expiry });
+      }
+
+      // Odometer update
+      if ((editingVehicle.odometer_km || 0) !== (Number(payload.odometer_km) || 0)) {
+        events.push({ vehicle_id: editingVehicle.id, event_type: 'odometer_updated', description: `تحديث عداد المسافة من ${editingVehicle.odometer_km || 0} إلى ${payload.odometer_km}`, old_value: String(editingVehicle.odometer_km || 0), new_value: String(payload.odometer_km) });
+      }
+
+      if (events.length > 0) {
+        await supabase.from('vehicle_events').insert(events);
+      }
     } else {
       const { error } = await supabase.from('vehicles').insert(payload);
       if (error) {
@@ -270,6 +318,11 @@ export default function Vehicles() {
       <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
     </div>
   );
+
+  /* ── Vehicle History sub-page ── */
+  if (historyVehicleId !== null) {
+    return <VehicleHistory vehicleId={historyVehicleId} onBack={() => setHistoryVehicleId(null)} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -630,6 +683,11 @@ export default function Vehicles() {
                     <button onClick={() => { setShowMaintenanceForm(v.id); setMaintenanceData((prev) => ({ ...prev, odometer_at: String(v.odometer_km) })); }}
                       className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors">
                       <Wrench className="w-3.5 h-3.5" /> صيانة
+                    </button>
+                    <div className="w-px h-6 bg-stone-100 dark:bg-stone-700" />
+                    <button onClick={() => setHistoryVehicleId(v.id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
+                      <History className="w-3.5 h-3.5" /> السجل
                     </button>
                     <div className="w-px h-6 bg-stone-100 dark:bg-stone-700" />
                     <button onClick={() => setExpandedCards((prev) => {
