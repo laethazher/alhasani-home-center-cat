@@ -288,7 +288,8 @@ function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اخ�
               ) : (
                 filtered.map((m) => {
                   const selected = selectedIds.includes(m.id);
-                  const disabledMsg = disabledInfo?.get(m.id);
+                  const mIdStr = String(m.id);
+                  const disabledMsg = disabledInfo?.get(mIdStr);
                   const isDisabled = !!disabledMsg;
                   return (
                     <button
@@ -319,10 +320,10 @@ function MultiSelect({ label, items, selectedIds, onChange, placeholder = 'اخ�
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
-                          {!isDisabled && violationCounts?.has(m.id) && (
+                          {!isDisabled && violationCounts?.has(mIdStr) && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
                               <AlertTriangle className="w-2.5 h-2.5" />
-                              {violationCounts.get(m.id)} مخالفة
+                              {violationCounts.get(mIdStr)} مخالفة
                             </span>
                           )}
                         </div>
@@ -426,7 +427,8 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
                 <div className="text-center text-sm text-stone-400 py-4">لا توجد نتائج</div>
               ) : (
                 filtered.map((m) => {
-                  const disabledMsg = disabledInfo?.get(m.id);
+                  const mIdStr = String(m.id);
+                  const disabledMsg = disabledInfo?.get(mIdStr);
                   const isDisabled = !!disabledMsg;
                   return (
                     <button
@@ -451,10 +453,10 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className={cn(isDisabled && 'line-through text-stone-400 dark:text-stone-500')}>{m.full_name}</span>
-                          {!isDisabled && violationCounts?.has(m.id) && (
+                          {!isDisabled && violationCounts?.has(mIdStr) && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
                               <AlertTriangle className="w-2.5 h-2.5" />
-                              {violationCounts.get(m.id)} مخالفة
+                              {violationCounts.get(mIdStr)} مخالفة
                             </span>
                           )}
                         </div>
@@ -796,12 +798,13 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       }
       // Check driver
       if (req.driver_id) {
+        const dId = String(req.driver_id);
         const returns = req.assistant_returns || {};
-        const driverReturnedAt = returns[req.driver_id];
+        const driverReturnedAt = returns[dId];
         if (driverReturnedAt) {
-          if (new Date(driverReturnedAt).getTime() > deadline) map.set(req.driver_id, (map.get(req.driver_id) || 0) + 1);
+          if (new Date(driverReturnedAt).getTime() > deadline) map.set(dId, (map.get(dId) || 0) + 1);
         } else {
-          if (now > deadline) map.set(req.driver_id, (map.get(req.driver_id) || 0) + 1);
+          if (now > deadline) map.set(dId, (map.get(dId) || 0) + 1);
         }
       }
     }
