@@ -139,7 +139,7 @@ export default function Violations() {
 
       // Check driver too (if present)
       if (req.driver_id) {
-        const dId = req.driver_id;
+        const dId = String(req.driver_id);
         const dName = req.driver_name || 'سائق';
         const returns = req.assistant_returns || {};
         const driverReturnedAt = returns[dId];

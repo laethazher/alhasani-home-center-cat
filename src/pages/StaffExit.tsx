@@ -90,7 +90,7 @@ function getOverdueInfo(req: ExitRequest, now: Date): { isOverdue: boolean; dela
   // Check if ALL staff (driver + assistants) have returned
   const returns = req.assistant_returns || {};
   const allAssistantsReturned = req.assistant_ids.length === 0 || req.assistant_ids.every((id) => String(id) in returns);
-  const driverReturned = !req.driver_id || (req.driver_id in returns);
+  const driverReturned = !req.driver_id || (String(req.driver_id) in returns);
   if (allAssistantsReturned && driverReturned) return null;
   const exitedTime = new Date(req.exited_at).getTime();
   const allowedMs = req.exit_duration_minutes * 60 * 1000;
@@ -825,7 +825,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         if (r.exit_type !== 'temporary') return false;
         const returns = r.assistant_returns || {};
         const allAssistantsReturned = r.assistant_ids.length === 0 || r.assistant_ids.every((id) => String(id) in returns);
-        const driverReturned = !r.driver_id || (r.driver_id in returns);
+        const driverReturned = !r.driver_id || (String(r.driver_id) in returns);
         if (allAssistantsReturned && driverReturned) return false;
       } else {
         return false;
@@ -1512,7 +1512,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           <div className="flex flex-wrap gap-2 mt-1">
                             {/* Driver return badge */}
                             {req.driver_id && (() => {
-                              const returnedAt = (req.assistant_returns || {})[req.driver_id!];
+                              const returnedAt = (req.assistant_returns || {})[String(req.driver_id)];
                               return (
                                 <span className={cn(
                                   'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
@@ -1708,7 +1708,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         {/* Driver return confirmation */}
                         {req.driver_id && (() => {
                           const returns = req.assistant_returns || {};
-                          const returnedAt = returns[req.driver_id!];
+                          const returnedAt = returns[String(req.driver_id)];
                           const hasReturned = !!returnedAt;
                           const overdueNow = !hasReturned ? getOverdueInfo(req, now) : null;
                           const isDriverOverdue = overdueNow?.isOverdue;
