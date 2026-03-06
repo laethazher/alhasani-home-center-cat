@@ -371,7 +371,7 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
   }, []);
 
   const filtered = items.filter((m) => m.full_name.includes(search));
-  const selectedName = items.find((m) => m.id === selectedId)?.full_name || '';
+  const selectedName = items.find((m) => String(m.id) === String(selectedId))?.full_name || '';
 
   return (
     <div ref={ref} className="relative">
@@ -430,6 +430,7 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
                   const mIdStr = String(m.id);
                   const disabledMsg = disabledInfo?.get(mIdStr);
                   const isDisabled = !!disabledMsg;
+                  const isSelected = mIdStr === String(selectedId);
                   return (
                     <button
                       key={m.id}
@@ -445,7 +446,7 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
                         'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-right transition-colors',
                         isDisabled
                           ? 'opacity-60 cursor-not-allowed bg-stone-50 dark:bg-stone-800/30'
-                          : m.id === selectedId
+                          : isSelected
                             ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300'
                             : 'hover:bg-stone-50 dark:hover:bg-stone-700/50 text-stone-700 dark:text-stone-300'
                       )}
@@ -467,6 +468,7 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
                           </div>
                         )}
                       </div>
+                      {isSelected && !isDisabled && <Check className="w-4 h-4 shrink-0" />}
                     </button>
                   );
                 })
@@ -658,15 +660,26 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     if (!error && insertedRequest && formVehicleId) {
       // إضافة event لإخراج المركبة في سجل المركبة
       const vehicleId = Number(formVehicleId);
-      const driverInfo = formDriverName || (formDriverId ? drivers.find(d => String(d.id) === formDriverId)?.full_name : '');
+      // التأكد من وجود اسم السائق - استخدام formDriverName أولاً، ثم البحث في drivers، وإلا استخدام 'غير معروف'
+      // التحقق من أن formDriverName ليس undefined أو null
+      let driverInfo: string = (formDriverName && typeof formDriverName === 'string' && formDriverName.trim()) ? formDriverName.trim() : '';
+      if (!driverInfo && formDriverId) {
+        const foundDriver = drivers.find(d => String(d.id) === String(formDriverId));
+        driverInfo = (foundDriver?.full_name && typeof foundDriver.full_name === 'string') ? foundDriver.full_name : 'غير معروف';
+      }
+      // التأكد النهائي - إذا كان driverInfo لا يزال فارغاً أو undefined، استخدم 'غير معروف'
+      if (!driverInfo || typeof driverInfo !== 'string' || driverInfo.trim() === '') {
+        driverInfo = 'غير معروف';
+      }
       const assistantInfo = assistantNames.length > 0 ? ` مع ${assistantNames.join('، ')}` : '';
       const exitTypeText = formExitType === 'temporary' ? `مؤقت (${formDurationMinutes} دقيقة)` : 'دائم';
       const reasonText = finalReason ? ` - ${finalReason}` : '';
+      const finalDescription = `إخراج المركبة: السائق ${driverInfo}${assistantInfo} - ${exitTypeText}${reasonText}`;
       
       await supabase.from('vehicle_events').insert({
         vehicle_id: vehicleId,
         event_type: 'vehicle_exit',
-        description: `إخراج المركبة: السائق ${driverInfo}${assistantInfo} - ${exitTypeText}${reasonText}`,
+        description: finalDescription,
         old_value: null,
         new_value: `${driverInfo}${assistantInfo}`,
       });
@@ -899,6 +912,26 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const remainingAssistants = useMemo(() => {
     return assistants.filter((a) => !usedStaffInfo.has(String(a.id)));
   }, [assistants, usedStaffInfo]);
+
+  const selectedDriverDisplayName = useMemo(() => {
+    if (typeof formDriverName === 'string' && formDriverName.trim()) {
+      return formDriverName.trim();
+    }
+    if (!formDriverId) return '';
+    return drivers.find((d) => String(d.id) === String(formDriverId))?.full_name || '';
+  }, [formDriverId, formDriverName, drivers]);
+
+  const linkedVehicle = useMemo(() => {
+    if (formVehicleId) {
+      return vehicles.find((v) => String(v.id) === String(formVehicleId)) || null;
+    }
+    if (!formDriverId) return null;
+    return vehicles.find((v) => String(v.assigned_driver_id) === String(formDriverId)) || null;
+  }, [formDriverId, formVehicleId, vehicles]);
+
+  const linkedVehicleLabel = linkedVehicle
+    ? `${linkedVehicle.plate_number}${linkedVehicle.vehicle_type ? ` - ${linkedVehicle.vehicle_type}` : ''}`
+    : formVehiclePlate;
 
   /* ── Loading ── */
   if (loadingData) {
@@ -1328,6 +1361,34 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   violationCounts={violationCounts}
                 />
               </div>
+
+              {(selectedDriverDisplayName || linkedVehicleLabel) && (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="flex items-center gap-3 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-900/20 px-4 py-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/40">
+                      <Users className="w-5 h-5 text-emerald-700 dark:text-emerald-300" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">السائق المختار</p>
+                      <p className="truncate text-sm font-bold text-stone-900 dark:text-white">
+                        {selectedDriverDisplayName || 'لم يتم اختيار سائق'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-900/20 px-4 py-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
+                      <Truck className="w-5 h-5 text-blue-700 dark:text-blue-300" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">رقم المركبة المرتبط</p>
+                      <p className="truncate text-sm font-bold text-stone-900 dark:text-white">
+                        {linkedVehicleLabel || 'لا توجد مركبة مرتبطة بهذا السائق'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Exit Reason & Vehicle */}
               <div className="grid md:grid-cols-2 gap-6 mt-4">

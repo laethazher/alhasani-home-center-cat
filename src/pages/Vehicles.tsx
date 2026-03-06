@@ -113,11 +113,12 @@ export default function Vehicles({ profile }: VehiclesProps) {
       list = list.filter((v) =>
         v.plate_number.toLowerCase().includes(q) ||
         (v.chassis_number || '').toLowerCase().includes(q) ||
-        (v.vehicle_type || '').toLowerCase().includes(q)
+        (v.vehicle_type || '').toLowerCase().includes(q) ||
+        (driverMap.get(String(v.assigned_driver_id)) || '').toLowerCase().includes(q)
       );
     }
     return list;
-  }, [vehicles, statusFilter, search]);
+  }, [vehicles, statusFilter, search, driverMap]);
 
   const stats = useMemo(() => ({
     total: vehicles.length,
@@ -489,7 +490,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-          <input type="text" placeholder="بحث بالرقم، النوع، الشاسي..."
+          <input type="text" placeholder="بحث بالرقم، السائق، النوع، الشاسي..."
             value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
         </div>
@@ -735,6 +736,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
               const licenseSoon = !licenseExp && isExpiringSoon(v.license_expiry);
               const insuranceSoon = !insuranceExp && isExpiringSoon(v.insurance_expiry);
               const isExpanded = expandedCards.has(v.id);
+              const assignedDriverName = driverMap.get(String(v.assigned_driver_id)) || '';
 
               return (
                 <motion.div key={v.id} layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
@@ -779,6 +781,15 @@ export default function Vehicles({ profile }: VehiclesProps) {
                             <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-purple-700 dark:text-purple-300 border border-stone-200 dark:border-stone-600">{plate.plateLetter}</span>
                           </>;
                         })()}
+                      </div>
+                      <div className="mt-2 flex items-start gap-2 rounded-xl border border-stone-200/80 dark:border-stone-700 bg-stone-50/80 dark:bg-stone-900/30 px-3 py-2">
+                        <User className="w-4 h-4 mt-0.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold text-stone-500 dark:text-stone-400">السائق المسؤول</div>
+                          <div className="truncate text-sm font-bold text-stone-900 dark:text-white">
+                            {assignedDriverName || 'غير معين'}
+                          </div>
+                        </div>
                       </div>
                     </div>
                     </div>
