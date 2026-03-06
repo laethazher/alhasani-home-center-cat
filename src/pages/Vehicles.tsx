@@ -391,7 +391,8 @@ export default function Vehicles({ profile }: VehiclesProps) {
                 .select('id')
                 .single();
               if (insertErr) throw new Error(`إضافة السائق ${driverName}: ${insertErr.message}`);
-              driverId = String(inserted!.id);
+              if (!inserted?.id) throw new Error(`إضافة السائق ${driverName}: لم يُرجَع معرف.`);
+              driverId = String(inserted.id);
               nameToId.set(driverName, driverId);
             }
           }
@@ -415,6 +416,8 @@ export default function Vehicles({ profile }: VehiclesProps) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'خطأ غير متوقع';
       setImportPdfError(msg);
+      // عرض ما تم استيراده حتى عند الفشل الجزئي
+      await fetchData();
     } finally {
       setImportingPdf(false);
     }
