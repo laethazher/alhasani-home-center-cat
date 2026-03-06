@@ -75,6 +75,7 @@ export default function Violations() {
   const [formViolationDate, setFormViolationDate] = useState(new Date().toISOString().split('T')[0]);
   const [formNotes, setFormNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const fetchData = useCallback(async () => {
     const [reqRes, staffRes, violationsRes] = await Promise.all([
@@ -584,6 +585,13 @@ export default function Violations() {
                 </button>
               </div>
 
+              {formError && (
+                <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm border border-red-200 dark:border-red-800">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  {formError}
+                </div>
+              )}
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
@@ -675,6 +683,7 @@ export default function Violations() {
                     setFormViolationReason('');
                     setFormViolationDate(new Date().toISOString().split('T')[0]);
                     setFormNotes('');
+                    setFormError('');
                   }}
                   className="px-5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-400 text-sm font-medium hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
                 >
@@ -684,6 +693,7 @@ export default function Violations() {
                   onClick={async () => {
                     if (!formStaffId || !formViolationType || !formViolationReason) return;
                     setSubmitting(true);
+                    setFormError('');
                     const { error } = await supabase.from('violations').insert({
                       staff_id: Number(formStaffId),
                       violation_type: formViolationType,
@@ -692,13 +702,16 @@ export default function Violations() {
                       notes: formNotes || null,
                       created_by: userId || null,
                     });
-                    if (!error) {
+                    if (error) {
+                      setFormError(error.message || 'حدث خطأ أثناء حفظ المخالفة');
+                    } else {
                       setShowAddViolation(false);
                       setFormStaffId('');
                       setFormViolationType('');
                       setFormViolationReason('');
                       setFormViolationDate(new Date().toISOString().split('T')[0]);
                       setFormNotes('');
+                      setFormError('');
                       await fetchData();
                     }
                     setSubmitting(false);

@@ -676,13 +676,16 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       const reasonText = finalReason ? ` - ${finalReason}` : '';
       const finalDescription = `إخراج المركبة: السائق ${driverInfo}${assistantInfo} - ${exitTypeText}${reasonText}`;
       
-      await supabase.from('vehicle_events').insert({
+      const { error: eventError } = await supabase.from('vehicle_events').insert({
         vehicle_id: vehicleId,
         event_type: 'vehicle_exit',
         description: finalDescription,
         old_value: null,
         new_value: `${driverInfo}${assistantInfo}`,
       });
+      if (eventError) {
+        console.error('فشل تسجيل حدث إخراج المركبة:', eventError.message);
+      }
     }
 
     if (!error) {
