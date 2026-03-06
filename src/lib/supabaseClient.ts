@@ -103,7 +103,7 @@ export interface VehicleMaintenance {
   created_at: string;
 }
 
-export type VehicleEventType = 'driver_assigned' | 'driver_removed' | 'status_changed' | 'license_renewed' | 'insurance_renewed' | 'odometer_updated' | 'note_added' | 'created';
+export type VehicleEventType = 'driver_assigned' | 'driver_removed' | 'status_changed' | 'license_renewed' | 'insurance_renewed' | 'odometer_updated' | 'note_added' | 'created' | 'vehicle_exit';
 
 export interface VehicleEvent {
   id: number;
@@ -130,5 +130,16 @@ export interface Report {
   equipment_manager: string | null;
   logistics_manager: string | null;
   warehouse_manager: string | null;
+  created_at: string;
+}
+
+export interface Violation {
+  id: number;
+  staff_id: number;
+  violation_type: string;
+  violation_reason: string;
+  violation_date: string;
+  notes: string | null;
+  created_by: string | null;
   created_at: string;
 }

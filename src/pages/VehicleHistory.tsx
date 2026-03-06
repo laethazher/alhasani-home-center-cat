@@ -42,6 +42,7 @@ const EVENT_CONFIG: Record<string, { label: string; color: string; bgColor: stri
   created:           { label: 'إنشاء المركبة',   color: 'text-green-600 dark:text-green-400',   bgColor: 'bg-green-100 dark:bg-green-900/30',  icon: Truck },
   maintenance:       { label: 'صيانة',           color: 'text-amber-600 dark:text-amber-400',   bgColor: 'bg-amber-100 dark:bg-amber-900/30',  icon: Wrench },
   exit_request:      { label: 'رحلة خروج',       color: 'text-sky-600 dark:text-sky-400',       bgColor: 'bg-sky-100 dark:bg-sky-900/30',      icon: Activity },
+  vehicle_exit:      { label: 'إخراج مركبة',     color: 'text-cyan-600 dark:text-cyan-400',     bgColor: 'bg-cyan-100 dark:bg-cyan-900/30',     icon: Activity },
 };
 
 type TabKey = 'timeline' | 'trips' | 'maintenance' | 'drivers' | 'stats';

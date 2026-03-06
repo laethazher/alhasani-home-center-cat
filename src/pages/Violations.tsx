@@ -14,10 +14,13 @@ import {
   Shield,
   Loader2,
   FileText,
+  Plus,
+  X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
-import type { ExitRequest, StaffMember } from '../lib/supabaseClient';
+import type { ExitRequest, StaffMember, Violation } from '../lib/supabaseClient';
+import { useUserProfile } from '../hooks/useUserProfile';
 
 /* ── Types ── */
 interface ViolationRecord {
@@ -57,20 +60,31 @@ function getSeverity(count: number): { label: string; color: string; bgColor: st
 
 /* ── Component ── */
 export default function Violations() {
+  const { profile, userId } = useUserProfile();
   const [requests, setRequests] = useState<ExitRequest[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [manualViolations, setManualViolations] = useState<Violation[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'violations' | 'delay'>('violations');
+  const [showAddViolation, setShowAddViolation] = useState(false);
+  const [formStaffId, setFormStaffId] = useState('');
+  const [formViolationType, setFormViolationType] = useState('');
+  const [formViolationReason, setFormViolationReason] = useState('');
+  const [formViolationDate, setFormViolationDate] = useState(new Date().toISOString().split('T')[0]);
+  const [formNotes, setFormNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const [reqRes, staffRes] = await Promise.all([
+    const [reqRes, staffRes, violationsRes] = await Promise.all([
       supabase.from('exit_requests').select('*').eq('exit_type', 'temporary').in('status', ['exited']).order('created_at', { ascending: false }),
       supabase.from('staff_members').select('*').order('full_name'),
+      supabase.from('violations').select('*').order('violation_date', { ascending: false }),
     ]);
     if (reqRes.data) setRequests(reqRes.data);
     if (staffRes.data) setStaff(staffRes.data);
+    if (violationsRes.data) setManualViolations(violationsRes.data);
     setLoading(false);
   }, []);
 
@@ -187,8 +201,38 @@ export default function Violations() {
       }
     }
 
+    // إضافة المخالفات اليدوية
+    for (const violation of manualViolations) {
+      const staffId = String(violation.staff_id);
+      const staffMember = staffMap.get(staffId);
+      if (!staffMember) continue;
+
+      if (!map.has(staffId)) {
+        map.set(staffId, {
+          staffId,
+          staffName: staffMember.full_name,
+          staffRole: staffMember.role as 'driver' | 'assistant',
+          totalViolations: 0,
+          totalDelayMinutes: 0,
+          records: [],
+        });
+      }
+      const entry = map.get(staffId)!;
+      entry.totalViolations++;
+      entry.records.push({
+        requestId: `manual-${violation.id}`,
+        exitDate: violation.violation_date,
+        exitReason: `${violation.violation_type}: ${violation.violation_reason}`,
+        allowedMinutes: 0,
+        delayMinutes: 0,
+        delayText: '—',
+        returned: true,
+        returnedAt: violation.violation_date,
+      });
+    }
+
     return map;
-  }, [requests, staff]);
+  }, [requests, staff, manualViolations]);
 
   /* ── Sorted + filtered list ── */
   const violationsList = useMemo((): StaffViolations[] => {
@@ -249,6 +293,15 @@ export default function Violations() {
           </h1>
           <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">تتبع تأخيرات الموظفين في الخروج المؤقت</p>
         </div>
+        {profile?.role === 'admin' && (
+          <button
+            onClick={() => setShowAddViolation(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            إضافة مخالفة
+          </button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -500,6 +553,176 @@ export default function Violations() {
           })}
         </div>
       )}
+
+      {/* Add Violation Modal */}
+      <AnimatePresence>
+        {showAddViolation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowAddViolation(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-stone-900 rounded-2xl shadow-2xl w-full max-w-md p-6 border border-stone-200 dark:border-stone-700"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-stone-900 dark:text-white flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                  إضافة مخالفة جديدة
+                </h2>
+                <button
+                  onClick={() => setShowAddViolation(false)}
+                  className="p-2 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+                >
+                  <X className="w-5 h-5 text-stone-500" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <User className="w-4 h-4 inline ml-1" />
+                    اسم السائق / المساعد
+                  </label>
+                  <select
+                    value={formStaffId}
+                    onChange={(e) => setFormStaffId(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 text-stone-900 dark:text-white"
+                  >
+                    <option value="">اختر الموظف...</option>
+                    {staff.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.full_name} ({s.role === 'driver' ? 'سائق' : 'مساعد'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <FileText className="w-4 h-4 inline ml-1" />
+                    نوع المخالفة
+                  </label>
+                  <select
+                    value={formViolationType}
+                    onChange={(e) => setFormViolationType(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 text-stone-900 dark:text-white"
+                  >
+                    <option value="">اختر نوع المخالفة...</option>
+                    <option value="تأخير في العودة">تأخير في العودة</option>
+                    <option value="عدم الالتزام بالوقت">عدم الالتزام بالوقت</option>
+                    <option value="سلوك غير لائق">سلوك غير لائق</option>
+                    <option value="إهمال في العمل">إهمال في العمل</option>
+                    <option value="عدم اتباع التعليمات">عدم اتباع التعليمات</option>
+                    <option value="أخرى">أخرى</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <AlertTriangle className="w-4 h-4 inline ml-1" />
+                    سبب المخالفة
+                  </label>
+                  <textarea
+                    value={formViolationReason}
+                    onChange={(e) => setFormViolationReason(e.target.value)}
+                    rows={3}
+                    placeholder="اكتب تفاصيل المخالفة..."
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 resize-none text-stone-900 dark:text-white placeholder:text-stone-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <Calendar className="w-4 h-4 inline ml-1" />
+                    تاريخ المخالفة
+                  </label>
+                  <input
+                    type="date"
+                    value={formViolationDate}
+                    onChange={(e) => setFormViolationDate(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 text-stone-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                    <FileText className="w-4 h-4 inline ml-1" />
+                    ملاحظات إضافية (اختياري)
+                  </label>
+                  <textarea
+                    value={formNotes}
+                    onChange={(e) => setFormNotes(e.target.value)}
+                    rows={2}
+                    placeholder="أي ملاحظات إضافية..."
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500 resize-none text-stone-900 dark:text-white placeholder:text-stone-400"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowAddViolation(false);
+                    setFormStaffId('');
+                    setFormViolationType('');
+                    setFormViolationReason('');
+                    setFormViolationDate(new Date().toISOString().split('T')[0]);
+                    setFormNotes('');
+                  }}
+                  className="px-5 py-2.5 rounded-xl border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-400 text-sm font-medium hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!formStaffId || !formViolationType || !formViolationReason) return;
+                    setSubmitting(true);
+                    const { error } = await supabase.from('violations').insert({
+                      staff_id: Number(formStaffId),
+                      violation_type: formViolationType,
+                      violation_reason: formViolationReason,
+                      violation_date: formViolationDate,
+                      notes: formNotes || null,
+                      created_by: userId || null,
+                    });
+                    if (!error) {
+                      setShowAddViolation(false);
+                      setFormStaffId('');
+                      setFormViolationType('');
+                      setFormViolationReason('');
+                      setFormViolationDate(new Date().toISOString().split('T')[0]);
+                      setFormNotes('');
+                      await fetchData();
+                    }
+                    setSubmitting(false);
+                  }}
+                  disabled={!formStaffId || !formViolationType || !formViolationReason || submitting}
+                  className="px-5 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      جاري الحفظ...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      إضافة المخالفة
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

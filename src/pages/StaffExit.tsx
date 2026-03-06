@@ -614,9 +614,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exit_requests' }, () => {
         fetchRequests();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => {
+        // تحديث البيانات عند تغيير السائق في صفحة المركبات
+        fetchVehicles();
+        fetchStaff();
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [fetchRequests]);
+  }, [fetchRequests, fetchVehicles, fetchStaff]);
 
   /* Auto-refresh for gate guard every 10s */
   useEffect(() => {
@@ -635,7 +640,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
     const finalReason = formExitReason === 'أخرى' ? formCustomReason : formExitReason;
 
-    const { error } = await supabase.from('exit_requests').insert({
+    const { data: insertedRequest, error } = await supabase.from('exit_requests').insert({
       driver_id: formDriverId || null,
       driver_name: formDriverName || '',
       assistant_ids: formAssistantIds,
@@ -648,7 +653,24 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       vehicle_plate: formVehiclePlate || null,
       created_by: userId,
       status: 'pending',
-    });
+    }).select().single();
+
+    if (!error && insertedRequest && formVehicleId) {
+      // إضافة event لإخراج المركبة في سجل المركبة
+      const vehicleId = Number(formVehicleId);
+      const driverInfo = formDriverName || (formDriverId ? drivers.find(d => String(d.id) === formDriverId)?.full_name : '');
+      const assistantInfo = assistantNames.length > 0 ? ` مع ${assistantNames.join('، ')}` : '';
+      const exitTypeText = formExitType === 'temporary' ? `مؤقت (${formDurationMinutes} دقيقة)` : 'دائم';
+      const reasonText = finalReason ? ` - ${finalReason}` : '';
+      
+      await supabase.from('vehicle_events').insert({
+        vehicle_id: vehicleId,
+        event_type: 'vehicle_exit',
+        description: `إخراج المركبة: السائق ${driverInfo}${assistantInfo} - ${exitTypeText}${reasonText}`,
+        old_value: null,
+        new_value: `${driverInfo}${assistantInfo}`,
+      });
+    }
 
     if (!error) {
       setShowForm(false);
