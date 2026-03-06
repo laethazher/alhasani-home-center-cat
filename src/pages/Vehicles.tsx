@@ -426,9 +426,56 @@ export default function Vehicles() {
                 </div>
               )}
 
+              {/* اسم السائق ورقم المركبة — الحقول الأساسية من جدول المركبات */}
+              <div className="p-4 rounded-xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30">
+                <p className="text-sm font-semibold text-stone-700 dark:text-stone-300 mb-3 flex items-center gap-1">
+                  <User className="w-4 h-4 text-blue-600" />
+                  اسم السائق ورقم المركبة
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-stone-500 mb-1 block">السائق المسؤول *</label>
+                    <select
+                      value={formData.assigned_driver_id}
+                      onChange={(e) => setFormData({ ...formData, assigned_driver_id: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-700 text-sm cursor-pointer"
+                    >
+                      <option value="">بدون تعيين</option>
+                      {staff.map((s) => (
+                        <option key={String(s.id)} value={String(s.id)}>{s.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-stone-500 mb-1 block">رقم المركبة (من الجدول)</label>
+                    <input
+                      type="text"
+                      value={[formData.vehicleNumber, formData.provinceNumber, formData.plateLetter].filter(Boolean).join(' ') || ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\s+/g, ' ').trim();
+                        const parts = raw.split(' ');
+                        if (parts.length >= 3) {
+                          setFormData({ ...formData, vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: parts[2] });
+                        } else if (parts.length === 1 && /^\d+$/.test(parts[0])) {
+                          setFormData({ ...formData, vehicleNumber: parts[0], provinceNumber: '0', plateLetter: 'أ' });
+                        } else if (parts.length === 2) {
+                          setFormData({ ...formData, vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: formData.plateLetter || 'أ' });
+                        } else {
+                          setFormData({ ...formData, vehicleNumber: raw, provinceNumber: formData.provinceNumber, plateLetter: formData.plateLetter });
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-700 text-sm"
+                      placeholder="مثال: 25472 أو 25472 0 أ"
+                      dir="ltr"
+                    />
+                    <p className="text-[10px] text-stone-400 mt-0.5">أدخل الرقم فقط (مثل 25472) لملء اللوحة تلقائياً</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Basic Info */}
               <div>
-                <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 mb-2 flex items-center gap-1"><Info className="w-3.5 h-3.5" /> البيانات الأساسية</p>
+                <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 mb-2 flex items-center gap-1"><Info className="w-3.5 h-3.5" /> أجزاء اللوحة (تفصيلي)</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div>
                     <label className="text-xs text-stone-500 mb-1 block">رقم المركبة *</label>
@@ -491,7 +538,7 @@ export default function Vehicles() {
                 </div>
               </div>
 
-              {/* Status & Assignment */}
+              {/* Status & Assignment — السائق معروض أعلاه في "اسم السائق ورقم المركبة" */}
               <div>
                 <p className="text-xs font-semibold text-stone-500 dark:text-stone-400 mb-2 flex items-center gap-1"><Activity className="w-3.5 h-3.5" /> الحالة والتعيين</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -521,14 +568,6 @@ export default function Vehicles() {
                         لا تحتوي
                       </button>
                     </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-stone-500 mb-1 block">السائق المسؤول</label>
-                    <select value={formData.assigned_driver_id} onChange={(e) => setFormData({ ...formData, assigned_driver_id: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm cursor-pointer">
-                      <option value="">بدون تعيين</option>
-                      {staff.map((s) => <option key={String(s.id)} value={String(s.id)}>{s.full_name}</option>)}
-                    </select>
                   </div>
                 </div>
               </div>

@@ -1274,7 +1274,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       const idStr = String(id || '');
                       setFormDriverId(idStr);
                       setFormDriverName(name);
-                      // ربط المركبة تلقائياً (تحقق من أرقام/سلاسل وتوفير fallback)
+                      // ربط المركبة تلقائياً من جدول vehicles (نفس المصدر: تغيير السائق من صفحة المركبات ينعكس هنا)
                       if (idStr) {
                         const v = vehicles.find((vv) => {
                           if (vv.assigned_driver_id == null) return false;
@@ -1284,12 +1284,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           setFormVehicleId(String(v.id));
                           setFormVehiclePlate(`${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}`);
                         } else {
-                          // No vehicle assigned to this driver — clear previous vehicle selection
                           setFormVehicleId('');
                           setFormVehiclePlate('');
                         }
                       } else {
-                        // driver cleared -> clear vehicle selection
                         setFormVehicleId('');
                         setFormVehiclePlate('');
                       }
@@ -1351,7 +1349,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       setFormVehicleId(vId);
                       const v = vehicles.find((v) => String(v.id) === vId);
                       setFormVehiclePlate(v ? `${v.plate_number}${v.vehicle_type ? ' - ' + v.vehicle_type : ''}` : '');
-                      // ربط السائق تلقائياً عند اختيار المركبة
+                      // ربط السائق تلقائياً من vehicles.assigned_driver_id (متزامن مع صفحة المركبات)
                       if (v && v.assigned_driver_id) {
                         setFormDriverId(String(v.assigned_driver_id));
                         const driver = drivers.find((d) => String(d.id) === String(v.assigned_driver_id));
