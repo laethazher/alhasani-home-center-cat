@@ -39,9 +39,10 @@ INSERT INTO driver_name_mapping (duplicate_name, keep_name) VALUES
   ('بیشره و كريم احمد', 'بيشره وكريم محمد/اربيل'),
   ('بسام شاکر مجید', 'بسام شاكر مجيد/اربيل'),
   ('محمد ابراهيم احمد', 'محمد ابراهيم احمد/اربيل'),
+  ('جهاد باسم محمد.', 'حيدر باسم محمد/كربلاء'),
+  ('على حکمت عبيد', 'علي حسين خلف'),
   ('على حسين خلف', 'علي حسين خلف'),
   ('امجد احمد', 'امجد احمد حميد/بابل/سائق');
-  -- ملاحظة: تم إزالة 'على حکمت عبيد' و 'جهاد باسم محمد.' لأن التطابق غير مؤكد
 
 -- اختيار معرف ثابت لكل اسم محفوظ لتجنب التحديث غير الحتمي
 CREATE TEMP TABLE canonical_driver_choice AS
@@ -124,6 +125,28 @@ WHERE sm.role = 'driver'
     WHERE dnm.duplicate_name = sm.full_name
   );
 
--- 5) تنظيف الجدول المؤقت
+-- 5) فصل السائقين غير المرتبطين حالياً بأي مركبة من exit_requests
+-- الإبقاء على driver_name النصي كسجل تاريخي، مع إزالة الربط المرجعي قبل الحذف
+UPDATE public.exit_requests er
+SET driver_id = NULL
+FROM public.staff_members sm
+WHERE er.driver_id = sm.id
+  AND sm.role = 'driver'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.vehicles v
+    WHERE v.assigned_driver_id = sm.id::text
+  );
+
+-- 6) حذف السائقين غير المرتبطين حالياً بأي مركبة
+DELETE FROM public.staff_members sm
+WHERE sm.role = 'driver'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.vehicles v
+    WHERE v.assigned_driver_id = sm.id::text
+  );
+
+-- 7) تنظيف الجدول المؤقت
 DROP TABLE IF EXISTS canonical_driver_choice;
 DROP TABLE IF EXISTS driver_name_mapping;
