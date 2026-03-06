@@ -1,0 +1,15 @@
+---
+description: Alhasani Home Center — قواعد المشروع والتوافق مع Supabase و Render
+alwaysApply: true
+---
+
+# Project Conventions (الحسني هوم سنتر)
+
+- **Code:** English (variables, functions, files, types). **Comments:** may be in Arabic.
+- **Features** requested in Arabic → implement fully.
+- **Do not change** anything unless the user gives an explicit instruction.
+- **Compatibility:** All code must work with Supabase (Auth + PostgREST + RLS) and Render (Vite build, `npm start` → serve.js).
+- **After each change:** run `git add`, `git commit`, and `git push` to GitHub. Explain major changes in the commit message or before committing.
+- **Structure:** Keep existing project structure; do not overwrite existing functionality unless instructed.
+- **Deliverables:** Prefer complete files when adding or changing features, not just snippets.
+- **Reference:** See `docs/PROJECT_STRUCTURE.md` and `docs/CODING_RULES.md` for full project and coding rules.
