@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowRight, Truck, User, Wrench, Calendar, Fuel, Gauge, Shield,
   AlertTriangle, CheckCircle2, Clock, FileText, DollarSign, Activity,
-  ChevronDown, ChevronUp, Download, Palette, XCircle, MapPin,
+  ChevronDown, ChevronUp, Download, Palette, XCircle, MapPin, ClipboardCheck,
   ArrowLeftRight, RefreshCw, Loader2, History, TrendingUp, BarChart3,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -43,6 +43,7 @@ const EVENT_CONFIG: Record<string, { label: string; color: string; bgColor: stri
   maintenance:       { label: 'صيانة',           color: 'text-amber-600 dark:text-amber-400',   bgColor: 'bg-amber-100 dark:bg-amber-900/30',  icon: Wrench },
   exit_request:      { label: 'رحلة خروج',       color: 'text-sky-600 dark:text-sky-400',       bgColor: 'bg-sky-100 dark:bg-sky-900/30',      icon: Activity },
   vehicle_exit:      { label: 'إخراج مركبة',     color: 'text-cyan-600 dark:text-cyan-400',     bgColor: 'bg-cyan-100 dark:bg-cyan-900/30',     icon: Activity },
+  report_created:    { label: 'تقرير فحص',       color: 'text-rose-600 dark:text-rose-400',     bgColor: 'bg-rose-100 dark:bg-rose-900/30',     icon: ClipboardCheck },
 };
 
 type TabKey = 'timeline' | 'trips' | 'maintenance' | 'drivers' | 'stats';
