@@ -89,12 +89,18 @@ export default function Vehicles({ profile }: VehiclesProps) {
 
   /* ── Fetch ── */
   const fetchData = useCallback(async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',runId:'run1',hypothesisId:'H1,H3',location:'Vehicles.tsx:92',message:'Vehicles fetchData started',data:{hasProfile:!!profile,role:profile?.role ?? null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     const [vRes, mRes, sRes, eRes] = await Promise.all([
       supabase.from('vehicles').select('*').order('plate_number'),
       supabase.from('vehicle_maintenance').select('*').order('performed_at', { ascending: false }),
       supabase.from('staff_members').select('*').eq('role', 'driver').eq('is_active', true).order('full_name'),
       supabase.from('exit_requests').select('*').not('vehicle_id', 'is', null).order('created_at', { ascending: false }),
     ]);
+    // #region agent log
+    fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',runId:'run1',hypothesisId:'H1,H3',location:'Vehicles.tsx:98',message:'Vehicles fetchData resolved',data:{vehiclesCount:vRes.data?.length ?? null,maintenanceCount:mRes.data?.length ?? null,staffCount:sRes.data?.length ?? null,exitRequestsCount:eRes.data?.length ?? null,vehiclesError:vRes.error?.message ?? null,maintenanceError:mRes.error?.message ?? null,staffError:sRes.error?.message ?? null,exitRequestsError:eRes.error?.message ?? null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (vRes.data) setVehicles(vRes.data);
     if (mRes.data) setMaintenance(mRes.data);
     if (sRes.data) setStaff(sRes.data);
@@ -105,6 +111,13 @@ export default function Vehicles({ profile }: VehiclesProps) {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   /* ── Computed ── */
+  const driverMap = useMemo(() => new Map(staff.map((s) => [String(s.id), s.full_name])), [staff]);
+  // #region agent log
+  fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',runId:'post-fix',hypothesisId:'H2',location:'Vehicles.tsx:113',message:'Vehicles driverMap initialized',data:{driverMapSize:driverMap.size},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  // #region agent log
+  fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',runId:'post-fix',hypothesisId:'H2,H3,H4',location:'Vehicles.tsx:116',message:'Vehicles render before filtered useMemo',data:{loading,vehiclesCount:vehicles.length,staffCount:staff.length,search,statusFilter},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const filtered = useMemo(() => {
     let list = vehicles;
     if (statusFilter !== 'all') list = list.filter((v) => v.status === statusFilter);
@@ -142,8 +155,6 @@ export default function Vehicles({ profile }: VehiclesProps) {
     }
     return map;
   }, [maintenance]);
-
-  const driverMap = useMemo(() => new Map(staff.map((s) => [String(s.id), s.full_name])), [staff]);
 
   const usageByVehicle = useMemo(() => {
     const map = new Map<number, ExitRequest[]>();
