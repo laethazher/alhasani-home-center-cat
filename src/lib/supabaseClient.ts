@@ -17,7 +17,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
 
 /* ── Types ── */
 
-export type UserRole = 'admin' | 'driver' | 'manager' | 'warehouse' | 'logistics' | 'gate_guard';
+export type UserRole = 'admin' | 'driver' | 'manager' | 'warehouse' | 'logistics' | 'gate_guard' | 'maintenance_manager';
 
 /* ── Staff Exit Types ── */
 
@@ -141,5 +141,113 @@ export interface Violation {
   violation_date: string;
   notes: string | null;
   created_by: string | null;
+  created_at: string;
+}
+
+/* ── Maintenance System Types ── */
+
+export type MaintenanceRequestStatus = 'pending' | 'approved' | 'rejected' | 'in_progress' | 'completed';
+export type MaintenancePriority = 'low' | 'medium' | 'high' | 'urgent';
+export type MaintenanceImageType = 'before' | 'during' | 'after' | 'invoice' | 'issue';
+export type PeriodicMaintenanceStatus = 'good' | 'approaching' | 'overdue';
+export type DriverIssueStatus = 'pending' | 'reviewed' | 'converted';
+
+export interface MaintenanceRequest {
+  id: number;
+  vehicle_id: number;
+  driver_id: number | null;
+  maintenance_type: string;
+  description: string | null;
+  priority: MaintenancePriority;
+  admin_notes: string | null;
+  status: MaintenanceRequestStatus;
+  images: string[];
+  requested_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface MaintenanceRecord {
+  id: number;
+  request_id: number | null;
+  vehicle_id: number;
+  maintenance_type: string | null;
+  fault_description: string | null;
+  work_done: string | null;
+  inspection_only: boolean;
+  parts_replaced: string | null;
+  technician_name: string | null;
+  cost: number;
+  duration_minutes: number | null;
+  odometer_at: number | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface MaintenanceImage {
+  id: number;
+  request_id: number | null;
+  record_id: number | null;
+  image_url: string;
+  image_type: MaintenanceImageType;
+  uploaded_by: string | null;
+  created_at: string;
+}
+
+export interface SparePart {
+  id: number;
+  name: string;
+  part_number: string | null;
+  supplier: string | null;
+  price: number;
+  quantity: number;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface SparePartUsage {
+  id: number;
+  record_id: number;
+  part_id: number;
+  quantity_used: number;
+  unit_cost: number | null;
+  created_at: string;
+}
+
+export interface DriverIssueReport {
+  id: number;
+  vehicle_id: number;
+  driver_id: number | null;
+  description: string;
+  images: string[];
+  status: DriverIssueStatus;
+  created_at: string;
+}
+
+export interface PeriodicMaintenance {
+  id: number;
+  vehicle_id: number;
+  maintenance_type: string;
+  last_performed_at: string | null;
+  next_due_date: string | null;
+  next_due_km: number | null;
+  interval_days: number | null;
+  interval_km: number | null;
+  status: PeriodicMaintenanceStatus;
+  created_at: string;
+}
+
+export interface MaintenanceNotification {
+  id: number;
+  vehicle_id: number | null;
+  notification_type: string;
+  title: string;
+  message: string | null;
+  is_read: boolean;
+  due_date: string | null;
+  target_role: string | null;
   created_at: string;
 }

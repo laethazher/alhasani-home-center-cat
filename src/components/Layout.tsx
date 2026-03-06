@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
@@ -16,8 +16,15 @@ import {
   UserCircle,
   DoorOpen,
   Shield,
+  Wrench,
+  ClipboardList,
+  Activity,
+  History,
+  Package,
+  Bell,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabaseClient';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
 
 /* ── Types ── */
@@ -29,7 +36,13 @@ export type PageKey =
   | 'staff-exit'
   | 'violations'
   | 'users'
-  | 'settings';
+  | 'settings'
+  | 'maintenance'
+  | 'maintenance-requests'
+  | 'active-maintenance'
+  | 'maintenance-history'
+  | 'spare-parts'
+  | 'notifications';
 
 interface NavItem {
   key: PageKey;
@@ -39,22 +52,29 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard',  label: 'لوحة التحكم',      icon: LayoutDashboard, roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
-  { key: 'vehicles',   label: 'المركبات',      icon: Truck,           roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
-  { key: 'staff-exit', label: 'إخراج الكادر',      icon: DoorOpen,        roles: 'all' },
-  { key: 'violations', label: 'سجل المخالفات',   icon: Shield,          roles: ['admin'] },
-  { key: 'reports',    label: 'التقارير',           icon: FileText,        roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
-  { key: 'users',      label: 'إدارة المستخدمين',  icon: UserCog,         roles: ['admin'] },
-  { key: 'settings',   label: 'الإعدادات',          icon: Settings,        roles: ['admin'] },
+  { key: 'dashboard',             label: 'لوحة التحكم',        icon: LayoutDashboard, roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics', 'maintenance_manager'] },
+  { key: 'vehicles',              label: 'المركبات',           icon: Truck,           roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
+  { key: 'maintenance',           label: 'صيانة المركبات',     icon: Wrench,          roles: ['admin', 'maintenance_manager'] },
+  { key: 'maintenance-requests',  label: 'طلبات الصيانة',      icon: ClipboardList,   roles: ['admin', 'maintenance_manager'] },
+  { key: 'active-maintenance',    label: 'الصيانة النشطة',     icon: Activity,        roles: ['admin', 'maintenance_manager'] },
+  { key: 'maintenance-history',   label: 'سجل الصيانة',        icon: History,         roles: ['admin', 'maintenance_manager'] },
+  { key: 'spare-parts',           label: 'قطع الغيار',         icon: Package,         roles: ['admin', 'maintenance_manager'] },
+  { key: 'notifications',         label: 'التنبيهات',          icon: Bell,            roles: ['admin', 'maintenance_manager'] },
+  { key: 'staff-exit',            label: 'إخراج الكادر',       icon: DoorOpen,        roles: 'all' },
+  { key: 'violations',            label: 'سجل المخالفات',      icon: Shield,          roles: ['admin'] },
+  { key: 'reports',               label: 'التقارير',           icon: FileText,        roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
+  { key: 'users',                 label: 'إدارة المستخدمين',   icon: UserCog,         roles: ['admin'] },
+  { key: 'settings',              label: 'الإعدادات',          icon: Settings,        roles: ['admin'] },
 ];
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  admin:      'مدير النظام',
-  driver:     'سائق',
-  manager:    'مدير',
-  warehouse:  'مستودع',
-  logistics:  'لوجستيات',
-  gate_guard: 'حارس البوابة',
+  admin:               'مدير النظام',
+  driver:              'سائق',
+  manager:             'مدير',
+  warehouse:           'مستودع',
+  logistics:           'لوجستيات',
+  gate_guard:          'حارس البوابة',
+  maintenance_manager: 'مسؤول الصيانة',
 };
 
 /* ── Props ── */
@@ -84,8 +104,15 @@ export default function Layout({
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen]   = useState(false);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   const safeRole = profile?.role ?? 'driver';
+
+  useEffect(() => {
+    if (safeRole !== 'admin' && safeRole !== 'maintenance_manager') return;
+    supabase.from('maintenance_notifications').select('id', { count: 'exact', head: true }).eq('is_read', false)
+      .then(({ count }) => { if (typeof count === 'number') setUnreadNotifs(count); });
+  }, [safeRole, activePage]);
 
   const visibleItems = NAV_ITEMS.filter(
     (item) => item.roles === 'all' || item.roles.includes(safeRole),
@@ -134,16 +161,28 @@ export default function Layout({
                     : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
                 )}
               >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
+                <div className="relative flex-shrink-0">
+                  <item.icon className="w-5 h-5" />
+                  {item.key === 'notifications' && unreadNotifs > 0 && !sidebarOpen && !mobile && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">
+                      {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                    </span>
+                  )}
+                </div>
                 <AnimatePresence>
                   {(sidebarOpen || mobile) && (
                     <motion.span
                       initial={{ opacity: 0, width: 0 }}
                       animate={{ opacity: 1, width: 'auto' }}
                       exit={{ opacity: 0, width: 0 }}
-                      className="whitespace-nowrap overflow-hidden"
+                      className="whitespace-nowrap overflow-hidden flex items-center gap-2"
                     >
                       {item.label}
+                      {item.key === 'notifications' && unreadNotifs > 0 && (
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                          {unreadNotifs}
+                        </span>
+                      )}
                     </motion.span>
                   )}
                 </AnimatePresence>

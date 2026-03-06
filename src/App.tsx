@@ -10,6 +10,12 @@ import Vehicles from './pages/Vehicles';
 import StaffExit from './pages/StaffExit';
 import Violations from './pages/Violations';
 import UsersManagement from './pages/UsersManagement';
+import MaintenanceDashboard from './pages/MaintenanceDashboard';
+import MaintenanceRequests from './pages/MaintenanceRequests';
+import ActiveMaintenance from './pages/ActiveMaintenance';
+import MaintenanceHistory from './pages/MaintenanceHistory';
+import SpareParts from './pages/SpareParts';
+import MaintenanceNotifications from './pages/MaintenanceNotifications';
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
@@ -29,11 +35,13 @@ export default function App() {
     try { localStorage.setItem('darkMode', String(isDarkMode)); } catch { /* noop */ }
   }, [isDarkMode]);
 
-  /* Gate guard defaults to staff-exit page */
   const role = profile?.role;
   useEffect(() => {
     if (role === 'gate_guard' && activePage === 'dashboard') {
       setActivePage('staff-exit');
+    }
+    if (role === 'maintenance_manager' && activePage === 'dashboard') {
+      setActivePage('maintenance');
     }
   }, [role, activePage]);
 
@@ -61,11 +69,13 @@ export default function App() {
   /* ── Authenticated ── */
 
   /* Role-based page guard — redirect to dashboard if unauthorized */
+  const maintenancePages: PageKey[] = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'];
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
-    // Gate guard can only access staff-exit and dashboard
+    if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
     if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
+    if (role === 'maintenance_manager' && !maintenancePages.includes(activePage) && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'maintenance';
     return activePage;
   })();
 
@@ -83,6 +93,18 @@ export default function App() {
         return <Violations />;
       case 'users':
         return <UsersManagement />;
+      case 'maintenance':
+        return <MaintenanceDashboard onNavigate={setActivePage} />;
+      case 'maintenance-requests':
+        return <MaintenanceRequests profile={profile} onNavigate={setActivePage} />;
+      case 'active-maintenance':
+        return <ActiveMaintenance profile={profile} onNavigate={setActivePage} />;
+      case 'maintenance-history':
+        return <MaintenanceHistory />;
+      case 'spare-parts':
+        return <SpareParts />;
+      case 'notifications':
+        return <MaintenanceNotifications />;
       case 'settings':
         return <div className="text-center py-20 text-stone-500">الإعدادات — قيد التطوير</div>;
       default:
