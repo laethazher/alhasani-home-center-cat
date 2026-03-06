@@ -586,39 +586,24 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   }, [isGateGuard, soundEnabled]);
 
   const fetchStaff = useCallback(async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',location:'StaffExit.tsx:588',message:'fetchStaff called',data:{driversCountBefore:drivers.length},timestamp:Date.now(),runId:'pre-fix',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
-    // #endregion
     const { data } = await supabase
       .from('staff_members')
       .select('*')
       .eq('is_active', true)
       .order('full_name');
     if (data) {
-      const driversData = data.filter((m: StaffMember) => m.role === 'driver');
-      // #region agent log
-      fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',location:'StaffExit.tsx:597',message:'fetchStaff completed',data:{driversCountAfter:driversData.length,driverIds:driversData.map(d=>d.id)},timestamp:Date.now(),runId:'pre-fix',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
-      // #endregion
-      setDrivers(driversData);
+      setDrivers(data.filter((m: StaffMember) => m.role === 'driver'));
       setAssistants(data.filter((m: StaffMember) => m.role === 'assistant'));
     }
-  }, [drivers.length]);
+  }, []);
 
   const fetchVehicles = useCallback(async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',location:'StaffExit.tsx:600',message:'fetchVehicles called',data:{vehiclesCountBefore:vehicles.length},timestamp:Date.now(),runId:'pre-fix',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
-    // #endregion
     const { data } = await supabase
       .from('vehicles')
       .select('*')
       .order('plate_number');
-    if (data) {
-      // #region agent log
-      fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',location:'StaffExit.tsx:606',message:'fetchVehicles completed',data:{vehiclesCountAfter:data.length,vehicleDriverIds:data.map(v=>v.assigned_driver_id).filter(Boolean)},timestamp:Date.now(),runId:'pre-fix',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
-      // #endregion
-      setVehicles(data);
-    }
-  }, [vehicles.length]);
+    if (data) setVehicles(data);
+  }, []);
 
   useEffect(() => {
     Promise.all([fetchRequests(), fetchStaff(), fetchVehicles()]).finally(() => setLoadingData(false));
@@ -631,18 +616,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exit_requests' }, () => {
         fetchRequests();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, (payload) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',location:'StaffExit.tsx:619',message:'vehicles table changed',data:{eventType:payload.eventType,table:payload.table},timestamp:Date.now(),runId:'pre-fix',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => {
         // تحديث البيانات عند تغيير السائق في صفحة المركبات
         fetchVehicles();
         fetchStaff();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_members' }, (payload) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7352/ingest/d40c8bb2-b612-45ed-bbef-5a80e917fc39',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cd39c4'},body:JSON.stringify({sessionId:'cd39c4',location:'StaffExit.tsx:624',message:'staff_members table changed',data:{eventType:payload.eventType,table:payload.table,vehiclesCount:vehicles.length,willCallFetchVehicles:true},timestamp:Date.now(),runId:'post-fix',hypothesisId:'H1,H2,H3'})}).catch(()=>{});
-        // #endregion
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_members' }, () => {
         // تحديث قائمة السائقين عند أي تغيير (حذف/إضافة/تعديل)
         // تحديث المركبات أيضاً لأن التغييرات في السائقين قد تؤثر على تعيينات المركبات (مثل عمليات الدمج/الحذف)
         fetchStaff();
