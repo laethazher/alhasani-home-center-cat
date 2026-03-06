@@ -221,14 +221,6 @@ export default function Vehicles({ profile }: VehiclesProps) {
       setFormError('جميع أجزاء رقم اللوحة مطلوبة');
       return;
     }
-    if (!/^\d+$/.test(formData.vehicleNumber.trim()) || !/^\d+$/.test(formData.provinceNumber.trim())) {
-      setFormError('رقم المركبة ورقم المحافظة يجب أن يكونا أرقاماً فقط');
-      return;
-    }
-    if (!/^[ء-يA-Za-z]$/.test(formData.plateLetter.trim())) {
-      setFormError('حرف اللوحة يجب أن يكون حرفاً واحداً (عربي أو إنجليزي)');
-      return;
-    }
     setSaving(true); setFormError('');
 
     const payload = {
@@ -554,22 +546,14 @@ export default function Vehicles({ profile }: VehiclesProps) {
                       onChange={(e) => {
                         const raw = e.target.value.replace(/\s+/g, ' ').trim();
                         const parts = raw.split(' ');
-                        // تطبيق نفس قواعد التحقق: أرقام فقط للرقمين، حرف واحد للوحة
-                        const digitsOnly = (s: string) => s.replace(/[^0-9]/g, '');
-                        const singleLetter = (s: string) => (s.match(/[ء-يA-Za-z]/)?.[0] ?? '').slice(0, 1);
                         if (parts.length >= 3) {
-                          const vNum = digitsOnly(parts[0]);
-                          const pNum = digitsOnly(parts[1]);
-                          const letter = singleLetter(parts[2]) || formData.plateLetter || 'أ';
-                          setFormData({ ...formData, vehicleNumber: vNum, provinceNumber: pNum || '0', plateLetter: letter });
+                          setFormData({ ...formData, vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: parts[2] });
                         } else if (parts.length === 1 && /^\d+$/.test(parts[0])) {
                           setFormData({ ...formData, vehicleNumber: parts[0], provinceNumber: '0', plateLetter: 'أ' });
-                        } else if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1])) {
+                        } else if (parts.length === 2) {
                           setFormData({ ...formData, vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: formData.plateLetter || 'أ' });
-                        } else if (parts.length === 1) {
-                          setFormData({ ...formData, vehicleNumber: digitsOnly(raw), provinceNumber: formData.provinceNumber, plateLetter: formData.plateLetter });
                         } else {
-                          setFormData({ ...formData, vehicleNumber: parts[0] ? digitsOnly(parts[0]) : formData.vehicleNumber, provinceNumber: parts[1] ? digitsOnly(parts[1]) : formData.provinceNumber, plateLetter: formData.plateLetter });
+                          setFormData({ ...formData, vehicleNumber: raw, provinceNumber: formData.provinceNumber, plateLetter: formData.plateLetter });
                         }
                       }}
                       className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-700 text-sm"
