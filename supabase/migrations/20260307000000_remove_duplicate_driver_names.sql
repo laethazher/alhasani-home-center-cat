@@ -44,31 +44,57 @@ INSERT INTO driver_name_mapping (duplicate_name, keep_name) VALUES
   ('على حسين خلف', 'علي حسين خلف'),
   ('امجد احمد', 'امجد احمد حميد/بابل/سائق');
 
--- اختيار معرف ثابت لكل اسم محفوظ لتجنب التحديث غير الحتمي
+-- اختيار السجل المحفوظ لكل زوج أسماء:
+-- 1) تفضيل السجل المرتبط فعلياً بمركبة
+-- 2) عند التعادل، تفضيل keep_name المعرفة في الخريطة
+-- 3) عند التعادل النهائي، تفضيل أصغر id
 CREATE TEMP TABLE canonical_driver_choice AS
 SELECT
-  dnm.keep_name,
-  MIN(sm.id) AS keep_id
-FROM driver_name_mapping dnm
-JOIN public.staff_members sm
-  ON sm.full_name = dnm.keep_name
- AND sm.role = 'driver'
-GROUP BY dnm.keep_name;
+  ranked.duplicate_name,
+  ranked.keep_name,
+  ranked.keep_id,
+  ranked.keep_actual_name
+FROM (
+  SELECT
+    dnm.duplicate_name,
+    dnm.keep_name,
+    sm.id AS keep_id,
+    sm.full_name AS keep_actual_name,
+    ROW_NUMBER() OVER (
+      PARTITION BY dnm.duplicate_name
+      ORDER BY
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM public.vehicles v
+            WHERE v.assigned_driver_id = sm.id::text
+               OR CAST(v.assigned_driver_id AS BIGINT) = sm.id
+          ) THEN 0
+          ELSE 1
+        END,
+        CASE WHEN sm.full_name = dnm.keep_name THEN 0 ELSE 1 END,
+        sm.id
+    ) AS rn
+  FROM driver_name_mapping dnm
+  JOIN public.staff_members sm
+    ON sm.role = 'driver'
+   AND sm.full_name IN (dnm.duplicate_name, dnm.keep_name)
+) ranked
+WHERE ranked.rn = 1;
 
 -- 2) تحديث المراجع في جدول vehicles
--- التأكد من تحديث جميع المركبات المرتبطة بالأسماء المكررة
--- استخدام معرف محفوظ ثابت لكل keep_name حتى لو تكرر الاسم في staff_members
+-- تحويل أي سجل مكرر غير محفوظ إلى السجل الذي تم اختياره لكل زوج أسماء
 UPDATE public.vehicles v
-SET assigned_driver_id = s_keep.id::text
-FROM public.staff_members s_duplicate
-JOIN driver_name_mapping dnm ON s_duplicate.full_name = dnm.duplicate_name
-JOIN canonical_driver_choice cdc ON cdc.keep_name = dnm.keep_name
-JOIN public.staff_members s_keep ON s_keep.id = cdc.keep_id
-WHERE s_duplicate.role = 'driver'
+SET assigned_driver_id = cdc.keep_id::text
+FROM canonical_driver_choice cdc
+JOIN public.staff_members s_candidate
+  ON s_candidate.role = 'driver'
+ AND s_candidate.full_name IN (cdc.duplicate_name, cdc.keep_name)
+WHERE s_candidate.id <> cdc.keep_id
   AND (
-    v.assigned_driver_id = s_duplicate.id::text 
-    OR v.assigned_driver_id = CAST(s_duplicate.id AS TEXT)
-    OR CAST(v.assigned_driver_id AS BIGINT) = s_duplicate.id
+    v.assigned_driver_id = s_candidate.id::text
+    OR v.assigned_driver_id = CAST(s_candidate.id AS TEXT)
+    OR CAST(v.assigned_driver_id AS BIGINT) = s_candidate.id
   )
   AND v.assigned_driver_id IS NOT NULL;
 
@@ -102,51 +128,25 @@ BEGIN
 END $$;
 
 -- 3) تحديث المراجع في جدول exit_requests
--- استخدام معرف محفوظ ثابت لكل keep_name حتى لو تكرر الاسم في staff_members
+-- تحويل أي سجل مكرر غير محفوظ إلى السجل الذي تم اختياره لكل زوج أسماء
 UPDATE public.exit_requests er
-SET driver_id = s_keep.id
-FROM public.staff_members s_duplicate
-JOIN driver_name_mapping dnm ON s_duplicate.full_name = dnm.duplicate_name
-JOIN canonical_driver_choice cdc ON cdc.keep_name = dnm.keep_name
-JOIN public.staff_members s_keep ON s_keep.id = cdc.keep_id
-WHERE s_duplicate.role = 'driver'
-  AND er.driver_id = s_duplicate.id
+SET driver_id = cdc.keep_id
+FROM canonical_driver_choice cdc
+JOIN public.staff_members s_candidate
+  ON s_candidate.role = 'driver'
+ AND s_candidate.full_name IN (cdc.duplicate_name, cdc.keep_name)
+WHERE s_candidate.id <> cdc.keep_id
+  AND er.driver_id = s_candidate.id
   AND er.driver_id IS NOT NULL;
 
 -- 4) حذف الأسماء المتكررة من staff_members
--- فقط إذا كان الاسم المحفوظ موجود فعلاً
+-- حذف السجلات غير المحفوظة فقط بعد تحويل المراجع عنها
 DELETE FROM public.staff_members sm
+USING canonical_driver_choice cdc
 WHERE sm.role = 'driver'
-  AND sm.full_name IN (SELECT duplicate_name FROM driver_name_mapping)
-  AND EXISTS (
-    SELECT 1 
-    FROM driver_name_mapping dnm
-    JOIN canonical_driver_choice cdc ON cdc.keep_name = dnm.keep_name
-    WHERE dnm.duplicate_name = sm.full_name
-  );
+  AND sm.full_name IN (cdc.duplicate_name, cdc.keep_name)
+  AND sm.id <> cdc.keep_id;
 
--- 5) فصل السائقين غير المرتبطين حالياً بأي مركبة من exit_requests
--- الإبقاء على driver_name النصي كسجل تاريخي، مع إزالة الربط المرجعي قبل الحذف
-UPDATE public.exit_requests er
-SET driver_id = NULL
-FROM public.staff_members sm
-WHERE er.driver_id = sm.id
-  AND sm.role = 'driver'
-  AND NOT EXISTS (
-    SELECT 1
-    FROM public.vehicles v
-    WHERE v.assigned_driver_id = sm.id::text
-  );
-
--- 6) حذف السائقين غير المرتبطين حالياً بأي مركبة
-DELETE FROM public.staff_members sm
-WHERE sm.role = 'driver'
-  AND NOT EXISTS (
-    SELECT 1
-    FROM public.vehicles v
-    WHERE v.assigned_driver_id = sm.id::text
-  );
-
--- 7) تنظيف الجدول المؤقت
+-- 5) تنظيف الجدول المؤقت
 DROP TABLE IF EXISTS canonical_driver_choice;
 DROP TABLE IF EXISTS driver_name_mapping;
