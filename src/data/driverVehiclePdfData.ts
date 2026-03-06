@@ -50,6 +50,6 @@ export const DRIVER_VEHICLE_PDF_ROWS: DriverVehicleRow[] = [
   { driverName: 'اثير باسم', vehicleNumber: 22700 },
   { driverName: 'امجد احمد', vehicleNumber: 25551 },
   { driverName: 'احتياط زیرو', vehicleNumber: 25108 },
-  { driverName: 'احتياط', vehicleNumber: 24433 },
-  { driverName: 'على حسين خلف', vehicleNumber: 24376 },
+  { driverName: 'احتياط', vehicleNumber: 24376 },
+  { driverName: 'على حسين خلف', vehicleNumber: 24433 },
 ];

@@ -104,8 +104,8 @@ FROM (VALUES
   (22700, 'اثير باسم'),
   (25551, 'امجد احمد'),
   (25108, 'احتياط زیرو'),
-  (24433, 'احتياط'),
-  (24376, 'على حسين خلف')
+  (24376, 'احتياط'),
+  (24433, 'على حسين خلف')
 ) AS v(num, driver_name)
 ON CONFLICT (plate_number) DO UPDATE SET
   assigned_driver_id = EXCLUDED.assigned_driver_id;

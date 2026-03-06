@@ -387,7 +387,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
             } else {
               const { data: inserted, error: insertErr } = await supabase
                 .from('staff_members')
-                .insert({ full_name: driverName, role: 'driver' })
+                .insert({ full_name: driverName, role: 'driver', is_active: true })
                 .select('id')
                 .single();
               if (insertErr) throw new Error(`إضافة السائق ${driverName}: ${insertErr.message}`);
