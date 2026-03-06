@@ -43,6 +43,9 @@ interface VehiclesProps {
   profile?: UserProfile | null;
 }
 
+const isReserveVehicle = (vehicle: Vehicle) =>
+  vehicle.status === 'available' && !vehicle.assigned_driver_id;
+
 export default function Vehicles({ profile }: VehiclesProps) {
   /* State */
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -53,7 +56,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
   const [exitRequests, setExitRequests] = useState<ExitRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<VehicleStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<VehicleStatus | 'all' | 'reserve'>('all');
 
 
   /* Form state */
@@ -108,14 +111,26 @@ export default function Vehicles({ profile }: VehiclesProps) {
   const driverMap = useMemo(() => new Map(staff.map((s) => [String(s.id), s.full_name])), [staff]);
   const filtered = useMemo(() => {
     let list = vehicles;
-    if (statusFilter !== 'all') list = list.filter((v) => v.status === statusFilter);
+    if (statusFilter === 'reserve') {
+      list = list.filter(isReserveVehicle);
+    } else if (statusFilter !== 'all') {
+      list = list.filter((v) => v.status === statusFilter);
+      if (statusFilter === 'available') {
+        list = list.filter((v) => !isReserveVehicle(v));
+      }
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((v) =>
         v.plate_number.toLowerCase().includes(q) ||
         (v.chassis_number || '').toLowerCase().includes(q) ||
         (v.vehicle_type || '').toLowerCase().includes(q) ||
-        (driverMap.get(String(v.assigned_driver_id)) || '').toLowerCase().includes(q)
+        (driverMap.get(String(v.assigned_driver_id)) || '').toLowerCase().includes(q) ||
+        (isReserveVehicle(v) && (
+          'احتياط'.includes(q) ||
+          'بدون تعيين'.includes(q) ||
+          'غير معين'.includes(q)
+        ))
       );
     }
     return list;
@@ -123,7 +138,8 @@ export default function Vehicles({ profile }: VehiclesProps) {
 
   const stats = useMemo(() => ({
     total: vehicles.length,
-    available: vehicles.filter((v) => v.status === 'available').length,
+    available: vehicles.filter((v) => v.status === 'available' && !isReserveVehicle(v)).length,
+    reserve: vehicles.filter(isReserveVehicle).length,
     maintenance: vehicles.filter((v) => v.status === 'maintenance').length,
     broken: vehicles.filter((v) => v.status === 'broken').length,
     reserved: vehicles.filter((v) => v.status === 'reserved').length,
@@ -467,10 +483,11 @@ export default function Vehicles({ profile }: VehiclesProps) {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
         {[
           { label: 'الإجمالي', value: stats.total, color: 'bg-stone-100 dark:bg-stone-800', textColor: 'text-stone-700 dark:text-stone-300', icon: Truck },
           { label: 'متاحة', value: stats.available, color: 'bg-emerald-100 dark:bg-emerald-900/30', textColor: 'text-emerald-700 dark:text-emerald-300', icon: CheckCircle2 },
+          { label: 'احتياط', value: stats.reserve, color: 'bg-cyan-100 dark:bg-cyan-900/30', textColor: 'text-cyan-700 dark:text-cyan-300', icon: Shield },
           { label: 'صيانة', value: stats.maintenance, color: 'bg-amber-100 dark:bg-amber-900/30', textColor: 'text-amber-700 dark:text-amber-300', icon: Wrench },
           { label: 'معطلة', value: stats.broken, color: 'bg-red-100 dark:bg-red-900/30', textColor: 'text-red-700 dark:text-red-300', icon: XCircle },
           { label: 'محجوزة', value: stats.reserved, color: 'bg-blue-100 dark:bg-blue-900/30', textColor: 'text-blue-700 dark:text-blue-300', icon: Shield },
@@ -493,9 +510,10 @@ export default function Vehicles({ profile }: VehiclesProps) {
             value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as VehicleStatus | 'all')}
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as VehicleStatus | 'all' | 'reserve')}
           className="px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm cursor-pointer">
           <option value="all">كل الحالات</option>
+          <option value="reserve">احتياط</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
       </div>
