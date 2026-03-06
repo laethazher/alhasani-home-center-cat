@@ -20,7 +20,10 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleStatus, StaffMember, ExitRequest } from '../lib/supabaseClient';
+import type { UserProfile } from '../lib/supabaseClient';
 import VehicleHistory from './VehicleHistory';
+import { DRIVER_VEHICLE_PDF_ROWS } from '../data/driverVehiclePdfData';
+import { Download, Loader2 as Loader2Icon } from 'lucide-react';
 
 /* ── Constants ── */
 const VEHICLE_TYPES = ['كانتر', 'كيا'];
@@ -36,9 +39,15 @@ const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgCol
 };
 
 /* ── Component ── */
-export default function Vehicles() {
+interface VehiclesProps {
+  profile?: UserProfile | null;
+}
+
+export default function Vehicles({ profile }: VehiclesProps) {
   /* State */
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [importingPdf, setImportingPdf] = useState(false);
+  const [importPdfError, setImportPdfError] = useState('');
   const [maintenance, setMaintenance] = useState<VehicleMaintenance[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitRequests, setExitRequests] = useState<ExitRequest[]>([]);
@@ -350,6 +359,67 @@ export default function Vehicles() {
   const totalMaintenanceCost = (vehicleId: number) =>
     (maintenanceByVehicle.get(vehicleId) || []).reduce((sum, m) => sum + Number(m.cost), 0);
 
+  /* ── استيراد بيانات المركبات 1 (من PDF) إلى Supabase ── */
+  const handleImportPdfData = useCallback(async () => {
+    if (profile?.role !== 'admin') return;
+    setImportingPdf(true);
+    setImportPdfError('');
+    try {
+      const nameToId = new Map<string, string>();
+      for (const row of DRIVER_VEHICLE_PDF_ROWS) {
+        const { driverName, vehicleNumber } = row;
+        const isReserve = driverName === 'احتياط' || driverName === 'احتياط زیرو';
+        let driverId: string | null = null;
+        if (!isReserve) {
+          if (nameToId.has(driverName)) {
+            driverId = nameToId.get(driverName)!;
+          } else {
+            const { data: existing } = await supabase
+              .from('staff_members')
+              .select('id')
+              .eq('full_name', driverName)
+              .eq('role', 'driver')
+              .limit(1)
+              .maybeSingle();
+            if (existing?.id) {
+              driverId = String(existing.id);
+              nameToId.set(driverName, driverId);
+            } else {
+              const { data: inserted, error: insertErr } = await supabase
+                .from('staff_members')
+                .insert({ full_name: driverName, role: 'driver' })
+                .select('id')
+                .single();
+              if (insertErr) throw new Error(`إضافة السائق ${driverName}: ${insertErr.message}`);
+              driverId = String(inserted!.id);
+              nameToId.set(driverName, driverId);
+            }
+          }
+        }
+        const plateNumber = `${vehicleNumber} 0 أ`;
+        const { error: vehicleErr } = await supabase
+          .from('vehicles')
+          .upsert(
+            {
+              plate_number: plateNumber,
+              assigned_driver_id: driverId,
+              vehicle_type: 'كانتر',
+              status: 'available',
+            },
+            { onConflict: 'plate_number' }
+          );
+        if (vehicleErr) throw new Error(`إضافة المركبة ${plateNumber}: ${vehicleErr.message}`);
+      }
+      await fetchData();
+      setImportPdfError('');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'خطأ غير متوقع';
+      setImportPdfError(msg);
+    } finally {
+      setImportingPdf(false);
+    }
+  }, [profile?.role, fetchData]);
+
   /* ── Render ── */
   if (loading) return (
     <div className="flex items-center justify-center py-20">
@@ -367,12 +437,31 @@ export default function Vehicles() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold">المركبات</h2>
-        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-          onClick={openAddForm}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors">
-          <Plus className="w-4 h-4" /> إضافة مركبة
-        </motion.button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {profile?.role === 'admin' && (
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleImportPdfData}
+              disabled={importingPdf}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+            >
+              {importingPdf ? <Loader2Icon className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {importingPdf ? 'جاري الاستيراد...' : 'استيراد بيانات المركبات 1 (PDF)'}
+            </motion.button>
+          )}
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+            onClick={openAddForm}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors">
+            <Plus className="w-4 h-4" /> إضافة مركبة
+          </motion.button>
+        </div>
       </div>
+      {importPdfError && (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" /> {importPdfError}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

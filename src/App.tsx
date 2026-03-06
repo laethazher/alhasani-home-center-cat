@@ -76,7 +76,7 @@ export default function App() {
       case 'reports':
         return <Reports userId={user.id} />;
       case 'vehicles':
-        return <Vehicles />;
+        return <Vehicles profile={profile} />;
       case 'staff-exit':
         return <StaffExit profile={profile} userId={user.id} />;
       case 'violations':
