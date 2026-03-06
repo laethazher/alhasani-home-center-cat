@@ -621,6 +621,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         fetchVehicles();
         fetchStaff();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_members' }, () => {
+        // تحديث قائمة السائقين عند أي تغيير (حذف/إضافة/تعديل)
+        fetchStaff();
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchRequests, fetchVehicles, fetchStaff]);
