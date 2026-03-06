@@ -1,4 +1,4 @@
--- فحص السائقين الموجودين حالياً
+-- استعلام مباشر لفحص السائقين
 SELECT 
   id,
   full_name,
@@ -8,7 +8,7 @@ SELECT
       SELECT 1 FROM public.vehicles v 
       WHERE v.assigned_driver_id = staff_members.id::text
          OR CAST(v.assigned_driver_id AS BIGINT) = staff_members.id
-    ) THEN 'مرتبط بمركبة'
+    ) THEN 'مرتبط'
     ELSE 'غير مرتبط'
   END AS vehicle_status
 FROM public.staff_members
