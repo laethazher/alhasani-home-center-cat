@@ -25,6 +25,13 @@ export default function MaintenanceHistory({ profile }: Props) {
   const [expandedRecord, setExpandedRecord] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Selection & Delete state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [deleting, setDeleting] = useState(false);
+
+  const isAdmin = profile?.role === 'admin';
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -70,6 +77,47 @@ export default function MaintenanceHistory({ profile }: Props) {
     }
     return list;
   }, [records, selectedVehicle, searchQuery, vehicles]);
+
+  const toggleSelection = (id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredRecords.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredRecords.map(r => r.id));
+    }
+  };
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} سجل صيانة؟ سيتم أيضاً حذف الطلبات المرتبطة بها.`)) return;
+    setDeleting(true);
+    
+    // Deleting via request_id to trigger database cascading deletes (records, images, etc.)
+    const reqIdsToDelete = selectedIds
+      .map(id => records.find(r => r.id === id)?.request_id)
+      .filter((rid): rid is number => rid !== null && rid !== undefined);
+
+    let error;
+    if (reqIdsToDelete.length > 0) {
+      const res = await supabase.from('maintenance_requests').delete().in('id', reqIdsToDelete);
+      error = res.error;
+    } 
+    
+    // Also delete any records that might not have a request_id directly
+    const resRec = await supabase.from('maintenance_records').delete().in('id', selectedIds);
+    if (!error) error = resRec.error;
+
+    if (error) {
+      alert('فشل الحذف: ' + error.message);
+    } else {
+      setSelectedIds([]);
+      setIsSelectionMode(false);
+      fetchData();
+    }
+    setDeleting(false);
+  }
 
   const vehicleRecordCounts = useMemo(() => {
     const counts: Record<number, number> = {};
@@ -183,14 +231,53 @@ export default function MaintenanceHistory({ profile }: Props) {
               ))}
           </select>
         </div>
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={exportPDF}
-          disabled={filteredRecords.length === 0}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
-        >
-          <Download className="w-4 h-4" /> تصدير PDF
-        </motion.button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          {isAdmin && (
+            <>
+              {selectedIds.length > 0 && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  onClick={handleDeleteSelected}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  حذف ({selectedIds.length})
+                </motion.button>
+              )}
+              {isSelectionMode && filteredRecords.length > 0 && (
+                <button
+                  onClick={toggleSelectAll}
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium border border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-400"
+                >
+                  {selectedIds.length === filteredRecords.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setIsSelectionMode(!isSelectionMode);
+                  setSelectedIds([]);
+                }}
+                className={cn(
+                  "px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors",
+                  isSelectionMode 
+                    ? "bg-stone-800 text-white border-stone-800" 
+                    : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400"
+                )}
+              >
+                {isSelectionMode ? 'إلغاء' : 'تحديد'}
+              </button>
+            </>
+          )}
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={exportPDF}
+            disabled={filteredRecords.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" /> تصدير PDF
+          </motion.button>
+        </div>
       </div>
 
       {/* Summary */}
@@ -235,21 +322,44 @@ export default function MaintenanceHistory({ profile }: Props) {
           const driverName = req?.driver_id ? (drivers.find(d => String(d.id) === String(req.driver_id))?.full_name ?? null) : null;
           const recImages = getRecordImages(rec);
           const isExpanded = expandedRecord === rec.id;
+          const isSelected = selectedIds.includes(rec.id);
+          
           return (
             <motion.div
               key={rec.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.02 }}
-              className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm overflow-hidden"
+              className={cn(
+                "rounded-2xl border shadow-sm overflow-hidden transition-all",
+                isSelected 
+                  ? "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800" 
+                  : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 shadow-sm"
+              )}
             >
               <button
-                onClick={() => setExpandedRecord(isExpanded ? null : rec.id)}
+                onClick={() => {
+                  if (isSelectionMode) {
+                    toggleSelection(rec.id);
+                  } else {
+                    setExpandedRecord(isExpanded ? null : rec.id);
+                  }
+                }}
                 className="w-full p-4 flex items-start justify-between gap-3 text-right"
               >
                 <div className="flex items-start gap-3 min-w-0">
+                  {isSelectionMode && (
+                    <div className={cn(
+                      "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors mt-1 flex-shrink-0",
+                      isSelected ? "bg-blue-600 border-blue-600" : "border-stone-300 dark:border-stone-600"
+                    )}>
+                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </div>
+                  )}
                   {/* Timeline dot */}
-                  <div className="w-3 h-3 rounded-full bg-blue-500 mt-1.5 flex-shrink-0 ring-4 ring-blue-100 dark:ring-blue-900/30" />
+                  {!isSelectionMode && (
+                    <div className="w-3 h-3 rounded-full bg-blue-500 mt-1.5 flex-shrink-0 ring-4 ring-blue-100 dark:ring-blue-900/30" />
+                  )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Truck className="w-4 h-4 text-blue-500" />
