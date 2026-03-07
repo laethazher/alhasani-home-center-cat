@@ -37,7 +37,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
   const isAdmin = profile?.role === 'admin';
   const isMaintManager = profile?.role === 'maintenance_manager';
   const canEdit = isAdmin || isMaintManager;
-  const canFinish = isAdmin; // Only admin can finish maintenance; manager can view & upload photos
+  const canFinish = isAdmin || isMaintManager; // Admin and maintenance_manager can finish
   const [activeRequest, setActiveRequest] = useState<MaintenanceRequest | null>(null);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [driver, setDriver] = useState<StaffMember | null>(null);
@@ -429,7 +429,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
             )}
           </motion.div>
 
-          {/* Finish button - Admin only */}
+          {/* Finish button - Admin & Maintenance Manager */}
           {canFinish && (
             <motion.button
               whileHover={{ scale: 1.01 }}

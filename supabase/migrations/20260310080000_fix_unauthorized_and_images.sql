@@ -69,8 +69,8 @@ BEGIN
   END IF;
   v_user_role := LOWER(TRIM(COALESCE(v_user_role, '')));
 
-  -- Only admin can finish maintenance (per plan)
-  IF v_user_role <> 'admin' THEN
+  -- Admin and maintenance_manager can finish maintenance
+  IF v_user_role NOT IN ('admin', 'maintenance_manager') THEN
     RETURN jsonb_build_object('success', false, 'error', 'unauthorized_role_' || COALESCE(NULLIF(v_user_role, ''), 'none'));
   END IF;
 
