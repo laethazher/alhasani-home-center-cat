@@ -78,45 +78,46 @@ export default function MaintenanceHistory({ profile }: Props) {
     return list;
   }, [records, selectedVehicle, searchQuery, vehicles]);
 
-  const toggleSelection = (id: number) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
+  const toggleSelection = useCallback((id: number) => {
+    setSelectedIds(prev => {
+      if (prev.includes(id)) return prev.filter(i => i !== id);
+      return [...prev, id];
+    });
+  }, []);
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === filteredRecords.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filteredRecords.map(r => r.id));
-    }
-  };
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      if (prev.length === filteredRecords.length) return [];
+      return filteredRecords.map(r => r.id);
+    });
+  }, [filteredRecords]);
 
   async function handleDeleteSelected() {
-    if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} سجل صيانة؟ سيتم أيضاً حذف الطلبات المرتبطة بها.`)) return;
+    if (selectedIds.length === 0 || deleting) return;
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} سجل صيانة؟ سيتم أيضاً حذف الطلبات المرتبطة بها.`)) return;
+    
     setDeleting(true);
-    
-    // Deleting via request_id to trigger database cascading deletes (records, images, etc.)
-    const reqIdsToDelete = selectedIds
-      .map(id => records.find(r => r.id === id)?.request_id)
-      .filter((rid): rid is number => rid !== null && rid !== undefined);
+    try {
+      const idsToRemove = [...selectedIds];
+      const reqIdsToDelete = idsToRemove
+        .map(id => records.find(r => r.id === id)?.request_id)
+        .filter((rid): rid is number => typeof rid === 'number');
 
-    let error;
-    if (reqIdsToDelete.length > 0) {
-      const res = await supabase.from('maintenance_requests').delete().in('id', reqIdsToDelete);
-      error = res.error;
-    } 
-    
-    // Also delete any records that might not have a request_id directly
-    const resRec = await supabase.from('maintenance_records').delete().in('id', selectedIds);
-    if (!error) error = resRec.error;
+      if (reqIdsToDelete.length > 0) {
+        await supabase.from('maintenance_requests').delete().in('id', reqIdsToDelete);
+      } 
+      
+      await supabase.from('maintenance_records').delete().in('id', idsToRemove);
 
-    if (error) {
-      alert('فشل الحذف: ' + error.message);
-    } else {
       setSelectedIds([]);
       setIsSelectionMode(false);
-      fetchData();
+      await fetchData();
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('حدث خطأ أثناء الحذف');
+    } finally {
+      setDeleting(false);
     }
-    setDeleting(false);
   }
 
   const vehicleRecordCounts = useMemo(() => {
