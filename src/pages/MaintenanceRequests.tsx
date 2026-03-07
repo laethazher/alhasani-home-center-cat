@@ -52,6 +52,11 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState<'requests' | 'issues'>('requests');
 
+  // Selection & Delete state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [deleting, setDeleting] = useState(false);
+
   // Form state
   const [formDriverId, setFormDriverId] = useState('');
   const [formVehicleId, setFormVehicleId] = useState('');
@@ -87,6 +92,24 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const toggleSelection = (id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} طلب؟`)) return;
+    setDeleting(true);
+    const { error } = await supabase.from('maintenance_requests').delete().in('id', selectedIds);
+    if (error) {
+      alert('فشل الحذف: ' + error.message);
+    } else {
+      setSelectedIds([]);
+      setIsSelectionMode(false);
+      fetchData();
+    }
+    setDeleting(false);
+  }
 
   const driverVehicleMap = useMemo(() => {
     const map: Record<string, Vehicle | undefined> = {};
@@ -280,17 +303,49 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                 <option value="rejected">مرفوض</option>
               </select>
             </div>
-            {isAdmin && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setShowForm(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                طلب صيانة جديد
-              </motion.button>
-            )}
+            <div className="flex gap-2 w-full sm:w-auto">
+              {isAdmin && (
+                <>
+                  {selectedIds.length > 0 && (
+                    <motion.button
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      onClick={handleDeleteSelected}
+                      disabled={deleting}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/30 hover:bg-red-700 transition-colors"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      حذف ({selectedIds.length})
+                    </motion.button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setIsSelectionMode(!isSelectionMode);
+                      setSelectedIds([]);
+                    }}
+                    className={cn(
+                      "px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors",
+                      isSelectionMode 
+                        ? "bg-stone-800 text-white border-stone-800" 
+                        : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400"
+                    )}
+                  >
+                    {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+                  </button>
+                </>
+              )}
+              {isAdmin && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowForm(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  طلب صيانة جديد
+                </motion.button>
+              )}
+            </div>
           </div>
 
           {/* Active maintenance warning */}
@@ -316,17 +371,32 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
               const driver = drivers.find(d => d.id === Number(req.driver_id));
               const sc = STATUS_CONFIG[req.status];
               const pc = PRIORITY_CONFIG[req.priority];
+              const isSelected = selectedIds.includes(req.id);
+
               return (
                 <motion.div
                   key={req.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.03 }}
-                  onClick={() => setShowDetail(req)}
-                  className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-4 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => isSelectionMode ? toggleSelection(req.id) : setShowDetail(req)}
+                  className={cn(
+                    "rounded-2xl border p-4 shadow-sm cursor-pointer transition-all relative group",
+                    isSelected 
+                      ? "bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800" 
+                      : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 hover:shadow-md"
+                  )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
+                      {isSelectionMode && (
+                        <div className={cn(
+                          "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors mt-1",
+                          isSelected ? "bg-blue-600 border-blue-600" : "border-stone-300 dark:border-stone-600"
+                        )}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                      )}
                       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
                         <Wrench className="w-5 h-5 text-white" />
                       </div>
