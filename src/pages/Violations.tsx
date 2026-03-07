@@ -60,7 +60,7 @@ function getSeverity(count: number): { label: string; color: string; bgColor: st
 
 /* ── Component ── */
 export default function Violations() {
-  const { profile, userId } = useUserProfile();
+  const { profile, user } = useUserProfile();
   const [requests, setRequests] = useState<ExitRequest[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [manualViolations, setManualViolations] = useState<Violation[]>([]);
@@ -700,7 +700,7 @@ export default function Violations() {
                       violation_reason: formViolationReason,
                       violation_date: formViolationDate,
                       notes: formNotes || null,
-                      created_by: userId || null,
+                      created_by: user?.id || null,
                     });
                     if (error) {
                       setFormError(error.message || 'حدث خطأ أثناء حفظ المخالفة');
