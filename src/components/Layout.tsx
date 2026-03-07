@@ -72,7 +72,7 @@ const MAINTENANCE_CHILDREN: MaintenanceChild[] = [
 const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard',             label: 'لوحة التحكم',        icon: LayoutDashboard, roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics', 'maintenance_manager'] },
   { key: 'vehicles',              label: 'المركبات',           icon: Truck,           roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
-  { key: 'staff-exit',            label: 'إخراج الكادر',       icon: DoorOpen,        roles: 'all' },
+  { key: 'staff-exit',            label: 'إخراج الكادر',       icon: DoorOpen,        roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics', 'gate_guard'] },
   { key: 'violations',            label: 'سجل المخالفات',      icon: Shield,          roles: ['admin'] },
   { key: 'reports',               label: 'التقارير',           icon: FileText,        roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'] },
   { key: 'users',                 label: 'إدارة المستخدمين',   icon: UserCog,         roles: ['admin'] },

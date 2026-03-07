@@ -76,7 +76,7 @@ export default function App() {
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
     if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
     if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
-    if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'maintenance-requests';
+    if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard') return 'maintenance-requests';
     return activePage;
   })();
 
