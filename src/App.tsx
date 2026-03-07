@@ -41,7 +41,7 @@ export default function App() {
       setActivePage('staff-exit');
     }
     if (role === 'maintenance_manager' && activePage === 'dashboard') {
-      setActivePage('maintenance');
+      setActivePage('maintenance-requests');
     }
   }, [role, activePage]);
 
@@ -70,12 +70,13 @@ export default function App() {
 
   /* Role-based page guard — redirect to dashboard if unauthorized */
   const maintenancePages: PageKey[] = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'];
+  const maintenanceManagerPages: PageKey[] = ['maintenance-requests', 'active-maintenance', 'maintenance-history', 'notifications'];
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
     if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
     if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
-    if (role === 'maintenance_manager' && !maintenancePages.includes(activePage) && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'maintenance';
+    if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'maintenance-requests';
     return activePage;
   })();
 
@@ -100,7 +101,7 @@ export default function App() {
       case 'active-maintenance':
         return <ActiveMaintenance profile={profile} onNavigate={setActivePage} />;
       case 'maintenance-history':
-        return <MaintenanceHistory />;
+        return <MaintenanceHistory profile={profile} />;
       case 'spare-parts':
         return <SpareParts />;
       case 'notifications':

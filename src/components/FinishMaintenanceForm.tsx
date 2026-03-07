@@ -30,6 +30,7 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
   const [notes, setNotes] = useState('');
   const [selectedParts, setSelectedParts] = useState<{ partId: number; qty: number }[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const fetchParts = useCallback(async () => {
     const { data } = await supabase.from('spare_parts').select('*').gt('quantity', 0);
@@ -48,6 +49,7 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
     setNotes('');
     setSelectedParts([]);
     setSubmitting(false);
+    setSubmitError('');
     fetchParts();
   }, [open, request, fetchParts]);
 
@@ -66,76 +68,44 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
   }
 
   async function handleSubmit() {
+    setSubmitError('');
     setSubmitting(true);
-    const now = new Date().toISOString();
+
     const durationMs = request.started_at ? Date.now() - new Date(request.started_at).getTime() : 0;
     const durationMinutes = Math.round(durationMs / 60000);
 
-    const { data: record, error: recError } = await supabase.from('maintenance_records').insert({
-      request_id: request.id,
-      vehicle_id: request.vehicle_id,
-      maintenance_type: maintenanceType,
-      fault_description: faultDescription,
-      work_done: workDone,
-      inspection_only: inspectionOnly,
-      parts_replaced: partsReplaced,
-      technician_name: technicianName,
-      cost: Number(cost) || 0,
-      duration_minutes: durationMinutes,
-      notes,
-    }).select().single();
+    const sparePartsPayload = selectedParts.map(sp => ({
+      part_id: sp.partId,
+      quantity: sp.qty,
+    }));
 
-    if (recError || !record) { setSubmitting(false); return; }
+    const { data, error } = await supabase.rpc('finish_maintenance', {
+      p_request_id: request.id,
+      p_maintenance_type: maintenanceType,
+      p_fault_description: faultDescription,
+      p_work_done: workDone,
+      p_inspection_only: inspectionOnly,
+      p_parts_replaced: partsReplaced || null,
+      p_technician_name: technicianName || null,
+      p_cost: Number(cost) || 0,
+      p_duration_minutes: durationMinutes,
+      p_notes: notes || null,
+      p_spare_parts: sparePartsPayload,
+    });
 
-    // Spare part usage
-    for (const sp of selectedParts) {
-      const part = spareParts.find(p => p.id === sp.partId);
-      if (part) {
-        const { error: usageErr } = await supabase.from('spare_part_usage').insert({
-          record_id: record.id,
-          part_id: sp.partId,
-          quantity_used: sp.qty,
-          unit_cost: part.price,
-        });
-        if (usageErr) { setSubmitting(false); return; }
-
-        const { error: qtyErr } = await supabase.from('spare_parts').update({
-          quantity: Math.max(0, part.quantity - sp.qty),
-        }).eq('id', sp.partId);
-        if (qtyErr) { setSubmitting(false); return; }
-      }
+    if (error) {
+      setSubmitError(error.message || 'فشل في إنهاء الصيانة');
+      setSubmitting(false);
+      return;
     }
 
-    // Close request
-    const { error: closeErr } = await supabase.from('maintenance_requests').update({
-      status: 'completed',
-      finished_at: now,
-    }).eq('id', request.id);
-    if (closeErr) { setSubmitting(false); return; }
-
-    // Vehicle event
-    const { error: eventErr } = await supabase.from('vehicle_events').insert({
-      vehicle_id: request.vehicle_id,
-      event_type: 'status_changed',
-      description: `صيانة مكتملة: ${maintenanceType}`,
-      old_value: 'maintenance',
-      new_value: 'available',
-    });
-    if (eventErr) { setSubmitting(false); return; }
-
-    // Set vehicle available
-    const { error: statusErr } = await supabase.from('vehicles').update({ status: 'available' }).eq('id', request.vehicle_id);
-    if (statusErr) { setSubmitting(false); return; }
-
-    // Add notification
-    const { error: notifErr } = await supabase.from('maintenance_notifications').insert({
-      vehicle_id: request.vehicle_id,
-      notification_type: 'maintenance_completed',
-      title: 'صيانة مكتملة',
-      message: `تم إنهاء صيانة المركبة: ${maintenanceType} — التكلفة: ${cost || 0} د.ع`,
-      target_role: 'admin',
-    });
-    if (notifErr) { setSubmitting(false); return; }
+    const result = data as { success?: boolean; error?: string };
+    if (!result?.success) {
+      const errMsg = result?.error === 'duplicate_record' ? 'تم إنهاء هذه الصيانة مسبقاً' : (result?.error || 'فشل في إنهاء الصيانة');
+      setSubmitError(errMsg);
+      setSubmitting(false);
+      return;
+    }
 
     setSubmitting(false);
     onDone();
@@ -250,6 +220,11 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
           </div>
         </div>
 
+        {submitError && (
+          <div className="mx-5 mb-0 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p>
+          </div>
+        )}
         <div className="px-5 py-4 border-t border-stone-200 dark:border-stone-800 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 text-sm font-medium">
             إلغاء

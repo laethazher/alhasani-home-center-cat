@@ -6,14 +6,20 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
-import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember } from '../lib/supabaseClient';
+import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
 import jsPDF from 'jspdf';
 
-export default function MaintenanceHistory() {
+interface Props {
+  profile: UserProfile | null;
+}
+
+export default function MaintenanceHistory({ profile }: Props) {
   const [records, setRecords] = useState<MaintenanceRecord[]>([]);
+  const [requests, setRequests] = useState<{ id: number; driver_id: number | null; approved_by: string | null }[]>([]);
   const [images, setImages] = useState<MaintenanceImage[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedVehicle, setSelectedVehicle] = useState<number | null>(null);
   const [expandedRecord, setExpandedRecord] = useState<number | null>(null);
@@ -21,13 +27,18 @@ export default function MaintenanceHistory() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [recRes, imgRes, vehRes, drvRes] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) setCurrentUserId(user.id);
+
+    const [recRes, reqRes, imgRes, vehRes, drvRes] = await Promise.all([
       supabase.from('maintenance_records').select('*').order('created_at', { ascending: false }),
+      supabase.from('maintenance_requests').select('id, driver_id, approved_by'),
       supabase.from('maintenance_images').select('*'),
       supabase.from('vehicles').select('*'),
       supabase.from('staff_members').select('*').eq('role', 'driver'),
     ]);
     if (recRes.data) setRecords(recRes.data);
+    if (reqRes.data) setRequests(reqRes.data);
     if (imgRes.data) setImages(imgRes.data);
     if (vehRes.data) setVehicles(vehRes.data);
     if (drvRes.data) setDrivers(drvRes.data);
@@ -36,8 +47,23 @@ export default function MaintenanceHistory() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const requestMap = useMemo(() => {
+    const m: Record<number, { driver_id: number | null; approved_by: string | null }> = {};
+    requests.forEach(req => { m[req.id] = { driver_id: req.driver_id, approved_by: req.approved_by }; });
+    return m;
+  }, [requests]);
+
+  const managerFilteredRecords = useMemo(() => {
+    if (profile?.role !== 'maintenance_manager' || !currentUserId) return records;
+    return records.filter(r => {
+      if (!r.request_id) return false;
+      const req = requestMap[r.request_id];
+      return req?.approved_by === currentUserId;
+    });
+  }, [records, profile?.role, currentUserId, requestMap]);
+
   const filteredRecords = useMemo(() => {
-    let list = records;
+    let list = managerFilteredRecords;
     if (selectedVehicle) list = list.filter(r => r.vehicle_id === selectedVehicle);
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -52,16 +78,21 @@ export default function MaintenanceHistory() {
       });
     }
     return list;
-  }, [records, selectedVehicle, searchQuery, vehicles]);
+  }, [managerFilteredRecords, selectedVehicle, searchQuery, vehicles]);
 
   const vehicleRecordCounts = useMemo(() => {
     const counts: Record<number, number> = {};
-    records.forEach(r => { counts[r.vehicle_id] = (counts[r.vehicle_id] || 0) + 1; });
+    managerFilteredRecords.forEach(r => { counts[r.vehicle_id] = (counts[r.vehicle_id] || 0) + 1; });
     return counts;
-  }, [records]);
+  }, [managerFilteredRecords]);
 
-  function getRecordImages(recordId: number) {
-    return images.filter(img => img.record_id === recordId);
+  function getRecordImages(rec: MaintenanceRecord) {
+    const byRecord = images.filter(img => img.record_id === rec.id);
+    if (byRecord.length > 0) return byRecord;
+    if (rec.request_id) {
+      return images.filter(img => img.request_id === rec.request_id);
+    }
+    return [];
   }
 
   async function exportPDF() {
@@ -209,7 +240,9 @@ export default function MaintenanceHistory() {
         )}
         {filteredRecords.map((rec, i) => {
           const vehicle = vehicles.find(v => v.id === rec.vehicle_id);
-          const recImages = getRecordImages(rec.id);
+          const req = rec.request_id ? requestMap[rec.request_id] : null;
+          const driverName = req?.driver_id ? (drivers.find(d => String(d.id) === String(req.driver_id))?.full_name ?? null) : null;
+          const recImages = getRecordImages(rec);
           const isExpanded = expandedRecord === rec.id;
           return (
             <motion.div
@@ -231,6 +264,11 @@ export default function MaintenanceHistory() {
                       <Truck className="w-4 h-4 text-blue-500" />
                       <span className="font-semibold text-stone-900 dark:text-white">{vehicle?.plate_number}</span>
                       {vehicle?.model && <span className="text-xs text-stone-500">({vehicle.model})</span>}
+                      {driverName && (
+                        <span className="text-xs text-stone-500 flex items-center gap-1">
+                          <User className="w-3 h-3" /> آخر سائق: {driverName}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-stone-600 dark:text-stone-400 mt-0.5">{rec.maintenance_type}</p>
                     <div className="flex gap-3 mt-1 text-[11px] text-stone-400 flex-wrap">

@@ -36,7 +36,7 @@ const CARDS: CardDef[] = [
     description: 'لوحة تحكم الصيانة والإحصائيات والتحليلات',
     icon: Wrench,
     gradient: 'from-cyan-500 to-blue-600',
-    roles: ['admin', 'maintenance_manager'],
+    roles: ['admin'],
   },
   {
     key: 'maintenance-requests',
@@ -68,7 +68,7 @@ const CARDS: CardDef[] = [
     description: 'إدارة مخزن قطع الغيار والموردين',
     icon: Package,
     gradient: 'from-orange-500 to-amber-600',
-    roles: ['admin', 'maintenance_manager'],
+    roles: ['admin'],
   },
   {
     key: 'notifications',

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Clock, Truck, User, Wrench, Camera, Upload, Image as ImageIcon,
-  X, CheckCircle2, AlertTriangle, History, FileText,
+  X, CheckCircle2, AlertTriangle, History, FileText, UserCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -34,9 +34,11 @@ function formatDuration(ms: number) {
 }
 
 export default function ActiveMaintenance({ profile, onNavigate }: Props) {
+  const isAdmin = profile?.role === 'admin';
   const [activeRequest, setActiveRequest] = useState<MaintenanceRequest | null>(null);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [driver, setDriver] = useState<StaffMember | null>(null);
+  const [approverName, setApproverName] = useState<string | null>(null);
   const [images, setImages] = useState<MaintenanceImage[]>([]);
   const [pastRecords, setPastRecords] = useState<MaintenanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,25 +60,47 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
 
     const req = reqs?.[0] ?? null;
     setActiveRequest(req);
+    if (!req) setElapsed(0);
 
     if (req) {
-      const [vRes, dRes, iRes, rRes] = await Promise.all([
+      const [vRes, dRes, iRes, rRes, appRes] = await Promise.all([
         supabase.from('vehicles').select('*').eq('id', req.vehicle_id).single(),
         req.driver_id
           ? supabase.from('staff_members').select('*').eq('id', req.driver_id).single()
           : Promise.resolve({ data: null }),
         supabase.from('maintenance_images').select('*').eq('request_id', req.id).order('created_at'),
         supabase.from('maintenance_records').select('*').eq('vehicle_id', req.vehicle_id).order('created_at', { ascending: false }).limit(10),
+        req.approved_by
+          ? supabase.from('user_profiles').select('full_name').eq('id', req.approved_by).single()
+          : Promise.resolve({ data: null }),
       ]);
       if (vRes.data) setVehicle(vRes.data);
       if (dRes.data) setDriver(dRes.data);
       if (iRes.data) setImages(iRes.data);
       if (rRes.data) setPastRecords(rRes.data);
+      if (appRes.data) setApproverName((appRes.data as { full_name: string }).full_name);
+      else setApproverName(null);
+    } else {
+      setApproverName(null);
     }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Realtime: when maintenance is completed elsewhere, refetch immediately
+  useEffect(() => {
+    if (!activeRequest?.id) return;
+    const channel = supabase
+      .channel(`maint-req-${activeRequest.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'maintenance_requests', filter: `id=eq.${activeRequest.id}` },
+        () => fetchData(),
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [activeRequest?.id, fetchData]);
 
   // Live timer
   useEffect(() => {
@@ -221,6 +245,20 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
             </motion.div>
           )}
 
+          {approverName && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.17 }}
+              className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+            >
+              <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-indigo-500" /> مسؤول الصيانة
+              </h3>
+              <p className="text-sm text-stone-900 dark:text-white font-medium">{approverName}</p>
+            </motion.div>
+          )}
+
           {/* Problem details */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -289,30 +327,32 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
                         </span>
                       )}
                     </div>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => cameraRefs.current[key]?.click()}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors"
-                      >
-                        <Camera className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => fileRefs.current[key]?.click()}
-                        className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors"
-                      >
-                        <Upload className="w-3 h-3" />
-                      </button>
-                      <input
-                        ref={el => { cameraRefs.current[key] = el; }}
-                        type="file" accept="image/*" capture="environment" hidden
-                        onChange={e => handleFileChange(e.target.files, key)}
-                      />
-                      <input
-                        ref={el => { fileRefs.current[key] = el; }}
-                        type="file" accept="image/*" hidden
-                        onChange={e => handleFileChange(e.target.files, key)}
-                      />
-                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => cameraRefs.current[key]?.click()}
+                          className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors"
+                        >
+                          <Camera className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => fileRefs.current[key]?.click()}
+                          className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors"
+                        >
+                          <Upload className="w-3 h-3" />
+                        </button>
+                        <input
+                          ref={el => { cameraRefs.current[key] = el; }}
+                          type="file" accept="image/*" capture="environment" hidden
+                          onChange={e => handleFileChange(e.target.files, key)}
+                        />
+                        <input
+                          ref={el => { fileRefs.current[key] = el; }}
+                          type="file" accept="image/*" hidden
+                          onChange={e => handleFileChange(e.target.files, key)}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -368,16 +408,18 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
             )}
           </motion.div>
 
-          {/* Finish button */}
-          <motion.button
-            whileHover={{ scale: 1.01 }}
-            whileTap={{ scale: 0.99 }}
-            onClick={() => setShowFinish(true)}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-lg shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-3"
-          >
-            <CheckCircle2 className="w-6 h-6" />
-            إنهاء الصيانة
-          </motion.button>
+          {/* Finish button - Admin only */}
+          {isAdmin && (
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={() => setShowFinish(true)}
+              className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-lg shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-3"
+            >
+              <CheckCircle2 className="w-6 h-6" />
+              إنهاء الصيانة
+            </motion.button>
+          )}
         </div>
       </div>
 

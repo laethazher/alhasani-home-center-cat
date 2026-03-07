@@ -280,7 +280,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                 <option value="rejected">مرفوض</option>
               </select>
             </div>
-            {(isAdmin || isManager) && (
+            {isAdmin && (
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}

@@ -15,11 +15,11 @@ import {
   ArrowRight, Truck, User, Wrench, Calendar, Fuel, Gauge, Shield,
   AlertTriangle, CheckCircle2, Clock, FileText, DollarSign, Activity,
   ChevronDown, ChevronUp, Download, Palette, XCircle, MapPin, ClipboardCheck,
-  ArrowLeftRight, RefreshCw, Loader2, History, TrendingUp, BarChart3,
+  ArrowLeftRight, RefreshCw, Loader2, History, TrendingUp, BarChart3, Image as ImageIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
-import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus } from '../lib/supabaseClient';
+import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus, MaintenanceRecord, MaintenanceImage } from '../lib/supabaseClient';
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 
@@ -64,11 +64,13 @@ interface TimelineItem {
   details?: Record<string, string>;
   oldValue?: string | null;
   newValue?: string | null;
+  images?: { url: string; type: string }[];
 }
 
 export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProps) {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [maintenanceList, setMaintenanceList] = useState<VehicleMaintenance[]>([]);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<(MaintenanceRecord & { maintenance_images?: MaintenanceImage[] })[]>([]);
   const [events, setEvents] = useState<VehicleEvent[]>([]);
   const [exitRequests, setExitRequests] = useState<ExitRequest[]>([]);
   const [driverMap, setDriverMap] = useState<Map<string, string>>(new Map());
@@ -78,15 +80,17 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
 
   /* ── Fetch everything ── */
   const fetchAll = useCallback(async () => {
-    const [vRes, mRes, eRes, erRes, sRes] = await Promise.all([
+    const [vRes, mRes, mrRes, eRes, erRes, sRes] = await Promise.all([
       supabase.from('vehicles').select('*').eq('id', vehicleId).single(),
       supabase.from('vehicle_maintenance').select('*').eq('vehicle_id', vehicleId).order('performed_at', { ascending: false }),
+      supabase.from('maintenance_records').select('*, maintenance_images(*)').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('vehicle_events').select('*').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('exit_requests').select('*').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('staff_members').select('id,full_name').eq('role', 'driver'),
     ]);
     if (vRes.data) setVehicle(vRes.data);
     if (mRes.data) setMaintenanceList(mRes.data);
+    if (mrRes.data) setMaintenanceRecords(mrRes.data);
     if (eRes.data) setEvents(eRes.data);
     if (erRes.data) setExitRequests(erRes.data);
     if (sRes.data) setDriverMap(new Map(sRes.data.map((s: { id: string; full_name: string }) => [String(s.id), s.full_name])));
@@ -112,7 +116,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       });
     }
 
-    // Maintenance records
+    // Vehicle maintenance (manual admin entries)
     for (const m of maintenanceList) {
       items.push({
         id: `mt-${m.id}`,
@@ -127,6 +131,27 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
           ...(m.next_maintenance_date ? { 'الصيانة القادمة': m.next_maintenance_date } : {}),
           ...(m.notes ? { 'ملاحظات': m.notes } : {}),
         },
+      });
+    }
+
+    // Maintenance records (from workflow - Finish Maintenance)
+    for (const rec of maintenanceRecords) {
+      const imgs = (rec.maintenance_images || []).map((img) => ({ url: img.image_url, type: img.image_type }));
+      const desc = [rec.fault_description, rec.work_done].filter(Boolean).join(' — ');
+      items.push({
+        id: `mrec-${rec.id}`,
+        type: 'maintenance',
+        date: rec.created_at,
+        title: rec.maintenance_type || 'صيانة',
+        description: desc || '',
+        details: {
+          ...(rec.cost > 0 ? { 'التكلفة': `${rec.cost.toLocaleString()} د.ع` } : {}),
+          ...(rec.duration_minutes ? { 'المدة': `${rec.duration_minutes} دقيقة` } : {}),
+          ...(rec.technician_name ? { 'الفني': rec.technician_name } : {}),
+          ...(rec.odometer_at ? { 'العداد': `${rec.odometer_at.toLocaleString()} كم` } : {}),
+          ...(rec.notes ? { 'ملاحظات': rec.notes } : {}),
+        },
+        images: imgs.length > 0 ? imgs : undefined,
       });
     }
 
@@ -151,13 +176,15 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     // Sort by date descending
     items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return items;
-  }, [events, maintenanceList, exitRequests]);
+  }, [events, maintenanceList, maintenanceRecords, exitRequests]);
 
   /* ── Stats ── */
   const stats = useMemo(() => {
-    const totalMaintenanceCost = maintenanceList.reduce((sum, m) => sum + Number(m.cost), 0);
+    const vmCost = maintenanceList.reduce((sum, m) => sum + Number(m.cost), 0);
+    const recCost = maintenanceRecords.reduce((sum, r) => sum + (r.cost || 0), 0);
+    const totalMaintenanceCost = vmCost + recCost;
     const totalTrips = exitRequests.filter((r) => r.status !== 'rejected').length;
-    const totalMaintenance = maintenanceList.length;
+    const totalMaintenance = maintenanceList.length + maintenanceRecords.length;
 
     // Most frequent driver
     const driverCounts = new Map<string, number>();
@@ -177,7 +204,39 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     const driverChanges = events.filter((e) => e.event_type === 'driver_assigned' || e.event_type === 'driver_removed');
 
     return { totalMaintenanceCost, totalTrips, totalMaintenance, topDriver, topDriverTrips, driverChanges: driverChanges.length };
-  }, [maintenanceList, exitRequests, events, driverMap]);
+  }, [maintenanceList, maintenanceRecords, exitRequests, events, driverMap]);
+
+  /* ── Combined maintenance list (vehicle_maintenance + maintenance_records) ── */
+  const combinedMaintenance = useMemo(() => {
+    const vmItems = maintenanceList.map((m) => ({
+      id: `vm-${m.id}`,
+      source: 'vehicle_maintenance' as const,
+      maintenance_type: m.maintenance_type,
+      date: m.performed_at + 'T00:00:00',
+      description: m.description || '',
+      cost: Number(m.cost),
+      technician: m.performed_by || undefined,
+      odometer_at: m.odometer_at ?? undefined,
+      next_maintenance_date: m.next_maintenance_date || undefined,
+      next_maintenance_km: m.next_maintenance_km ?? undefined,
+      notes: m.notes || undefined,
+      images: [] as { url: string; type: string }[],
+    }));
+    const recItems = maintenanceRecords.map((r) => ({
+      id: `mrec-${r.id}`,
+      source: 'maintenance_record' as const,
+      maintenance_type: r.maintenance_type || 'صيانة',
+      date: r.created_at,
+      description: [r.fault_description, r.work_done].filter(Boolean).join(' — ') || '',
+      cost: r.cost || 0,
+      technician: r.technician_name || undefined,
+      duration_minutes: r.duration_minutes ?? undefined,
+      odometer_at: r.odometer_at ?? undefined,
+      notes: r.notes || undefined,
+      images: (r.maintenance_images || []).map((img) => ({ url: img.image_url, type: img.image_type })),
+    }));
+    return [...vmItems, ...recItems].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [maintenanceList, maintenanceRecords]);
 
   /* ── Expiry alerts ── */
   const expiryAlerts = useMemo(() => {
@@ -245,10 +304,10 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     XLSX.utils.book_append_sheet(wb, ws1, 'بيانات المركبة');
 
     // Maintenance sheet
-    if (maintenanceList.length > 0) {
-      const mHeaders = ['النوع', 'الوصف', 'التكلفة', 'العداد', 'التاريخ', 'بواسطة', 'الصيانة القادمة', 'ملاحظات'];
-      const mRows = maintenanceList.map((m) => [
-        m.maintenance_type, m.description || '', Number(m.cost), m.odometer_at || '', m.performed_at, m.performed_by || '', m.next_maintenance_date || '', m.notes || '',
+    if (combinedMaintenance.length > 0) {
+      const mHeaders = ['النوع', 'الوصف', 'التكلفة', 'العداد', 'التاريخ', 'الفني/بواسطة', 'المدة', 'الصيانة القادمة', 'ملاحظات'];
+      const mRows = combinedMaintenance.map((m) => [
+        m.maintenance_type, m.description || '', m.cost, m.odometer_at || '', m.date.slice(0, 10), m.technician || '', m.duration_minutes ? `${m.duration_minutes} د` : '', m.next_maintenance_date || '', m.notes || '',
       ]);
       const ws2 = XLSX.utils.aoa_to_sheet([mHeaders, ...mRows]);
       XLSX.utils.book_append_sheet(wb, ws2, 'الصيانة');
@@ -322,14 +381,14 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     doc.text(`Total Maintenance: ${stats.totalMaintenance}`, 15, y); y += 6;
     doc.text(`Top Driver: ${stats.topDriver} (${stats.topDriverTrips} trips)`, 15, y); y += 6;
 
-    if (maintenanceList.length > 0) {
+    if (combinedMaintenance.length > 0) {
       y += 5;
       doc.setFontSize(12);
-      doc.text(`Maintenance Log (${maintenanceList.length})`, 15, y); y += 8;
+      doc.text(`Maintenance Log (${combinedMaintenance.length})`, 15, y); y += 8;
       doc.setFontSize(9);
-      for (const m of maintenanceList.slice(0, 20)) {
+      for (const m of combinedMaintenance.slice(0, 20)) {
         if (y > 270) { doc.addPage(); y = 15; }
-        doc.text(`${m.performed_at} | ${m.maintenance_type} | ${Number(m.cost).toLocaleString()} IQD | ${m.performed_by || '-'}`, 15, y);
+        doc.text(`${m.date.slice(0, 10)} | ${m.maintenance_type} | ${m.cost.toLocaleString()} IQD | ${m.technician || '-'}`, 15, y);
         y += 5;
       }
     }
@@ -533,7 +592,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
         {([
           { key: 'timeline' as TabKey, label: 'التاريخ الكامل', icon: History, count: timeline.length },
           { key: 'trips' as TabKey, label: 'الرحلات', icon: Activity, count: exitRequests.length },
-          { key: 'maintenance' as TabKey, label: 'الصيانة', icon: Wrench, count: maintenanceList.length },
+          { key: 'maintenance' as TabKey, label: 'الصيانة', icon: Wrench, count: combinedMaintenance.length },
           { key: 'drivers' as TabKey, label: 'السائقين', icon: User, count: driverHistory.length },
           { key: 'stats' as TabKey, label: 'إحصائيات', icon: BarChart3, count: 0 },
         ]).map((tab) => (
@@ -608,6 +667,17 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                             ))}
                           </div>
                         )}
+                        {item.images && item.images.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {item.images.map((img, i) => (
+                              <a key={i} href={img.url} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-700 text-[11px] text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-600">
+                                <ImageIcon className="w-3 h-3" />
+                                {img.type === 'before' ? 'قبل' : img.type === 'during' ? 'أثناء' : img.type === 'after' ? 'بعد' : img.type === 'invoice' ? 'فاتورة' : img.type}
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -675,14 +745,14 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
         {activeTab === 'maintenance' && (
           <motion.div key="maintenance" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 overflow-hidden">
-            {maintenanceList.length === 0 ? (
+            {combinedMaintenance.length === 0 ? (
               <div className="py-16 text-center">
                 <Wrench className="w-10 h-10 mx-auto text-stone-300 dark:text-stone-600 mb-3" />
                 <p className="text-stone-500 dark:text-stone-400 text-sm">لا توجد سجل صيانة</p>
               </div>
             ) : (
               <div className="divide-y divide-stone-100 dark:divide-stone-700">
-                {maintenanceList.map((m) => (
+                {combinedMaintenance.map((m) => (
                   <div key={m.id} className="p-4 hover:bg-stone-50/50 dark:hover:bg-stone-700/30">
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
@@ -691,18 +761,21 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-stone-900 dark:text-white">{m.maintenance_type}</p>
-                          <p className="text-[10px] text-stone-400">{m.performed_at}</p>
+                          <p className="text-[10px] text-stone-400">{fmtDateTime(m.date)}</p>
                         </div>
                       </div>
-                      {Number(m.cost) > 0 && (
-                        <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{Number(m.cost).toLocaleString()} د.ع</span>
+                      {m.cost > 0 && (
+                        <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{m.cost.toLocaleString()} د.ع</span>
                       )}
                     </div>
                     <div className="mr-10 space-y-1">
                       {m.description && <p className="text-xs text-stone-600 dark:text-stone-300">{m.description}</p>}
                       <div className="flex flex-wrap gap-3 text-xs text-stone-500 dark:text-stone-400">
                         {m.odometer_at && <span className="flex items-center gap-1"><Gauge className="w-3 h-3" /> {m.odometer_at.toLocaleString()} كم</span>}
-                        {m.performed_by && <span className="flex items-center gap-1"><User className="w-3 h-3" /> {m.performed_by}</span>}
+                        {m.technician && (
+                          <span className="flex items-center gap-1"><User className="w-3 h-3" /> {m.technician}</span>
+                        )}
+                        {m.duration_minutes && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {m.duration_minutes} دقيقة</span>}
                         {m.next_maintenance_date && (
                           <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400"><Calendar className="w-3 h-3" /> القادمة: {m.next_maintenance_date}</span>
                         )}
@@ -711,6 +784,17 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                         )}
                       </div>
                       {m.notes && <p className="text-[11px] text-stone-400 dark:text-stone-500 mt-1">{m.notes}</p>}
+                      {m.images && m.images.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {m.images.map((img, i) => (
+                            <a key={i} href={img.url} target="_blank" rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-700 text-[11px] text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-600">
+                              <ImageIcon className="w-3 h-3" />
+                              {img.type === 'before' ? 'قبل' : img.type === 'during' ? 'أثناء' : img.type === 'after' ? 'بعد' : img.type === 'invoice' ? 'فاتورة' : img.type}
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -774,15 +858,15 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
             {/* Monthly breakdown */}
             <div className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-5">
               <h3 className="text-sm font-bold mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-blue-600" /> تكاليف الصيانة حسب الشهر</h3>
-              {maintenanceList.length === 0 ? (
+              {combinedMaintenance.length === 0 ? (
                 <p className="text-xs text-stone-400 text-center py-8">لا توجد بيانات صيانة</p>
               ) : (
                 <div className="space-y-2">
                   {(() => {
                     const monthlyMap = new Map<string, number>();
-                    for (const m of maintenanceList) {
-                      const key = m.performed_at.slice(0, 7); // YYYY-MM
-                      monthlyMap.set(key, (monthlyMap.get(key) || 0) + Number(m.cost));
+                    for (const m of combinedMaintenance) {
+                      const key = m.date.slice(0, 7); // YYYY-MM
+                      monthlyMap.set(key, (monthlyMap.get(key) || 0) + m.cost);
                     }
                     const entries = [...monthlyMap.entries()].sort().slice(-12);
                     const maxVal = Math.max(...entries.map(([, v]) => v), 1);
