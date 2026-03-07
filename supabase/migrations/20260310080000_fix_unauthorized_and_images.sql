@@ -8,7 +8,14 @@
 -- 5. Backfill: Sync user_role to JWT for all users (fixes stale JWT)
 -- ============================================================
 
--- 5. Backfill: Ensure all user_profiles have their role in auth.users.raw_app_meta_data
+-- 5a. Ensure ALL auth.users have a user_profiles row (fixes missing profiles)
+INSERT INTO public.user_profiles (id, full_name, role, created_at)
+SELECT u.id, COALESCE(p.full_name, ''), COALESCE(u.raw_app_meta_data->>'user_role', 'driver'), now()
+FROM auth.users u
+LEFT JOIN public.user_profiles p ON p.id = u.id
+WHERE p.id IS NULL;
+
+-- 5b. Sync user_role to auth.users.raw_app_meta_data for all users
 UPDATE auth.users u
    SET raw_app_meta_data =
        COALESCE(u.raw_app_meta_data, '{}'::jsonb)
@@ -52,15 +59,19 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'unauthorized_not_logged_in');
   END IF;
 
-  -- Get role: try user_profiles first, then fallback to JWT
+  -- Get role: 1) user_profiles, 2) auth.users.raw_app_meta_data, 3) JWT
   SELECT role INTO v_user_role FROM public.user_profiles WHERE id = v_caller_id;
   IF v_user_role IS NULL OR v_user_role = '' THEN
-    v_jwt_role := COALESCE(NULLIF(TRIM(public.get_jwt_role()), ''), '');
-    v_user_role := v_jwt_role;
+    SELECT COALESCE(raw_app_meta_data->>'user_role', '') INTO v_user_role FROM auth.users WHERE id = v_caller_id;
   END IF;
+  IF v_user_role IS NULL OR v_user_role = '' THEN
+    v_user_role := COALESCE(NULLIF(TRIM(public.get_jwt_role()), ''), '');
+  END IF;
+  v_user_role := LOWER(TRIM(COALESCE(v_user_role, '')));
 
-  IF v_user_role NOT IN ('admin', 'maintenance_manager') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'unauthorized_role_' || COALESCE(v_user_role, 'none'));
+  -- Only admin can finish maintenance (per plan)
+  IF v_user_role <> 'admin' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'unauthorized_role_' || COALESCE(NULLIF(v_user_role, ''), 'none'));
   END IF;
 
   SELECT * INTO v_request FROM public.maintenance_requests WHERE id = p_request_id;
@@ -129,6 +140,10 @@ EXCEPTION
     RETURN jsonb_build_object('success', false, 'error', SQLERRM);
 END;
 $$;
+
+-- Ensure authenticated users can execute the RPC
+GRANT EXECUTE ON FUNCTION public.finish_maintenance TO authenticated;
+GRANT EXECUTE ON FUNCTION public.finish_maintenance TO service_role;
 
 -- 2. maintenance_images INSERT: Add fallback policy for users whose role is in user_profiles
 --    (covers cases where JWT app_metadata is stale or missing)
