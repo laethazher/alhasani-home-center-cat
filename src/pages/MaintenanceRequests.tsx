@@ -98,11 +98,14 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   };
 
   async function handleDeleteSelected() {
-    if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} طلب؟`)) return;
+    if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} طلب؟ سيتم حذف كل ما يرتبط بها (السجلات، الصور، أحداث المركبة، التنبيهات) دون التأثير على النظام.`)) return;
     setDeleting(true);
-    const { error } = await supabase.from('maintenance_requests').delete().in('id', selectedIds);
+    const { data, error } = await supabase.rpc('delete_maintenance_requests', { p_request_ids: selectedIds });
+    const result = data as { success?: boolean; error?: string } | null;
     if (error) {
       alert('فشل الحذف: ' + error.message);
+    } else if (!result?.success) {
+      alert(result?.error === 'admin_only' ? 'هذا الإجراء مسموح للأدمن فقط' : (result?.error || 'فشل الحذف'));
     } else {
       setSelectedIds([]);
       setIsSelectionMode(false);

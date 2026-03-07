@@ -94,34 +94,23 @@ export default function MaintenanceHistory({ profile }: Props) {
 
   async function handleDeleteSelected() {
     if (selectedIds.length === 0 || deleting) return;
-    if (!window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} سجل صيانة؟ سيتم أيضاً حذف الطلبات المرتبطة بها.`)) return;
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} سجل صيانة؟ سيتم حذف كل ما يرتبط بها (الطلبات، الصور، أحداث المركبة، التنبيهات) دون التأثير على النظام.`)) return;
     
     setDeleting(true);
     try {
       const idsToRemove = [...selectedIds];
-      const reqIdsToDelete = idsToRemove
-        .map(id => records.find(r => r.id === id)?.request_id)
-        .filter((rid): rid is number => typeof rid === 'number');
-      const recordsWithoutRequest = idsToRemove.filter(id => !records.find(r => r.id === id)?.request_id);
-
-      // Delete requests first (CASCADE deletes linked records); then delete orphan records
-      if (reqIdsToDelete.length > 0) {
-        const { error: reqErr } = await supabase.from('maintenance_requests').delete().in('id', reqIdsToDelete);
-        if (reqErr) {
-          alert('فشل الحذف: ' + reqErr.message);
-          setDeleting(false);
-          return;
-        }
+      const { data, error } = await supabase.rpc('delete_maintenance_records', { p_record_ids: idsToRemove });
+      const result = data as { success?: boolean; error?: string } | null;
+      if (error) {
+        alert('فشل الحذف: ' + error.message);
+        setDeleting(false);
+        return;
       }
-      if (recordsWithoutRequest.length > 0) {
-        const { error: recErr } = await supabase.from('maintenance_records').delete().in('id', recordsWithoutRequest);
-        if (recErr) {
-          alert('فشل حذف بعض السجلات: ' + recErr.message);
-          setDeleting(false);
-          return;
-        }
+      if (!result?.success) {
+        alert(result?.error === 'admin_only' ? 'هذا الإجراء مسموح للأدمن فقط' : (result?.error || 'فشل الحذف'));
+        setDeleting(false);
+        return;
       }
-
       setSelectedIds([]);
       setIsSelectionMode(false);
       await fetchData();

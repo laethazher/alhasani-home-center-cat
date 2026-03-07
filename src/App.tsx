@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useUserProfile } from './hooks/useUserProfile';
+import { supabase } from './lib/supabaseClient';
+import { playNotificationSound } from './lib/notificationSound';
 import Layout, { type PageKey } from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
@@ -44,6 +46,27 @@ export default function App() {
       setActivePage('maintenance-requests');
     }
   }, [role, activePage]);
+
+  // Audible alert for maintenance manager when a new pending request is created
+  useEffect(() => {
+    if (role !== 'maintenance_manager') return;
+    const channel = supabase
+      .channel('maintenance-requests-new')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'maintenance_requests' },
+        (payload) => {
+          const row = payload.new as { status?: string };
+          if (row?.status === 'pending') {
+            playNotificationSound();
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [role]);
 
   /* ── Loading state ── */
   if (loading) {
