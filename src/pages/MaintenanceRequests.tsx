@@ -61,6 +61,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   const [formNotes, setFormNotes] = useState('');
   const [formImages, setFormImages] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -145,6 +146,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   async function handleSubmit() {
     if (!formVehicleId) return;
     setSubmitting(true);
+    setFormError('');
     const { error } = await supabase.from('maintenance_requests').insert({
       vehicle_id: Number(formVehicleId),
       driver_id: formDriverId ? Number(formDriverId) : null,
@@ -156,6 +158,8 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
       requested_by: (await supabase.auth.getUser()).data.user?.id,
     });
     if (error) {
+      console.error('Maintenance request insert error:', error);
+      setFormError('فشل في إرسال الطلب: ' + error.message);
       setSubmitting(false);
       return;
     }
@@ -173,6 +177,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     setFormPriority('medium');
     setFormNotes('');
     setFormImages([]);
+    setFormError('');
   }
 
   async function handleApprove(req: MaintenanceRequest) {
@@ -275,7 +280,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                 <option value="rejected">مرفوض</option>
               </select>
             </div>
-            {isAdmin && (
+            {(isAdmin || isManager) && (
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -562,9 +567,14 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                   )}
                 </div>
               </div>
+              {formError && (
+                <div className="mx-5 mb-0 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>
+                </div>
+              )}
               <div className="px-5 py-4 border-t border-stone-200 dark:border-stone-800 flex gap-3">
                 <button
-                  onClick={() => setShowForm(false)}
+                  onClick={() => { setShowForm(false); setFormError(''); }}
                   className="flex-1 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 text-sm font-medium"
                 >
                   إلغاء

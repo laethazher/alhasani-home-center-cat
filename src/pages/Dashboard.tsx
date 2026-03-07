@@ -1,5 +1,8 @@
 import React from 'react';
-import { Truck, FileText, DoorOpen, UserCog, Settings } from 'lucide-react';
+import {
+  Truck, FileText, DoorOpen, UserCog, Settings,
+  Wrench, ClipboardList, Activity, History, Package, Bell, Shield,
+} from 'lucide-react';
 import DashboardCard from '../components/DashboardCard';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
@@ -25,7 +28,55 @@ const CARDS: CardDef[] = [
     description: 'إدارة ومتابعة حالة جميع المركبات والمعدات',
     icon: Truck,
     gradient: 'from-blue-500 to-indigo-600',
-    roles: 'all',
+    roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'],
+  },
+  {
+    key: 'maintenance',
+    title: 'صيانة المركبات',
+    description: 'لوحة تحكم الصيانة والإحصائيات والتحليلات',
+    icon: Wrench,
+    gradient: 'from-cyan-500 to-blue-600',
+    roles: ['admin', 'maintenance_manager'],
+  },
+  {
+    key: 'maintenance-requests',
+    title: 'طلبات الصيانة',
+    description: 'إنشاء ومتابعة طلبات الصيانة والموافقة عليها',
+    icon: ClipboardList,
+    gradient: 'from-indigo-500 to-violet-600',
+    roles: ['admin', 'maintenance_manager'],
+  },
+  {
+    key: 'active-maintenance',
+    title: 'الصيانة النشطة',
+    description: 'متابعة الصيانة الجارية والتقاط صور العمل',
+    icon: Activity,
+    gradient: 'from-teal-500 to-emerald-600',
+    roles: ['admin', 'maintenance_manager'],
+  },
+  {
+    key: 'maintenance-history',
+    title: 'سجل الصيانة',
+    description: 'عرض سجل جميع عمليات الصيانة وتصدير التقارير',
+    icon: History,
+    gradient: 'from-sky-500 to-blue-600',
+    roles: ['admin', 'maintenance_manager'],
+  },
+  {
+    key: 'spare-parts',
+    title: 'قطع الغيار',
+    description: 'إدارة مخزن قطع الغيار والموردين',
+    icon: Package,
+    gradient: 'from-orange-500 to-amber-600',
+    roles: ['admin', 'maintenance_manager'],
+  },
+  {
+    key: 'notifications',
+    title: 'التنبيهات',
+    description: 'تنبيهات الصيانة الدورية وانتهاء التأمين والفحص',
+    icon: Bell,
+    gradient: 'from-pink-500 to-rose-600',
+    roles: ['admin', 'maintenance_manager'],
   },
   {
     key: 'staff-exit',
@@ -36,12 +87,20 @@ const CARDS: CardDef[] = [
     roles: 'all',
   },
   {
+    key: 'violations',
+    title: 'سجل المخالفات',
+    description: 'تسجيل ومتابعة مخالفات الموظفين',
+    icon: Shield,
+    gradient: 'from-red-500 to-rose-600',
+    roles: ['admin'],
+  },
+  {
     key: 'reports',
     title: 'التقارير',
     description: 'عرض وتصدير التقارير اليومية والأسبوعية',
     icon: FileText,
     gradient: 'from-amber-500 to-orange-600',
-    roles: 'all',
+    roles: ['admin', 'driver', 'manager', 'warehouse', 'logistics'],
   },
   {
     key: 'users',
