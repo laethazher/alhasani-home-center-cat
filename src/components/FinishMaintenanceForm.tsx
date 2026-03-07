@@ -101,7 +101,11 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
 
     const result = data as { success?: boolean; error?: string };
     if (!result?.success) {
-      const errMsg = result?.error === 'duplicate_record' ? 'تم إنهاء هذه الصيانة مسبقاً' : (result?.error || 'فشل في إنهاء الصيانة');
+      const err = result?.error || '';
+      const errMsg =
+        err === 'duplicate_record' ? 'تم إنهاء هذه الصيانة مسبقاً' :
+        err.startsWith('unauthorized') ? 'غير مصرح لك بالقيام بهذا الإجراء. تأكد من تسجيل الدخول بحساب صحيح.' :
+        err || 'فشل في إنهاء الصيانة';
       setSubmitError(errMsg);
       setSubmitting(false);
       return;

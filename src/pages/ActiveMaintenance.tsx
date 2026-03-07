@@ -47,6 +47,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const [showFinish, setShowFinish] = useState(false);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const cameraRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -115,11 +116,16 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
   }, [activeRequest?.started_at]);
 
   async function uploadImage(file: File, imageType: string) {
+    setUploadError(null);
     setUploadingType(imageType);
-    const ext = file.name.split('.').pop();
+    const ext = file.name.split('.').pop() || 'jpg';
     const path = `maintenance/${activeRequest!.id}/${imageType}_${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('maintenance-images').upload(path, file);
-    if (error) { setUploadingType(null); return; }
+    const { error: storageErr } = await supabase.storage.from('maintenance-images').upload(path, file);
+    if (storageErr) {
+      setUploadError('فشل رفع الصورة: ' + (storageErr.message || 'خطأ غير معروف'));
+      setUploadingType(null);
+      return;
+    }
     const { data } = supabase.storage.from('maintenance-images').getPublicUrl(path);
 
     const { error: imgErr } = await supabase.from('maintenance_images').insert({
@@ -128,7 +134,11 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
       image_type: imageType,
       uploaded_by: (await supabase.auth.getUser()).data.user?.id,
     });
-    if (imgErr) { setUploadingType(null); return; }
+    if (imgErr) {
+      setUploadError('فشل حفظ الصورة في السجل: ' + (imgErr.message || 'خطأ غير معروف'));
+      setUploadingType(null);
+      return;
+    }
 
     const { data: updatedImages } = await supabase
       .from('maintenance_images')
@@ -305,6 +315,14 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
             <h3 className="font-semibold text-stone-900 dark:text-white mb-4 flex items-center gap-2">
               <Camera className="w-4 h-4 text-indigo-500" /> التقاط صور الصيانة
             </h3>
+            {uploadError && (
+              <div className="mb-3 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  {uploadError}
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {IMAGE_TYPES.map(({ key, label, color }) => {
                 const typeImages = images.filter(img => img.image_type === key);
