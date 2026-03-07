@@ -110,9 +110,14 @@ export default function Layout({
 
   useEffect(() => {
     if (safeRole !== 'admin' && safeRole !== 'maintenance_manager') return;
-    supabase.from('maintenance_notifications').select('id', { count: 'exact', head: true }).eq('is_read', false)
-      .then(({ count }) => { if (typeof count === 'number') setUnreadNotifs(count); });
-  }, [safeRole, activePage]);
+    const fetchCount = () => {
+      supabase.from('maintenance_notifications').select('id', { count: 'exact', head: true }).eq('is_read', false)
+        .then(({ count }) => { if (typeof count === 'number') setUnreadNotifs(count); });
+    };
+    fetchCount();
+    const iv = setInterval(fetchCount, 15_000);
+    return () => clearInterval(iv);
+  }, [safeRole]);
 
   const visibleItems = NAV_ITEMS.filter(
     (item) => item.roles === 'all' || item.roles.includes(safeRole),
