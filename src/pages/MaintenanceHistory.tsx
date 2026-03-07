@@ -53,17 +53,8 @@ export default function MaintenanceHistory({ profile }: Props) {
     return m;
   }, [requests]);
 
-  const managerFilteredRecords = useMemo(() => {
-    if (profile?.role !== 'maintenance_manager' || !currentUserId) return records;
-    return records.filter(r => {
-      if (!r.request_id) return false;
-      const req = requestMap[r.request_id];
-      return req?.approved_by === currentUserId;
-    });
-  }, [records, profile?.role, currentUserId, requestMap]);
-
   const filteredRecords = useMemo(() => {
-    let list = managerFilteredRecords;
+    let list = records;
     if (selectedVehicle) list = list.filter(r => r.vehicle_id === selectedVehicle);
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
@@ -78,13 +69,13 @@ export default function MaintenanceHistory({ profile }: Props) {
       });
     }
     return list;
-  }, [managerFilteredRecords, selectedVehicle, searchQuery, vehicles]);
+  }, [records, selectedVehicle, searchQuery, vehicles]);
 
   const vehicleRecordCounts = useMemo(() => {
     const counts: Record<number, number> = {};
-    managerFilteredRecords.forEach(r => { counts[r.vehicle_id] = (counts[r.vehicle_id] || 0) + 1; });
+    records.forEach(r => { counts[r.vehicle_id] = (counts[r.vehicle_id] || 0) + 1; });
     return counts;
-  }, [managerFilteredRecords]);
+  }, [records]);
 
   function getRecordImages(rec: MaintenanceRecord) {
     const byRecord = images.filter(img => img.record_id === rec.id);
