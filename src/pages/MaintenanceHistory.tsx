@@ -102,19 +102,32 @@ export default function MaintenanceHistory({ profile }: Props) {
       const reqIdsToDelete = idsToRemove
         .map(id => records.find(r => r.id === id)?.request_id)
         .filter((rid): rid is number => typeof rid === 'number');
+      const recordsWithoutRequest = idsToRemove.filter(id => !records.find(r => r.id === id)?.request_id);
 
+      // Delete requests first (CASCADE deletes linked records); then delete orphan records
       if (reqIdsToDelete.length > 0) {
-        await supabase.from('maintenance_requests').delete().in('id', reqIdsToDelete);
-      } 
-      
-      await supabase.from('maintenance_records').delete().in('id', idsToRemove);
+        const { error: reqErr } = await supabase.from('maintenance_requests').delete().in('id', reqIdsToDelete);
+        if (reqErr) {
+          alert('فشل الحذف: ' + reqErr.message);
+          setDeleting(false);
+          return;
+        }
+      }
+      if (recordsWithoutRequest.length > 0) {
+        const { error: recErr } = await supabase.from('maintenance_records').delete().in('id', recordsWithoutRequest);
+        if (recErr) {
+          alert('فشل حذف بعض السجلات: ' + recErr.message);
+          setDeleting(false);
+          return;
+        }
+      }
 
       setSelectedIds([]);
       setIsSelectionMode(false);
       await fetchData();
     } catch (err) {
       console.error('Delete error:', err);
-      alert('حدث خطأ أثناء الحذف');
+      alert('حدث خطأ أثناء الحذف: ' + (err instanceof Error ? err.message : 'خطأ غير معروف'));
     } finally {
       setDeleting(false);
     }
