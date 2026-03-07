@@ -168,153 +168,120 @@ export default function Layout({
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {visibleItems.map((item) => {
-            if (item.key === 'vehicles') {
-              return (
-                <React.Fragment key={item.key}>
-                  <motion.button
-                    whileHover={{ x: -4 }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => {
-                      onNavigate(item.key);
-                      if (mobile) setMobileOpen(false);
-                    }}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
-                      activePage === item.key
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
-                        : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
-                    )}
+          {visibleItems.map((item) => (
+            <motion.button
+              key={item.key}
+              whileHover={{ x: -4 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => {
+                onNavigate(item.key);
+                if (mobile) setMobileOpen(false);
+              }}
+              className={cn(
+                'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                activePage === item.key
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
+              )}
+            >
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              <AnimatePresence>
+                {(sidebarOpen || mobile) && (
+                  <motion.span
+                    initial={{ opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: 'auto' }}
+                    exit={{ opacity: 0, width: 0 }}
+                    className="whitespace-nowrap overflow-hidden"
                   >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    <AnimatePresence>
-                      {(sidebarOpen || mobile) && (
-                        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="whitespace-nowrap overflow-hidden">
-                          {item.label}
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
-                  </motion.button>
-                  {/* Collapsible Vehicle Maintenance section */}
-                  {visibleMaintenanceChildren.length > 0 && (
-                    <div className="space-y-1">
-                      <button
-                        onClick={() => {
-                          if (!sidebarOpen && !mobile) {
-                            const first = visibleMaintenanceChildren[0];
-                            if (first) { onNavigate(first.key); if (mobile) setMobileOpen(false); }
-                          } else {
-                            setMaintenanceExpanded((e) => !e);
-                          }
-                        }}
-                        className={cn(
-                          'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
-                          isMaintenancePage
-                            ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
-                            : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
-                        )}
-                      >
-                        <Wrench className="w-5 h-5 flex-shrink-0" />
-                        <AnimatePresence>
-                          {(sidebarOpen || mobile) && (
-                            <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 text-right whitespace-nowrap overflow-hidden">
-                              صيانة المركبات
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                        {(sidebarOpen || mobile) && (
-                          maintenanceExpanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />
-                        )}
-                      </button>
-                      <AnimatePresence>
-                        {maintenanceExpanded && (sidebarOpen || mobile) && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden pr-2 space-y-0.5"
-                          >
-                            {visibleMaintenanceChildren.map((child) => {
-                              const childActive = activePage === child.key;
-                              return (
-                                <motion.button
-                                  key={child.key}
-                                  whileHover={{ x: -2 }}
-                                  whileTap={{ scale: 0.98 }}
-                                  onClick={() => {
-                                    onNavigate(child.key);
-                                    if (mobile) setMobileOpen(false);
-                                  }}
-                                  className={cn(
-                                    'w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200',
-                                    childActive
-                                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
-                                      : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
-                                  )}
-                                >
-                                  <div className="relative flex-shrink-0">
-                                    <child.icon className="w-4 h-4" />
-                                    {child.key === 'notifications' && unreadNotifs > 0 && (
-                                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center font-bold">
-                                        {unreadNotifs > 9 ? '9+' : unreadNotifs}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="whitespace-nowrap overflow-hidden text-right">
-                                    {child.label}
-                                    {child.key === 'notifications' && unreadNotifs > 0 && (
-                                      <span className="mr-1 inline-flex items-center justify-center min-w-[16px] h-[16px] rounded-full bg-red-500 text-white text-[9px] font-bold px-0.5">
-                                        {unreadNotifs}
-                                      </span>
-                                    )}
-                                  </span>
-                                </motion.button>
-                              );
-                            })}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            }
-            const active = activePage === item.key;
-            return (
-              <motion.button
-                key={item.key}
-                whileHover={{ x: -4 }}
-                whileTap={{ scale: 0.97 }}
+                    {item.label}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.button>
+          ))}
+
+          {/* Collapsible Vehicle Maintenance section - Independent of NAV_ITEMS */}
+          {visibleMaintenanceChildren.length > 0 && (
+            <div className="space-y-1 mt-1">
+              <button
                 onClick={() => {
-                  onNavigate(item.key);
-                  if (mobile) setMobileOpen(false);
+                  if (!sidebarOpen && !mobile) {
+                    const first = visibleMaintenanceChildren[0];
+                    if (first) { onNavigate(first.key); if (mobile) setMobileOpen(false); }
+                  } else {
+                    setMaintenanceExpanded((e) => !e);
+                  }
                 }}
                 className={cn(
                   'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
-                  active
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  isMaintenancePage
+                    ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
                     : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
                 )}
               >
-                <div className="relative flex-shrink-0">
-                  <item.icon className="w-5 h-5" />
-                </div>
+                <Wrench className="w-5 h-5 flex-shrink-0" />
                 <AnimatePresence>
                   {(sidebarOpen || mobile) && (
-                    <motion.span
-                      initial={{ opacity: 0, width: 0 }}
-                      animate={{ opacity: 1, width: 'auto' }}
-                      exit={{ opacity: 0, width: 0 }}
-                      className="whitespace-nowrap overflow-hidden"
-                    >
-                      {item.label}
+                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 text-right whitespace-nowrap overflow-hidden">
+                      صيانة المركبات
                     </motion.span>
                   )}
                 </AnimatePresence>
-              </motion.button>
-            );
-          })}
+                {(sidebarOpen || mobile) && (
+                  maintenanceExpanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />
+                )}
+              </button>
+              <AnimatePresence>
+                {maintenanceExpanded && (sidebarOpen || mobile) && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden pr-2 space-y-0.5"
+                  >
+                    {visibleMaintenanceChildren.map((child) => {
+                      const childActive = activePage === child.key;
+                      return (
+                        <motion.button
+                          key={child.key}
+                          whileHover={{ x: -2 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => {
+                            onNavigate(child.key);
+                            if (mobile) setMobileOpen(false);
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200',
+                            childActive
+                              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+                              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
+                          )}
+                        >
+                          <div className="relative flex-shrink-0">
+                            <child.icon className="w-4 h-4" />
+                            {child.key === 'notifications' && unreadNotifs > 0 && (
+                              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] flex items-center justify-center font-bold">
+                                {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                              </span>
+                            )}
+                          </div>
+                          <span className="whitespace-nowrap overflow-hidden text-right">
+                            {child.label}
+                            {child.key === 'notifications' && unreadNotifs > 0 && (
+                              <span className="mr-1 inline-flex items-center justify-center min-w-[16px] h-[16px] rounded-full bg-red-500 text-white text-[9px] font-bold px-0.5">
+                                {unreadNotifs}
+                              </span>
+                            )}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </nav>
 
         {/* User card */}
