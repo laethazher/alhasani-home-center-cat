@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, ChevronDown, ChevronUp, Truck, Wrench, Clock, DollarSign,
-  User, FileText, Image as ImageIcon, Download, Calendar,
+  User, FileText, Image as ImageIcon, Download, Calendar, Check,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
