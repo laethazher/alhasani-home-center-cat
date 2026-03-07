@@ -35,6 +35,8 @@ function formatDuration(ms: number) {
 
 export default function ActiveMaintenance({ profile, onNavigate }: Props) {
   const isAdmin = profile?.role === 'admin';
+  const isMaintManager = profile?.role === 'maintenance_manager';
+  const canEdit = isAdmin || isMaintManager;
   const [activeRequest, setActiveRequest] = useState<MaintenanceRequest | null>(null);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [driver, setDriver] = useState<StaffMember | null>(null);
@@ -327,7 +329,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
                         </span>
                       )}
                     </div>
-                    {isAdmin && (
+                    {canEdit && (
                       <div className="flex gap-1">
                         <button
                           onClick={() => cameraRefs.current[key]?.click()}
@@ -408,8 +410,8 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
             )}
           </motion.div>
 
-          {/* Finish button - Admin only */}
-          {isAdmin && (
+          {/* Finish button - Admin & Maint Manager */}
+          {canEdit && (
             <motion.button
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
