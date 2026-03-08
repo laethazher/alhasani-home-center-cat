@@ -26,6 +26,7 @@ export function exportHtmlToPdf(htmlContent: string, filename: string): Promise<
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,34 +36,40 @@ export function exportHtmlToPdf(htmlContent: string, filename: string): Promise<
 </head>
 <body>
   ${htmlContent}
+  <div class="no-print" style="margin-top: 40px; padding: 20px; border-top: 1px solid #eee; color: #666; text-align: center;">
+    <p>إذا لم تظهر نافذة الطباعة تلقائياً، يرجى الضغط على <strong>Ctrl + P</strong> واختيار "حفظ كـ PDF".</p>
+  </div>
   <script>
     window.onload = function() {
-      // Ensure fonts are loaded before printing
-      if (document.fonts) {
-        document.fonts.ready.then(function() {
-          setTimeout(() => { window.print(); }, 500);
-        });
-      } else {
-        setTimeout(() => { window.print(); }, 1000);
-      }
+      // Small delay to ensure everything is rendered
+      setTimeout(() => {
+        if (document.fonts) {
+          document.fonts.ready.then(() => {
+            window.print();
+          });
+        } else {
+          window.print();
+        }
+      }, 800);
     };
   <\/script>
 </body>
 </html>`;
 
-  const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank', 'noopener,noreferrer,width=900,height=700');
-  if (win) {
-    URL.revokeObjectURL(url);
-  } else {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.replace('.pdf', '.html');
-    a.click();
-    URL.revokeObjectURL(url);
-    alert('تم فتح الملف. يرجى استخدام Ctrl+P للطباعة واختيار "حفظ كـ PDF"');
-  }
+  const blob = new Blob(['\uFEFF' + fullHtml], { type: 'text/html;charset=utf-8' });
+  const reader = new FileReader();
+  reader.onload = function() {
+    const dataUrl = reader.result as string;
+    const win = window.open(dataUrl, '_blank', 'noopener,noreferrer,width=900,height=700');
+    if (!win) {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename.replace('.pdf', '.html');
+      a.click();
+      alert('تم فتح الملف كصفحة ويب. يرجى استخدام Ctrl+P للطباعة واختيار "حفظ كـ PDF"');
+    }
+  };
+  reader.readAsDataURL(blob);
   return Promise.resolve();
 }
 
