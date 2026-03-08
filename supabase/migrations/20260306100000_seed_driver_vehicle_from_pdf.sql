@@ -107,5 +107,4 @@ FROM (VALUES
   (24376, 'احتياط'),
   (24433, 'علي حسين خلف') -- كان: على حسين خلف
 ) AS v(num, driver_name)
-ON CONFLICT (plate_number) DO UPDATE SET
-  assigned_driver_id = EXCLUDED.assigned_driver_id;
+ON CONFLICT (plate_number) DO NOTHING;
