@@ -394,8 +394,9 @@ export default function Reports({ userId }: ReportsProps) {
       printSection.style.backgroundColor = '#ffffff';
       printSection.style.color = '#1c1917';
       
-      // Wait for repaint after class change
+      // Wait for repaint and fonts (Arabic support)
       await new Promise(resolve => setTimeout(resolve, 300));
+      if (document.fonts?.ready) await document.fonts.ready;
 
       // Use html-to-image (uses browser's native rendering, supports oklch natively)
       const dataUrl = await toPng(reportRef.current, {

@@ -1,7 +1,59 @@
 /**
  * Excel export utility - ensures proper UTF-8/Arabic encoding.
+ * CSV with UTF-8 BOM is the most reliable for Arabic in Excel.
  */
 import * as XLSX from 'xlsx';
+
+const UTF8_BOM = '\uFEFF';
+
+/** Escape CSV cell (handle commas, quotes, newlines) */
+function escapeCsvCell(val: unknown): string {
+  const s = String(val ?? '');
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+/** Convert rows to CSV string */
+function rowsToCsv(rows: unknown[][]): string {
+  return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+/**
+ * Export to CSV with UTF-8 BOM - 100% reliable for Arabic in Excel.
+ */
+export function exportToCsv(rows: unknown[][], filename: string): void {
+  const csv = rowsToCsv(rows);
+  const blob = new Blob([UTF8_BOM + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.csv') ? filename : filename.replace(/\.xlsx?$/i, '.csv');
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Export multiple sheets as separate CSV files (for multi-sheet data).
+ * Or use single CSV with section headers.
+ */
+export function exportSheetsToCsv(
+  sheets: { data: unknown[][]; name: string }[],
+  baseFilename: string
+): void {
+  if (sheets.length === 1) {
+    exportToCsv(sheets[0].data, `${baseFilename}.csv`);
+    return;
+  }
+  const combined: unknown[][] = [];
+  for (const { data, name } of sheets) {
+    combined.push([name]);
+    combined.push(...data);
+    combined.push([]);
+  }
+  exportToCsv(combined, `${baseFilename}.csv`);
+}
 
 /** Truncate sheet name for Excel (max 31 chars) */
 function safeSheetName(name: string): string {
@@ -10,7 +62,8 @@ function safeSheetName(name: string): string {
 }
 
 /**
- * Write workbook to file with proper Unicode support.
+ * Write workbook to file (xlsx) - may have encoding issues with Arabic.
+ * Prefer exportToCsv for Arabic content.
  */
 export function writeExcelFile(wb: XLSX.WorkBook, filename: string): void {
   XLSX.writeFile(wb, filename, { bookType: 'xlsx', bookSST: true });

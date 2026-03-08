@@ -21,7 +21,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus, MaintenanceRecord, MaintenanceImage } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
-import { writeExcelFile, createWorkbookWithSheets } from '../lib/excelExport';
+import { exportSheetsToCsv } from '../lib/excelExport';
 
 /* ── Constants ── */
 const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
@@ -308,8 +308,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
         name: 'السجل',
       });
     }
-    const wb = createWorkbookWithSheets(sheets);
-    writeExcelFile(wb, `تقرير_مركبة_${vehicle.plate_number}.xlsx`);
+    exportSheetsToCsv(sheets, `تقرير_مركبة_${vehicle.plate_number}`);
   };
 
   const exportPDF = async () => {
@@ -409,7 +408,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={exportExcel}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 transition-colors">
-            <Download className="w-3.5 h-3.5" /> Excel
+            <Download className="w-3.5 h-3.5" /> Excel (CSV)
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={exportPDF}

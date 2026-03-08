@@ -1,123 +1,69 @@
 /**
- * PDF Export utility - uses html-to-image for correct Arabic/RTL rendering.
- * Avoids jsPDF direct text which corrupts Arabic.
+ * PDF Export - uses browser print for 100% reliable Arabic/RTL rendering.
+ * User selects "Save as PDF" or "Microsoft Print to PDF" in the print dialog.
  */
-import { toPng } from 'html-to-image';
-import { jsPDF } from 'jspdf';
-
-const PDF_STYLE = `
-  direction: rtl;
-  font-family: 'Segoe UI', 'Tahoma', 'Arial', 'Noto Sans Arabic', sans-serif;
-  background: #fff;
-  color: #1c1917;
-  padding: 20px;
-  font-size: 14px;
-  line-height: 1.6;
+const PRINT_STYLES = `
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif; direction: rtl; background: #fff; color: #1c1917; font-size: 14px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px; border: 1px solid #ddd; text-align: right; }
+  th { background: #3b82f6; color: #fff; }
+  tr:nth-child(even) { background: #f8fafc; }
+  h1, h2 { margin: 16px 0 8px; }
+  @media print { body { padding: 0; } }
 `;
 
 /**
- * Capture an HTML element and save as PDF with proper page breaks.
+ * Open content in a new window and trigger print (Save as PDF).
+ * Most reliable method for Arabic text.
  */
-export async function exportElementToPdf(
-  element: HTMLElement,
-  filename: string,
-  options?: { pixelRatio?: number; quality?: number }
-): Promise<void> {
-  const pixelRatio = options?.pixelRatio ?? 2;
-  const quality = options?.quality ?? 1;
+export function exportHtmlToPdf(htmlContent: string, filename: string): Promise<void> {
+  const fullHtml = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap" rel="stylesheet">
+  <style>${PRINT_STYLES}</style>
+  <title>${filename.replace('.pdf', '')}</title>
+</head>
+<body>
+  ${htmlContent}
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+        document.body.innerHTML += '<p style="margin-top:24px;color:#666">تم فتح نافذة الطباعة. اختر "حفظ كـ PDF" أو "Microsoft Print to PDF" ثم احفظ الملف.</p>';
+      }, 300);
+    };
+  <\/script>
+</body>
+</html>`;
 
-  const wasDark = document.documentElement.classList.contains('dark');
-  if (wasDark) document.documentElement.classList.remove('dark');
-
-  const originalBg = element.style.backgroundColor;
-  const originalColor = element.style.color;
-  element.style.backgroundColor = '#ffffff';
-  element.style.color = '#1c1917';
-
-  await new Promise((r) => setTimeout(r, 200));
-
-  const dataUrl = await toPng(element, {
-    quality,
-    pixelRatio,
-    backgroundColor: '#ffffff',
-    cacheBust: true,
-    style: { backgroundColor: '#ffffff', color: '#1c1917' },
-  });
-
-  if (wasDark) document.documentElement.classList.add('dark');
-  element.style.backgroundColor = originalBg;
-  element.style.color = originalColor;
-
-  const img = new Image();
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error('Failed to load captured image'));
-    img.src = dataUrl;
-  });
-
-  const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-  const pdfW = pdf.internal.pageSize.getWidth();
-  const pdfH = pdf.internal.pageSize.getHeight();
-  const margin = 5;
-  const usableW = pdfW - margin * 2;
-  const usableH = pdfH - margin * 2;
-  const pxPerMm = img.width / usableW;
-  const pageHeightPx = Math.floor(usableH * pxPerMm);
-
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = img.width;
-  srcCanvas.height = img.height;
-  const srcCtx = srcCanvas.getContext('2d');
-  if (!srcCtx) throw new Error('Canvas unavailable');
-  srcCtx.drawImage(img, 0, 0);
-
-  let yOffset = 0;
-  let pageIndex = 0;
-
-  while (yOffset < img.height) {
-    const sliceH = Math.min(pageHeightPx, img.height - yOffset);
-    const tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = img.width;
-    tmpCanvas.height = sliceH;
-    const tmpCtx = tmpCanvas.getContext('2d');
-    if (!tmpCtx) throw new Error('Canvas unavailable');
-    tmpCtx.fillStyle = '#ffffff';
-    tmpCtx.fillRect(0, 0, tmpCanvas.width, tmpCanvas.height);
-    tmpCtx.drawImage(srcCanvas, 0, yOffset, img.width, sliceH, 0, 0, img.width, sliceH);
-
-    const imgData = tmpCanvas.toDataURL('image/jpeg', 0.92);
-    const sliceHeightMm = sliceH / pxPerMm;
-
-    if (pageIndex > 0) pdf.addPage();
-    pdf.addImage(imgData, 'JPEG', margin, margin, usableW, sliceHeightMm);
-
-    yOffset += sliceH;
-    pageIndex++;
+  const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank', 'noopener,noreferrer,width=900,height=700');
+  if (win) {
+    URL.revokeObjectURL(url);
+  } else {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace('.pdf', '.html');
+    a.click();
+    URL.revokeObjectURL(url);
+    alert('تم فتح الملف. يرجى استخدام Ctrl+P للطباعة واختيار "حفظ كـ PDF"');
   }
-
-  pdf.save(filename);
+  return Promise.resolve();
 }
 
 /**
- * Create a temporary div with HTML content, capture it, and save as PDF.
- * Use for data-based reports (no existing DOM element).
+ * Capture visible element and save as PDF via print.
+ * Use when you have an existing DOM element (e.g. Reports page).
  */
-export async function exportHtmlToPdf(
-  htmlContent: string,
-  filename: string,
-  options?: { pixelRatio?: number; width?: number }
-): Promise<void> {
-  const wrapper = document.createElement('div');
-  wrapper.style.cssText = `position:fixed;left:-9999px;top:0;width:${options?.width ?? 794}px;${PDF_STYLE}`;
-  wrapper.dir = 'rtl';
-  wrapper.innerHTML = htmlContent;
-  document.body.appendChild(wrapper);
-
-  await new Promise((r) => setTimeout(r, 100));
-
-  try {
-    await exportElementToPdf(wrapper, filename, { pixelRatio: options?.pixelRatio ?? 2 });
-  } finally {
-    document.body.removeChild(wrapper);
-  }
+export async function exportElementToPdf(element: HTMLElement, filename: string): Promise<void> {
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.style.cssText = 'position:absolute;left:-9999px;top:0;width:794px;background:#fff;color:#1c1917;padding:20px;';
+  document.body.appendChild(clone);
+  const html = clone.outerHTML;
+  document.body.removeChild(clone);
+  exportHtmlToPdf(html, filename);
 }

@@ -28,9 +28,8 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
-import * as XLSX from 'xlsx';
 import { exportHtmlToPdf } from '../lib/pdfExport';
-import { writeExcelFile } from '../lib/excelExport';
+import { exportToCsv } from '../lib/excelExport';
 import type {
   UserProfile,
   StaffMember,
@@ -767,10 +766,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   const exportExcel = (reqs: ExitRequest[], filename: string) => {
     const data = getExportData(reqs);
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'إخراجات الكادر');
-    writeExcelFile(wb, `${filename}.xlsx`);
+    const headers = Object.keys(data[0] || {});
+    const rows = data.map((row) => headers.map((h) => row[h as keyof typeof row]));
+    exportToCsv([headers, ...rows], `${filename}.csv`);
   };
 
   const exportPDF = async (reqs: ExitRequest[], filename: string) => {
@@ -795,7 +793,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     }
     html += '</tbody></table>';
     try {
-      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`, { width: 1100 });
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`);
     } catch (e) {
       console.error(e);
       alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
