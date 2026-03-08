@@ -7,7 +7,7 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
-import jsPDF from 'jspdf';
+import { exportHtmlToPdf } from '../lib/pdfExport';
 
 interface Props {
   profile: UserProfile | null;
@@ -138,62 +138,46 @@ export default function MaintenanceHistory({ profile }: Props) {
   }
 
   async function exportPDF() {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const vehicle = selectedVehicle ? vehicles.find(v => v.id === selectedVehicle) : null;
     const recs = filteredRecords;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.text('Maintenance History Report', 105, 20, { align: 'center' });
-
-    if (vehicle) {
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`Vehicle: ${vehicle.plate_number} ${vehicle.model ? '- ' + vehicle.model : ''}`, 105, 30, { align: 'center' });
-    }
-
-    doc.setFontSize(10);
-    doc.text(`Generated: ${new Date().toLocaleString('en-US')}`, 105, 38, { align: 'center' });
-
-    let y = 50;
     const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`Total Records: ${recs.length}`, 15, y);
-    doc.text(`Total Cost: ${totalCost.toLocaleString()} IQD`, 105, y);
-    y += 10;
 
-    // Table header
-    doc.setFillColor(59, 130, 246);
-    doc.setTextColor(255, 255, 255);
-    doc.rect(15, y, 180, 8, 'F');
-    doc.setFontSize(8);
-    doc.text('Date', 18, y + 5.5);
-    doc.text('Type', 48, y + 5.5);
-    doc.text('Work Done', 78, y + 5.5);
-    doc.text('Technician', 128, y + 5.5);
-    doc.text('Cost', 158, y + 5.5);
-    doc.text('Duration', 178, y + 5.5);
-    y += 10;
-
-    doc.setTextColor(0, 0, 0);
-    doc.setFont('helvetica', 'normal');
-
-    for (let ri = 0; ri < recs.length; ri++) {
-      const rec = recs[ri];
-      if (y > 270) { doc.addPage(); y = 20; }
-      const bg = ri % 2 === 0;
-      if (bg) { doc.setFillColor(248, 250, 252); doc.rect(15, y - 2, 180, 8, 'F'); }
-
-      doc.text(new Date(rec.created_at).toLocaleDateString('en-US'), 18, y + 3);
-      doc.text((rec.maintenance_type ?? '').slice(0, 20), 48, y + 3);
-      doc.text((rec.work_done ?? '').slice(0, 30), 78, y + 3);
-      doc.text((rec.technician_name ?? '').slice(0, 15), 128, y + 3);
-      doc.text(`${Number(rec.cost).toLocaleString()}`, 158, y + 3);
-      doc.text(rec.duration_minutes ? `${rec.duration_minutes}m` : '-', 178, y + 3);
-      y += 8;
+    let html = `
+      <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير سجل الصيانة</h1>
+      ${vehicle ? `<p style="text-align:center;font-size:14px;margin-bottom:8px">المركبة: ${vehicle.plate_number} ${vehicle.model ? '- ' + vehicle.model : ''}</p>` : ''}
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} ${new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}</p>
+      <p style="margin-bottom:16px"><strong>إجمالي السجلات:</strong> ${recs.length} &nbsp;|&nbsp; <strong>إجمالي التكلفة:</strong> ${totalCost.toLocaleString('ar-IQ')} د.ع</p>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#3b82f6;color:#fff">
+          <th style="padding:8px;text-align:right">التاريخ</th>
+          <th style="padding:8px;text-align:right">النوع</th>
+          <th style="padding:8px;text-align:right">العمل المنفذ</th>
+          <th style="padding:8px;text-align:right">الفني</th>
+          <th style="padding:8px;text-align:right">التكلفة</th>
+          <th style="padding:8px;text-align:right">المدة</th>
+        </tr></thead>
+        <tbody>
+    `;
+    for (let i = 0; i < recs.length; i++) {
+      const rec = recs[i];
+      const bg = i % 2 === 0 ? 'background:#f8fafc' : '';
+      html += `<tr style="${bg}">
+        <td style="padding:6px 8px;border:1px solid #ddd">${new Date(rec.created_at).toLocaleDateString('ar-IQ')}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${(rec.maintenance_type ?? '').slice(0, 25)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${(rec.work_done ?? '').slice(0, 40)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${(rec.technician_name ?? '—').slice(0, 20)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${Number(rec.cost).toLocaleString('ar-IQ')}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${rec.duration_minutes ? rec.duration_minutes + ' د' : '—'}</td>
+      </tr>`;
     }
+    html += '</tbody></table>';
 
-    doc.save(`maintenance_report_${vehicle?.plate_number ?? 'all'}_${Date.now()}.pdf`);
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `maintenance_report_${vehicle?.plate_number ?? 'all'}_${Date.now()}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    }
   }
 
   if (loading) {

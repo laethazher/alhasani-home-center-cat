@@ -29,8 +29,8 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { writeExcelFile } from '../lib/excelExport';
 import type {
   UserProfile,
   StaffMember,
@@ -770,30 +770,36 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'إخراجات الكادر');
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    writeExcelFile(wb, `${filename}.xlsx`);
   };
 
-  const exportPDF = (reqs: ExitRequest[], filename: string) => {
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const columns = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
-    const rows = reqs.map((r) => [
-      STATUS_CONFIG[r.status].label,
-      driverMap.get(String(r.driver_id)) || r.driver_name || '—',
-      r.assistant_names.join(' ، ') || 'لا يوجد',
-      r.exit_reason || '—',
-      r.vehicle_plate || '—',
-      new Date(r.created_at).toLocaleString('ar-IQ'),
-      r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
-    ]);
-    doc.setFont('Helvetica');
-    autoTable(doc, {
-      head: [columns],
-      body: rows,
-      styles: { font: 'Helvetica', fontSize: 8, halign: 'right' },
-      headStyles: { fillColor: [16, 185, 129], halign: 'right' },
-      margin: { top: 15 },
-    });
-    doc.save(`${filename}.pdf`);
+  const exportPDF = async (reqs: ExitRequest[], filename: string) => {
+    const headers = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
+    let html = `<h1 style="text-align:center;font-size:20px;margin-bottom:16px">إخراجات الكادر</h1>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:#10b981;color:#fff">
+          ${headers.map((h) => `<th style="padding:6px 8px;text-align:right">${h}</th>`).join('')}
+        </tr></thead><tbody>`;
+    for (let i = 0; i < reqs.length; i++) {
+      const r = reqs[i];
+      const bg = i % 2 === 0 ? 'background:#f8fafc' : '';
+      html += `<tr style="${bg}">
+        <td style="padding:6px 8px;border:1px solid #ddd">${STATUS_CONFIG[r.status].label}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${driverMap.get(String(r.driver_id)) || r.driver_name || '—'}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${r.assistant_names.join(' ، ') || 'لا يوجد'}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${r.exit_reason || '—'}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${r.vehicle_plate || '—'}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${new Date(r.created_at).toLocaleString('ar-IQ')}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd">${r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`, { width: 1100 });
+    } catch (e) {
+      console.error(e);
+      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    }
   };
 
   /* ── Split today vs archive ── */

@@ -20,8 +20,8 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus, MaintenanceRecord, MaintenanceImage } from '../lib/supabaseClient';
-import jsPDF from 'jspdf';
-import * as XLSX from 'xlsx';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { writeExcelFile, createWorkbookWithSheets } from '../lib/excelExport';
 
 /* ── Constants ── */
 const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
@@ -284,10 +284,37 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
   /* ── Export ── */
   const exportExcel = () => {
     if (!vehicle) return;
-    const wb = XLSX.utils.book_new();
+    const sheets: { data: unknown[][]; name: string }[] = [
+      {
+        data: [['البيان', 'القيمة'], ['رقم اللوحة', vehicle.plate_number], ['النوع', vehicle.vehicle_type || '—'], ['اللون', vehicle.color || '—'], ['السنة', vehicle.year || '—'], ['رقم الشاسي', vehicle.chassis_number || '—'], ['الوقود', vehicle.fuel_type || '—'], ['العداد', `${vehicle.odometer_km} كم`], ['الحالة', STATUS_CONFIG[vehicle.status]?.label || vehicle.status], ['الرخصة', vehicle.license_expiry || '—'], ['التأمين', vehicle.insurance_expiry || '—'], ['السائق', vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '—') : '—']],
+        name: 'بيانات المركبة',
+      },
+    ];
+    if (combinedMaintenance.length > 0) {
+      sheets.push({
+        data: [['النوع', 'الوصف', 'التكلفة', 'العداد', 'التاريخ', 'الفني/بواسطة', 'المدة', 'الصيانة القادمة', 'ملاحظات'], ...combinedMaintenance.map((m) => [m.maintenance_type, m.description || '', m.cost, m.odometer_at || '', m.date.slice(0, 10), m.technician || '', m.duration_minutes ? `${m.duration_minutes} د` : '', m.next_maintenance_date || '', m.notes || ''])],
+        name: 'الصيانة',
+      });
+    }
+    if (exitRequests.length > 0) {
+      sheets.push({
+        data: [['التاريخ', 'السائق', 'المساعدين', 'النوع', 'المدة', 'السبب', 'الحالة'], ...exitRequests.map((r) => [new Date(r.created_at).toLocaleDateString('ar-IQ'), driverMap.get(String(r.driver_id)) || r.driver_name || '—', (r.assistant_names || []).join('، '), r.exit_type === 'temporary' ? 'مؤقت' : 'دائم', r.exit_duration_minutes ? `${r.exit_duration_minutes} د` : '—', r.exit_reason || '—', r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار'])],
+        name: 'الرحلات',
+      });
+    }
+    if (events.length > 0) {
+      sheets.push({
+        data: [['التاريخ', 'النوع', 'الوصف', 'القيمة القديمة', 'القيمة الجديدة'], ...events.map((e) => [new Date(e.created_at).toLocaleDateString('ar-IQ') + ' ' + new Date(e.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }), EVENT_CONFIG[e.event_type]?.label || e.event_type, e.description, e.old_value || '', e.new_value || ''])],
+        name: 'السجل',
+      });
+    }
+    const wb = createWorkbookWithSheets(sheets);
+    writeExcelFile(wb, `تقرير_مركبة_${vehicle.plate_number}.xlsx`);
+  };
 
-    // Vehicle info sheet
-    const infoData = [
+  const exportPDF = async () => {
+    if (!vehicle) return;
+    const infoRows = [
       ['رقم اللوحة', vehicle.plate_number],
       ['النوع', vehicle.vehicle_type || '—'],
       ['اللون', vehicle.color || '—'],
@@ -300,114 +327,41 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       ['التأمين', vehicle.insurance_expiry || '—'],
       ['السائق', vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '—') : '—'],
     ];
-    const ws1 = XLSX.utils.aoa_to_sheet([['البيان', 'القيمة'], ...infoData]);
-    XLSX.utils.book_append_sheet(wb, ws1, 'بيانات المركبة');
-
-    // Maintenance sheet
+    let html = `
+      <h1 style="text-align:center;font-size:22px;margin-bottom:20px">تقرير المركبة - ${vehicle.plate_number}</h1>
+      <p style="text-align:center;color:#666;margin-bottom:24px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} ${new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+        ${infoRows.map(([k, v]) => `<tr><td style="padding:6px 8px;border:1px solid #ddd;font-weight:bold;width:40%">${k}</td><td style="padding:6px 8px;border:1px solid #ddd">${v}</td></tr>`).join('')}
+      </table>
+      <h2 style="font-size:16px;margin:16px 0 8px">الإحصائيات</h2>
+      <p>إجمالي تكلفة الصيانة: ${stats.totalMaintenanceCost.toLocaleString('ar-IQ')} د.ع</p>
+      <p>إجمالي الرحلات: ${stats.totalTrips}</p>
+      <p>إجمالي الصيانة: ${stats.totalMaintenance}</p>
+      <p>أكثر سائق: ${stats.topDriver} (${stats.topDriverTrips} رحلة)</p>
+    `;
     if (combinedMaintenance.length > 0) {
-      const mHeaders = ['النوع', 'الوصف', 'التكلفة', 'العداد', 'التاريخ', 'الفني/بواسطة', 'المدة', 'الصيانة القادمة', 'ملاحظات'];
-      const mRows = combinedMaintenance.map((m) => [
-        m.maintenance_type, m.description || '', m.cost, m.odometer_at || '', m.date.slice(0, 10), m.technician || '', m.duration_minutes ? `${m.duration_minutes} د` : '', m.next_maintenance_date || '', m.notes || '',
-      ]);
-      const ws2 = XLSX.utils.aoa_to_sheet([mHeaders, ...mRows]);
-      XLSX.utils.book_append_sheet(wb, ws2, 'الصيانة');
-    }
-
-    // Trips sheet
-    if (exitRequests.length > 0) {
-      const tHeaders = ['التاريخ', 'السائق', 'المساعدين', 'النوع', 'المدة', 'السبب', 'الحالة'];
-      const tRows = exitRequests.map((r) => [
-        new Date(r.created_at).toLocaleDateString('ar-IQ'),
-        driverMap.get(String(r.driver_id)) || r.driver_name || '—',
-        (r.assistant_names || []).join('، '),
-        r.exit_type === 'temporary' ? 'مؤقت' : 'دائم',
-        r.exit_duration_minutes ? `${r.exit_duration_minutes} د` : '—',
-        r.exit_reason || '—',
-        r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار',
-      ]);
-      const ws3 = XLSX.utils.aoa_to_sheet([tHeaders, ...tRows]);
-      XLSX.utils.book_append_sheet(wb, ws3, 'الرحلات');
-    }
-
-    // Events sheet
-    if (events.length > 0) {
-      const eHeaders = ['التاريخ', 'النوع', 'الوصف', 'القيمة القديمة', 'القيمة الجديدة'];
-      const eRows = events.map((e) => [
-        new Date(e.created_at).toLocaleDateString('ar-IQ') + ' ' + new Date(e.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
-        EVENT_CONFIG[e.event_type]?.label || e.event_type,
-        e.description,
-        e.old_value || '',
-        e.new_value || '',
-      ]);
-      const ws4 = XLSX.utils.aoa_to_sheet([eHeaders, ...eRows]);
-      XLSX.utils.book_append_sheet(wb, ws4, 'السجل');
-    }
-
-    XLSX.writeFile(wb, `تقرير_مركبة_${vehicle.plate_number}.xlsx`);
-  };
-
-  const exportPDF = () => {
-    if (!vehicle) return;
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    doc.setFont('Helvetica');
-    let y = 15;
-
-    doc.setFontSize(16);
-    doc.text(`Vehicle Report - ${vehicle.plate_number}`, 105, y, { align: 'center' });
-    y += 12;
-
-    doc.setFontSize(10);
-    const info = [
-      `Plate: ${vehicle.plate_number}`,
-      `Type: ${vehicle.vehicle_type || '-'}`,
-      `Color: ${vehicle.color || '-'}`,
-      `Year: ${vehicle.year || '-'}`,
-      `Chassis: ${vehicle.chassis_number || '-'}`,
-      `Fuel: ${vehicle.fuel_type || '-'}`,
-      `Odometer: ${vehicle.odometer_km} km`,
-      `Status: ${STATUS_CONFIG[vehicle.status]?.label || vehicle.status}`,
-      `License: ${vehicle.license_expiry || '-'}`,
-      `Insurance: ${vehicle.insurance_expiry || '-'}`,
-      `Driver: ${vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '-') : '-'}`,
-    ];
-    for (const line of info) { doc.text(line, 15, y); y += 6; }
-
-    y += 5;
-    doc.setFontSize(12);
-    doc.text(`Statistics`, 15, y); y += 8;
-    doc.setFontSize(10);
-    doc.text(`Total Maintenance Cost: ${stats.totalMaintenanceCost.toLocaleString()} IQD`, 15, y); y += 6;
-    doc.text(`Total Trips: ${stats.totalTrips}`, 15, y); y += 6;
-    doc.text(`Total Maintenance: ${stats.totalMaintenance}`, 15, y); y += 6;
-    doc.text(`Top Driver: ${stats.topDriver} (${stats.topDriverTrips} trips)`, 15, y); y += 6;
-
-    if (combinedMaintenance.length > 0) {
-      y += 5;
-      doc.setFontSize(12);
-      doc.text(`Maintenance Log (${combinedMaintenance.length})`, 15, y); y += 8;
-      doc.setFontSize(9);
-      for (const m of combinedMaintenance.slice(0, 20)) {
-        if (y > 270) { doc.addPage(); y = 15; }
-        doc.text(`${m.date.slice(0, 10)} | ${m.maintenance_type} | ${m.cost.toLocaleString()} IQD | ${m.technician || '-'}`, 15, y);
-        y += 5;
+      html += `<h2 style="font-size:16px;margin:24px 0 8px">سجل الصيانة (${combinedMaintenance.length})</h2><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#3b82f6;color:#fff"><th style="padding:6px;text-align:right">التاريخ</th><th style="padding:6px;text-align:right">النوع</th><th style="padding:6px;text-align:right">التكلفة</th><th style="padding:6px;text-align:right">الفني</th></tr></thead><tbody>`;
+      for (const m of combinedMaintenance.slice(0, 30)) {
+        html += `<tr><td style="padding:6px;border:1px solid #ddd">${m.date.slice(0, 10)}</td><td style="padding:6px;border:1px solid #ddd">${m.maintenance_type}</td><td style="padding:6px;border:1px solid #ddd">${m.cost.toLocaleString('ar-IQ')}</td><td style="padding:6px;border:1px solid #ddd">${m.technician || '—'}</td></tr>`;
       }
+      html += '</tbody></table>';
     }
-
     if (exitRequests.length > 0) {
-      y += 5;
-      if (y > 250) { doc.addPage(); y = 15; }
-      doc.setFontSize(12);
-      doc.text(`Trip Log (${exitRequests.length})`, 15, y); y += 8;
-      doc.setFontSize(9);
-      for (const r of exitRequests.slice(0, 20)) {
-        if (y > 270) { doc.addPage(); y = 15; }
-        const date = new Date(r.created_at).toLocaleDateString('en');
-        doc.text(`${date} | ${driverMap.get(String(r.driver_id)) || r.driver_name || '-'} | ${r.exit_type} | ${r.exit_reason || '-'}`, 15, y);
-        y += 5;
+      html += `<h2 style="font-size:16px;margin:24px 0 8px">سجل الرحلات (${exitRequests.length})</h2><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:#10b981;color:#fff"><th style="padding:6px;text-align:right">التاريخ</th><th style="padding:6px;text-align:right">السائق</th><th style="padding:6px;text-align:right">النوع</th><th style="padding:6px;text-align:right">السبب</th></tr></thead><tbody>`;
+      for (const r of exitRequests.slice(0, 30)) {
+        const date = new Date(r.created_at).toLocaleDateString('ar-IQ');
+        const driver = driverMap.get(String(r.driver_id)) || r.driver_name || '—';
+        const type = r.exit_type === 'temporary' ? 'مؤقت' : 'دائم';
+        html += `<tr><td style="padding:6px;border:1px solid #ddd">${date}</td><td style="padding:6px;border:1px solid #ddd">${driver}</td><td style="padding:6px;border:1px solid #ddd">${type}</td><td style="padding:6px;border:1px solid #ddd">${r.exit_reason || '—'}</td></tr>`;
       }
+      html += '</tbody></table>';
     }
-
-    doc.save(`Vehicle_${vehicle.plate_number}_Report.pdf`);
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `تقرير_مركبة_${vehicle.plate_number}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    }
   };
 
   /* ── Format date ── */
