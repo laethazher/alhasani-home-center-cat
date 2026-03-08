@@ -287,161 +287,180 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     const sheets: { data: unknown[][]; name: string }[] = [
       {
         data: [
-          ['تقرير البيانات الأساسية للمركبة'],
+          ['التقرير الفني الشامل للمركبة'],
           ['البيان', 'القيمة'],
+          ['المعرف الرقمي (ID)', vehicle.id],
           ['رقم اللوحة', vehicle.plate_number],
-          ['النوع', vehicle.vehicle_type || '—'],
-          ['اللون', vehicle.color || '—'],
-          ['السنة', vehicle.year || '—'],
-          ['رقم الشاسي', vehicle.chassis_number || '—'],
-          ['الوقود', vehicle.fuel_type || '—'],
-          ['العداد الحالي', `${vehicle.odometer_km.toLocaleString()} كم`],
-          ['الحالة الحالية', STATUS_CONFIG[vehicle.status]?.label || vehicle.status],
+          ['النوع الطراز', vehicle.vehicle_type || '—'],
+          ['اللون المظهري', vehicle.color || '—'],
+          ['سنة الصنع', vehicle.year || '—'],
+          ['رقم الشاسي (Chassis)', vehicle.chassis_number || '—'],
+          ['نوع الوقود', vehicle.fuel_type || '—'],
+          ['عداد المسافة الحالي', `${vehicle.odometer_km.toLocaleString()} كم`],
+          ['الحالة التشغيلية', STATUS_CONFIG[vehicle.status]?.label || vehicle.status],
           ['تاريخ انتهاء الرخصة', vehicle.license_expiry || '—'],
           ['تاريخ انتهاء التأمين', vehicle.insurance_expiry || '—'],
-          ['السائق المسؤول الحالي', vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '—') : '—'],
-          ['تحتوي على لوجو', vehicle.has_logo ? 'نعم' : 'لا'],
-          ['ملاحظات عامة', vehicle.notes || '—'],
-          ['تاريخ الإضافة للنظام', fmtDateTime(vehicle.created_at)],
-          ['آخر تحديث للبيانات', fmtDateTime(vehicle.updated_at)]
+          ['السائق المسؤول الحالي', currentDriver || 'غير معين'],
+          ['تحتوي على شعار (Logo)', vehicle.has_logo ? 'نعم' : 'لا'],
+          ['ملاحظات المركبة', vehicle.notes || '—'],
+          ['تاريخ الإدخال للنظام', fmtDateTime(vehicle.created_at)],
+          ['تاريخ آخر تحديث للبيانات', fmtDateTime(vehicle.updated_at)]
         ],
-        name: 'بيانات المركبة',
+        name: 'بيانات المركبة الأساسية',
       },
       {
         data: [
-          ['سجل الصيانة التفصيلي'],
-          ['نوع الصيانة', 'الوصف/العمل المنجز', 'التكلفة (د.ع)', 'العداد عند الصيانة', 'التاريخ', 'الفني/الجهة المنفذة', 'المدة (دقيقة)', 'موعد الصيانة القادم', 'عداد الصيانة القادم', 'ملاحظات'],
+          ['سجل عمليات الصيانة والأعمال الفنية'],
+          ['التاريخ', 'نوع الصيانة', 'العمل المنجز / الوصف', 'التكلفة (د.ع)', 'العداد (كم)', 'الفني / الجهة المنفذة', 'قطع الغيار المستبدلة', 'المدة (دقيقة)', 'نوع الإدخال', 'موعد الصيانة القادم', 'ملاحظات'],
           ...combinedMaintenance.map((m) => [
+            fmtDateTime(m.date),
             m.maintenance_type,
             m.description || '',
             m.cost,
             m.odometer_at || '',
-            fmtDateTime(m.date),
-            m.technician || '',
-            m.duration_minutes || '',
-            m.next_maintenance_date || '',
-            m.next_maintenance_km || '',
+            m.technician || '—',
+            m.parts_replaced || '—',
+            m.duration_minutes || '—',
+            m.source === 'maintenance_record' ? 'نظام الصيانة' : 'إدخال يدوي',
+            m.next_maintenance_date || '—',
             m.notes || ''
           ])
         ],
-        name: 'سجل الصيانة',
+        name: 'سجل الصيانة الشامل',
       },
       {
         data: [
-          ['سجل الرحلات وإخراجات الكادر'],
-          ['التاريخ', 'السائق', 'المساعدين', 'نوع الرحلة', 'المدة المقررة (د)', 'سبب الخروج', 'الحالة', 'تاريخ المغادرة الفعلي', 'ملاحظات'],
+          ['أرشيف الرحلات وإخراجات الكادر'],
+          ['تاريخ الطلب', 'السائق', 'المساعدين', 'سبب الخروج', 'نوع الرحلة', 'المدة (د)', 'الحالة', 'الموافق (ID)', 'تاريخ الموافقة', 'تاريخ المغادرة', 'تاريخ العودة المتوقع', 'ملاحظات'],
           ...exitRequests.map((r) => [
             fmtDateTime(r.created_at),
             driverMap.get(String(r.driver_id)) || r.driver_name || '—',
             (r.assistant_names || []).join(' ، '),
+            r.exit_reason || '—',
             r.exit_type === 'temporary' ? 'مؤقت' : 'دائم',
             r.exit_duration_minutes || '—',
-            r.exit_reason || '—',
             r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار',
+            r.approved_by || '—',
+            r.approved_at ? fmtDateTime(r.approved_at) : '—',
             r.exited_at ? fmtDateTime(r.exited_at) : '—',
+            r.returned_at ? fmtDateTime(r.returned_at) : '—',
             r.notes || ''
           ])
         ],
-        name: 'سجل الرحلات',
+        name: 'سجل الرحلات التفصيلي',
       },
       {
         data: [
-          ['سجل تغيير السائقين'],
-          ['التاريخ والوقت', 'نوع الإجراء', 'السائق القديم', 'السائق الجديد', 'التفاصيل'],
-          ...driverHistory.map((d) => [
-            fmtDateTime(d.date),
-            d.type === 'driver_assigned' ? 'تعيين' : 'إزالة',
-            d.oldDriver || '—',
-            d.newDriver || '—',
-            d.description
+          ['سجل الأحداث الإدارية والفنية (Timeline)'],
+          ['التاريخ والوقت', 'نوع الحدث', 'التفصيل الكامل', 'القيمة القديمة', 'القيمة الجديدة'],
+          ...events.map((e) => [
+            fmtDateTime(e.created_at),
+            EVENT_CONFIG[e.event_type]?.label || e.event_type,
+            e.description,
+            e.old_value || '—',
+            e.new_value || '—'
           ])
         ],
-        name: 'سجل السائقين',
+        name: 'الأرشيف الزمني الكامل',
       },
       {
         data: [
-          ['التاريخ الكامل للأحداث (Timeline)'],
-          ['التاريخ والوقت', 'نوع الحدث', 'الوصف', 'القيمة السابقة', 'القيمة الجديدة'],
-          ...timeline.map((item) => [
-            fmtDateTime(item.date),
-            item.title,
-            item.description,
-            item.oldValue || '—',
-            item.newValue || '—'
-          ])
-        ],
-        name: 'التاريخ الكامل',
-      },
-      {
-        data: [
-          ['ملخص إحصائيات المركبة'],
-          ['المؤشر', 'القيمة'],
-          ['إجمالي تكاليف الصيانة', `${stats.totalMaintenanceCost.toLocaleString()} د.ع`],
-          ['إجمالي عدد عمليات الصيانة', stats.totalMaintenance],
-          ['إجمالي عدد الرحلات المكتملة', stats.totalTrips],
-          ['إجمالي المسافة المقطوعة', `${vehicle.odometer_km.toLocaleString()} كم`],
-          ['السائق الأكثر استخداماً', stats.topDriver],
+          ['تحليل المؤشرات والإحصائيات'],
+          ['المؤشر الإحصائي', 'القيمة الحالية'],
+          ['إجمالي الإنفاق على الصيانة', `${stats.totalMaintenanceCost.toLocaleString()} د.ع`],
+          ['عدد عمليات الصيانة المسجلة', stats.totalMaintenance],
+          ['عدد الرحلات التشغيلية', stats.totalTrips],
+          ['المسافة الكلية المقطوعة', `${vehicle.odometer_km.toLocaleString()} كم`],
+          ['أكثر السائقين استخداماً للمركبة', stats.topDriver],
           ['عدد رحلات السائق الأكثر استخداماً', stats.topDriverTrips],
-          ['عدد مرات تغيير السائق المسؤول', stats.driverChanges]
+          ['عدد مرات تغيير السائق المسؤول', stats.driverChanges],
+          ['متوسط تكلفة الصيانة لكل رحلة', `${(stats.totalTrips > 0 ? stats.totalMaintenanceCost / stats.totalTrips : 0).toLocaleString()} د.ع`]
         ],
-        name: 'إحصائيات عامة',
+        name: 'التحليل والإحصائيات',
       }
     ];
-    exportSheetsToExcel(sheets, `سجل_كامل_مركبة_${vehicle.plate_number.replace(/ /g, '_')}`);
+    exportSheetsToExcel(sheets, `تقرير_تاريخي_شامل_مركبة_${vehicle.plate_number.replace(/ /g, '_')}`);
   };
 
   const exportPDF = async () => {
     if (!vehicle) return;
     
+    const infoTable = `
+      <table style="width:100%; border-collapse:collapse; margin-bottom:20px; font-size:11px;">
+        <tr style="background:#f1f5f9;">
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold; width:20%;">رقم اللوحة</td>
+          <td style="padding:8px; border:1px solid #cbd5e1; width:30%;">${vehicle.plate_number}</td>
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold; width:20%;">نوع المركبة</td>
+          <td style="padding:8px; border:1px solid #cbd5e1; width:30%;">${vehicle.vehicle_type || '—'}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold;">رقم الشاسي</td>
+          <td style="padding:8px; border:1px solid #cbd5e1;">${vehicle.chassis_number || '—'}</td>
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold;">الموديل / السنة</td>
+          <td style="padding:8px; border:1px solid #cbd5e1;">${vehicle.year || '—'}</td>
+        </tr>
+        <tr style="background:#f1f5f9;">
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold;">العداد الحالي</td>
+          <td style="padding:8px; border:1px solid #cbd5e1;">${vehicle.odometer_km.toLocaleString()} كم</td>
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold;">نوع الوقود</td>
+          <td style="padding:8px; border:1px solid #cbd5e1;">${vehicle.fuel_type || '—'}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold;">السائق المسؤول</td>
+          <td style="padding:8px; border:1px solid #cbd5e1;">${currentDriver || '—'}</td>
+          <td style="padding:8px; border:1px solid #cbd5e1; font-weight:bold;">الحالة الحالية</td>
+          <td style="padding:8px; border:1px solid #cbd5e1;">${STATUS_CONFIG[vehicle.status]?.label}</td>
+        </tr>
+      </table>
+    `;
+
     let html = `
-      <div style="font-family:'Noto Sans Arabic', sans-serif; direction:rtl;">
-        <div style="text-align:center; border-bottom:3px solid #1e40af; padding-bottom:15px; margin-bottom:25px;">
-          <h1 style="font-size:28px; color:#1e40af; margin:0;">التقرير الشامل لتاريخ المركبة</h1>
-          <h2 style="font-size:20px; color:#64748b; margin:5px 0 0;">الحسني هوم سنتر - قسم إدارة الأساطيل</h2>
+      <div style="font-family:'Noto Sans Arabic', sans-serif; direction:rtl; padding:10px;">
+        <div style="text-align:center; border-bottom:4px solid #1e40af; padding-bottom:15px; margin-bottom:20px;">
+          <h1 style="font-size:24px; color:#1e40af; margin:0;">التقرير التاريخي والفني الشامل للمركبة</h1>
+          <p style="font-size:14px; color:#64748b; margin:5px 0 0;">الحسني هوم سنتر | Fleet Management System</p>
         </div>
 
-        <div style="display:grid; grid-template-cols: 1fr 1fr; gap:20px; margin-bottom:30px;">
-          <div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
-            <h3 style="margin-top:0; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">بيانات المركبة</h3>
-            <table style="width:100%; font-size:12px;">
-              <tr><td><b>رقم اللوحة:</b></td><td>${vehicle.plate_number}</td></tr>
-              <tr><td><b>النوع:</b></td><td>${vehicle.vehicle_type || '—'}</td></tr>
-              <tr><td><b>اللون / السنة:</b></td><td>${vehicle.color || '—'} / ${vehicle.year || '—'}</td></tr>
-              <tr><td><b>العداد الحالي:</b></td><td>${vehicle.odometer_km.toLocaleString()} كم</td></tr>
-              <tr><td><b>الحالة:</b></td><td>${STATUS_CONFIG[vehicle.status]?.label}</td></tr>
-              <tr><td><b>السائق المسؤول:</b></td><td>${currentDriver || '—'}</td></tr>
-            </table>
+        <h3 style="color:#1e40af; border-right:4px solid #1e40af; padding-right:10px; margin-bottom:10px;">أولاً: البيانات الأساسية للمركبة</h3>
+        ${infoTable}
+
+        <h3 style="color:#1e40af; border-right:4px solid #1e40af; padding-right:10px; margin-bottom:10px;">ثانياً: ملخص المؤشرات (Statistics)</h3>
+        <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:25px;">
+          <div style="flex:1; background:#fff7ed; padding:10px; border-radius:8px; text-align:center; border:1px solid #ffedd5;">
+            <p style="font-size:10px; color:#9a3412; margin:0;">إجمالي الصيانة</p>
+            <p style="font-size:14px; font-weight:bold; color:#c2410c; margin:5px 0 0;">${stats.totalMaintenanceCost.toLocaleString()} د.ع</p>
           </div>
-          <div style="background:#f8fafc; padding:15px; border-radius:12px; border:1px solid #e2e8f0;">
-            <h3 style="margin-top:0; border-bottom:1px solid #cbd5e1; padding-bottom:5px;">إحصائيات تشغيلية</h3>
-            <table style="width:100%; font-size:12px;">
-              <tr><td><b>إجمالي الصيانة:</b></td><td>${stats.totalMaintenanceCost.toLocaleString()} د.ع</td></tr>
-              <tr><td><b>عدد الرحلات:</b></td><td>${stats.totalTrips}</td></tr>
-              <tr><td><b>عدد عمليات الصيانة:</b></td><td>${stats.totalMaintenance}</td></tr>
-              <tr><td><b>أكثر سائق استخداماً:</b></td><td>${stats.topDriver}</td></tr>
-            </table>
+          <div style="flex:1; background:#f0f9ff; padding:10px; border-radius:8px; text-align:center; border:1px solid #e0f2fe;">
+            <p style="font-size:10px; color:#0369a1; margin:0;">عدد الرحلات</p>
+            <p style="font-size:14px; font-weight:bold; color:#0369a1; margin:5px 0 0;">${stats.totalTrips}</p>
+          </div>
+          <div style="flex:1; background:#f0fdf4; padding:10px; border-radius:8px; text-align:center; border:1px solid #dcfce7;">
+            <p style="font-size:10px; color:#15803d; margin:0;">عمليات الصيانة</p>
+            <p style="font-size:14px; font-weight:bold; color:#15803d; margin:5px 0 0;">${stats.totalMaintenance}</p>
           </div>
         </div>
 
-        <h3 style="background:#1e40af; color:white; padding:8px 15px; border-radius:8px;">سجل الصيانة التفصيلي</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:30px;">
+        <h3 style="background:#1e40af; color:white; padding:6px 12px; border-radius:6px; font-size:14px;">ثالثاً: سجل الصيانة وقطع الغيار</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:9px; margin-bottom:20px;">
           <thead>
-            <tr style="background:#e2e8f0;">
-              <th style="padding:8px; border:1px solid #cbd5e1;">التاريخ</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">نوع الصيانة</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">العمل المنجز</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">التكلفة</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">الفني</th>
+            <tr style="background:#f8fafc;">
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">التاريخ</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">النوع</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">العمل المنجز</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">قطع الغيار</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">التكلفة</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">الفني</th>
             </tr>
           </thead>
           <tbody>
             ${combinedMaintenance.map(m => `
               <tr>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${m.date.slice(0, 10)}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${m.maintenance_type}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${m.description || '—'}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${m.cost.toLocaleString()} د.ع</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${m.technician || '—'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${m.date.slice(0, 10)}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${m.maintenance_type}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${m.description || '—'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1; color:#64748b;">${m.parts_replaced || '—'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1; font-weight:bold;">${m.cost.toLocaleString()}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${m.technician || '—'}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -449,61 +468,64 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
 
         <div style="page-break-before: always;"></div>
 
-        <h3 style="background:#10b981; color:white; padding:8px 15px; border-radius:8px;">سجل الرحلات وإخراجات الكادر</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:30px;">
+        <h3 style="background:#10b981; color:white; padding:6px 12px; border-radius:6px; font-size:14px;">رابعاً: سجل الرحلات وإخراجات الكادر التفصيلي</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:9px; margin-bottom:20px;">
           <thead>
-            <tr style="background:#e2e8f0;">
-              <th style="padding:8px; border:1px solid #cbd5e1;">التاريخ</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">السائق</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">النوع</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">السبب</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">المساعدين</th>
+            <tr style="background:#f8fafc;">
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">التاريخ</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">السائق</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">المساعدين</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">السبب</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">النوع</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">الحالة</th>
             </tr>
           </thead>
           <tbody>
             ${exitRequests.map(r => `
               <tr>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${r.created_at.slice(0, 10)}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${driverMap.get(String(r.driver_id)) || r.driver_name || '—'}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${r.exit_type === 'temporary' ? 'مؤقت' : 'دائم'}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${r.exit_reason || '—'}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${(r.assistant_names || []).join(' ، ') || 'لا يوجد'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${r.created_at.slice(0, 10)}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1; font-weight:bold;">${driverMap.get(String(r.driver_id)) || r.driver_name || '—'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1; color:#64748b;">${(r.assistant_names || []).join('، ') || '—'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${r.exit_reason || '—'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${r.exit_type === 'temporary' ? 'مؤقت' : 'دائم'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${r.status === 'exited' ? 'خرج' : 'تمت الموافقة'}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
 
-        <h3 style="background:#6366f1; color:white; padding:8px 15px; border-radius:8px;">سجل السائقين والتغييرات</h3>
-        <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:30px;">
+        <h3 style="background:#6366f1; color:white; padding:6px 12px; border-radius:6px; font-size:14px;">خامساً: سجل التغييرات الإدارية (Driver History)</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:9px; margin-bottom:20px;">
           <thead>
-            <tr style="background:#e2e8f0;">
-              <th style="padding:8px; border:1px solid #cbd5e1;">التاريخ</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">نوع الإجراء</th>
-              <th style="padding:8px; border:1px solid #cbd5e1;">الوصف</th>
+            <tr style="background:#f8fafc;">
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right; width:25%;">التاريخ والوقت</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right; width:15%;">الإجراء</th>
+              <th style="padding:6px; border:1px solid #cbd5e1; text-align:right;">الوصف التفصيلي</th>
             </tr>
           </thead>
           <tbody>
             ${driverHistory.map(d => `
               <tr>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${fmtDateTime(d.date)}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${d.type === 'driver_assigned' ? 'تعيين' : 'إزالة'}</td>
-                <td style="padding:6px; border:1px solid #cbd5e1;">${d.description}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${fmtDateTime(d.date)}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${d.type === 'driver_assigned' ? 'تعيين' : 'إزالة'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${d.description}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
 
-        <div style="margin-top:50px; text-align:left; font-size:10px; color:#94a3b8;">
-          تم استخراج هذا التقرير آلياً في تاريخ: ${fmtDateTime(new Date().toISOString())}
+        <div style="margin-top:40px; border-top:1px solid #e2e8f0; padding-top:10px; display:flex; justify-content:space-between; font-size:9px; color:#94a3b8;">
+          <span>نظام الحسني هوم سنتر لإدارة الأساطيل</span>
+          <span>تاريخ إصدار التقرير: ${fmtDateTime(new Date().toISOString())}</span>
         </div>
       </div>
     `;
 
     try {
-      await exportHtmlToPdf(html, `تقرير_شامل_مركبة_${vehicle.plate_number}.pdf`);
+      await exportHtmlToPdf(html, `سجل_تاريخي_مركبة_${vehicle.plate_number}.pdf`);
     } catch (e) {
       console.error(e);
-      alert('فشل تصدير PDF الشامل: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+      alert('فشل تصدير التقرير الشامل: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
     }
   };
 
