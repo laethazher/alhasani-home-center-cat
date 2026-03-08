@@ -34,8 +34,7 @@ import { SignaturePad } from '../components/SignaturePad';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
-import { toPng } from 'html-to-image';
-import { jsPDF } from 'jspdf';
+import { exportHtmlToPdf } from '../lib/pdfExport';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
@@ -360,121 +359,14 @@ export default function Reports({ userId }: ReportsProps) {
     
     setIsExporting(true);
     try {
-      // Scroll the modal container to top to ensure full capture
-      const modalContainer = reportRef.current.closest('.overflow-y-auto');
-      if (modalContainer) modalContainer.scrollTop = 0;
-      window.scrollTo(0, 0);
-      
-      // Wait for any pending image loads
-      const allImages = reportRef.current.querySelectorAll('img') as NodeListOf<HTMLImageElement>;
-      await Promise.all(
-        Array.from(allImages).map((img: HTMLImageElement) =>
-          img.complete
-            ? Promise.resolve()
-            : new Promise<void>(resolve => {
-                img.onload = () => resolve();
-                img.onerror = () => resolve();
-              })
-        )
-      );
-      
       // Small pause for layout stability
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Force light mode temporarily for PDF export
-      const wasDark = document.documentElement.classList.contains('dark');
-      if (wasDark) {
-        document.documentElement.classList.remove('dark');
-      }
-      
-      // Force light mode inline styles on print section
-      const printSection = reportRef.current;
-      const originalBg = printSection.style.backgroundColor;
-      const originalColor = printSection.style.color;
-      printSection.style.backgroundColor = '#ffffff';
-      printSection.style.color = '#1c1917';
-      
-      // Wait for repaint and fonts (Arabic support)
       await new Promise(resolve => setTimeout(resolve, 300));
-      if (document.fonts?.ready) await document.fonts.ready;
 
-      // Use html-to-image (uses browser's native rendering, supports oklch natively)
-      const dataUrl = await toPng(reportRef.current, {
-        quality: 1.0,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        style: {
-          backgroundColor: '#ffffff',
-          color: '#1c1917',
-        },
-      });
-      
-      // Restore dark mode if it was active
-      if (wasDark) {
-        document.documentElement.classList.add('dark');
-      }
-      printSection.style.backgroundColor = originalBg;
-      printSection.style.color = originalColor;
-
-      // Load image to get dimensions
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Failed to load captured image'));
-        img.src = dataUrl;
-      });
-
-      // Generate PDF from image using page slicing
-      const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-
-      const margin = 5;
-      const usableWidth = pdfWidth - margin * 2;
-      const usableHeight = pdfHeight - margin * 2;
-      const pxPerMm = img.width / usableWidth;
-      const pageHeightPx = Math.floor(usableHeight * pxPerMm);
-
-      let yOffset = 0;
-      let pageIndex = 0;
-
-      // Create a working canvas for slicing
-      const srcCanvas = document.createElement('canvas');
-      srcCanvas.width = img.width;
-      srcCanvas.height = img.height;
-      const srcCtx = srcCanvas.getContext('2d');
-      if (!srcCtx) throw new Error('Canvas context unavailable');
-      srcCtx.drawImage(img, 0, 0);
-
-      while (yOffset < img.height) {
-        const sliceH = Math.min(pageHeightPx, img.height - yOffset);
-
-        const tmpCanvas = document.createElement('canvas');
-        tmpCanvas.width = img.width;
-        tmpCanvas.height = sliceH;
-        const tmpCtx = tmpCanvas.getContext('2d');
-        if (!tmpCtx) throw new Error('Canvas context unavailable');
-
-        tmpCtx.fillStyle = '#ffffff';
-        tmpCtx.fillRect(0, 0, tmpCanvas.width, tmpCanvas.height);
-        tmpCtx.drawImage(srcCanvas, 0, yOffset, img.width, sliceH, 0, 0, img.width, sliceH);
-
-        const imgData = tmpCanvas.toDataURL('image/jpeg', 0.92);
-        const sliceHeightMm = sliceH / pxPerMm;
-
-        if (pageIndex > 0) pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', margin, margin, usableWidth, sliceHeightMm);
-
-        yOffset += sliceH;
-        pageIndex++;
-      }
-
-      // Safe filename
+      const html = reportRef.current.innerHTML;
       const truck = String(viewingReport.truckNumber || 'truck').replace(/[^a-zA-Z0-9\u0600-\u06FF_-]/g, '-');
       const dt = String(viewingReport.date || new Date().toISOString().slice(0, 10));
-      pdf.save(`report-${truck}-${dt}.pdf`);
-
+      
+      await exportHtmlToPdf(html, `report-${truck}-${dt}.pdf`);
     } catch (error: any) {
       console.error('PDF Export failed:', error?.message || error);
       alert('فشل في تصدير ملف PDF: ' + (error?.message || 'خطأ غير معروف'));

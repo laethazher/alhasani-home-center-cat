@@ -16,11 +16,15 @@ import {
   FileText,
   Plus,
   X,
+  Download,
+  Printer,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { ExitRequest, StaffMember, Violation } from '../lib/supabaseClient';
 import { useUserProfile } from '../hooks/useUserProfile';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
 
 /* ── Types ── */
 interface ViolationRecord {
@@ -275,6 +279,57 @@ export default function Violations() {
     });
   };
 
+  /* ── Export ── */
+  const exportExcel = () => {
+    const headers = ['الموظف', 'الرتبة', 'إجمالي المخالفات', 'إجمالي التأخير', 'حالة الخطورة'];
+    const rows = violationsList.map(v => {
+      const severity = getSeverity(v.totalViolations);
+      return [
+        v.staffName,
+        v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+        v.totalViolations,
+        formatDelay(v.totalDelayMinutes),
+        severity.label
+      ];
+    });
+    const filename = `سجل_المخالفات_${new Date().toISOString().slice(0,10)}`;
+    exportToExcel([headers, ...rows], filename, 'المخالفات');
+  };
+
+  const exportPDF = async () => {
+    const headers = ['الموظف', 'الرتبة', 'المخالفات', 'التأخير'];
+    const rows = violationsList.map(v => [
+      v.staffName,
+      v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+      v.totalViolations,
+      formatDelay(v.totalDelayMinutes)
+    ]);
+
+    let html = `
+      <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير سجل المخالفات والتأخير</h1>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | إجمالي الموظفين المخالفين: ${violationsList.length}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#dc2626;color:#fff">
+          ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${rows.map((row, i) => `
+            <tr style="${i % 2 === 0 ? 'background:#fef2f2' : ''}">
+              ${row.map(cell => `<td style="padding:6px 8px;border:1px solid #ddd">${cell}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `سجل_المخالفات_${Date.now()}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -294,15 +349,31 @@ export default function Violations() {
           </h1>
           <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">تتبع تأخيرات الموظفين في الخروج المؤقت</p>
         </div>
-        {profile?.role === 'admin' && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowAddViolation(true)}
+            onClick={exportExcel}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            تصدير Excel
+          </button>
+          <button
+            onClick={exportPDF}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            إضافة مخالفة
+            <Printer className="w-4 h-4" />
+            تصدير PDF
           </button>
-        )}
+          {profile?.role === 'admin' && (
+            <button
+              onClick={() => setShowAddViolation(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              إضافة مخالفة
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats Cards */}

@@ -21,7 +21,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus, MaintenanceRecord, MaintenanceImage } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
-import { exportSheetsToCsv } from '../lib/excelExport';
+import { exportToExcel, exportSheetsToExcel } from '../lib/excelExport';
 
 /* ── Constants ── */
 const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
@@ -286,29 +286,75 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     if (!vehicle) return;
     const sheets: { data: unknown[][]; name: string }[] = [
       {
-        data: [['البيان', 'القيمة'], ['رقم اللوحة', vehicle.plate_number], ['النوع', vehicle.vehicle_type || '—'], ['اللون', vehicle.color || '—'], ['السنة', vehicle.year || '—'], ['رقم الشاسي', vehicle.chassis_number || '—'], ['الوقود', vehicle.fuel_type || '—'], ['العداد', `${vehicle.odometer_km} كم`], ['الحالة', STATUS_CONFIG[vehicle.status]?.label || vehicle.status], ['الرخصة', vehicle.license_expiry || '—'], ['التأمين', vehicle.insurance_expiry || '—'], ['السائق', vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '—') : '—']],
+        data: [
+          ['البيان', 'القيمة'],
+          ['رقم اللوحة', vehicle.plate_number],
+          ['النوع', vehicle.vehicle_type || '—'],
+          ['اللون', vehicle.color || '—'],
+          ['السنة', vehicle.year || '—'],
+          ['رقم الشاسي', vehicle.chassis_number || '—'],
+          ['الوقود', vehicle.fuel_type || '—'],
+          ['العداد', `${vehicle.odometer_km} كم`],
+          ['الحالة', STATUS_CONFIG[vehicle.status]?.label || vehicle.status],
+          ['الرخصة', vehicle.license_expiry || '—'],
+          ['التأمين', vehicle.insurance_expiry || '—'],
+          ['السائق', vehicle.assigned_driver_id ? (driverMap.get(String(vehicle.assigned_driver_id)) || '—') : '—']
+        ],
         name: 'بيانات المركبة',
       },
     ];
     if (combinedMaintenance.length > 0) {
       sheets.push({
-        data: [['النوع', 'الوصف', 'التكلفة', 'العداد', 'التاريخ', 'الفني/بواسطة', 'المدة', 'الصيانة القادمة', 'ملاحظات'], ...combinedMaintenance.map((m) => [m.maintenance_type, m.description || '', m.cost, m.odometer_at || '', m.date.slice(0, 10), m.technician || '', m.duration_minutes ? `${m.duration_minutes} د` : '', m.next_maintenance_date || '', m.notes || ''])],
+        data: [
+          ['النوع', 'الوصف', 'التكلفة', 'العداد', 'التاريخ', 'الفني/بواسطة', 'المدة', 'الصيانة القادمة', 'ملاحظات'],
+          ...combinedMaintenance.map((m) => [
+            m.maintenance_type,
+            m.description || '',
+            m.cost,
+            m.odometer_at || '',
+            m.date.slice(0, 10),
+            m.technician || '',
+            m.duration_minutes ? `${m.duration_minutes} د` : '',
+            m.next_maintenance_date || '',
+            m.notes || ''
+          ])
+        ],
         name: 'الصيانة',
       });
     }
     if (exitRequests.length > 0) {
       sheets.push({
-        data: [['التاريخ', 'السائق', 'المساعدين', 'النوع', 'المدة', 'السبب', 'الحالة'], ...exitRequests.map((r) => [new Date(r.created_at).toLocaleDateString('ar-IQ'), driverMap.get(String(r.driver_id)) || r.driver_name || '—', (r.assistant_names || []).join('، '), r.exit_type === 'temporary' ? 'مؤقت' : 'دائم', r.exit_duration_minutes ? `${r.exit_duration_minutes} د` : '—', r.exit_reason || '—', r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار'])],
+        data: [
+          ['التاريخ', 'السائق', 'المساعدين', 'النوع', 'المدة', 'السبب', 'الحالة'],
+          ...exitRequests.map((r) => [
+            new Date(r.created_at).toLocaleDateString('ar-IQ'),
+            driverMap.get(String(r.driver_id)) || r.driver_name || '—',
+            (r.assistant_names || []).join('، '),
+            r.exit_type === 'temporary' ? 'مؤقت' : 'دائم',
+            r.exit_duration_minutes ? `${r.exit_duration_minutes} د` : '—',
+            r.exit_reason || '—',
+            r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار'
+          ])
+        ],
         name: 'الرحلات',
       });
     }
     if (events.length > 0) {
       sheets.push({
-        data: [['التاريخ', 'النوع', 'الوصف', 'القيمة القديمة', 'القيمة الجديدة'], ...events.map((e) => [new Date(e.created_at).toLocaleDateString('ar-IQ') + ' ' + new Date(e.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }), EVENT_CONFIG[e.event_type]?.label || e.event_type, e.description, e.old_value || '', e.new_value || ''])],
+        data: [
+          ['التاريخ', 'النوع', 'الوصف', 'القيمة القديمة', 'القيمة الجديدة'],
+          ...events.map((e) => [
+            new Date(e.created_at).toLocaleDateString('ar-IQ') + ' ' + new Date(e.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
+            EVENT_CONFIG[e.event_type]?.label || e.event_type,
+            e.description,
+            e.old_value || '',
+            e.new_value || ''
+          ])
+        ],
         name: 'السجل',
       });
     }
-    exportSheetsToCsv(sheets, `تقرير_مركبة_${vehicle.plate_number}`);
+    exportSheetsToExcel(sheets, `تقرير_مركبة_${vehicle.plate_number.replace(/ /g, '_')}`);
   };
 
   const exportPDF = async () => {
@@ -407,13 +453,13 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
         <div className="flex gap-2">
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={exportExcel}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 transition-colors">
-            <Download className="w-3.5 h-3.5" /> Excel (CSV)
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors">
+            <Download className="w-3.5 h-3.5" /> تصدير Excel
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={exportPDF}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 text-white text-xs font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors">
-            <Download className="w-3.5 h-3.5" /> PDF
+            <Download className="w-3.5 h-3.5" /> تصدير PDF
           </motion.button>
         </div>
       </div>

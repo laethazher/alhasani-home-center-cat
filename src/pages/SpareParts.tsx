@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, X, Search, Package, Edit2, Trash2, AlertTriangle,
   Save, Loader2, Hash, Building2, DollarSign, Layers,
+  Download, Printer,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { SparePart, SparePartUsage } from '../lib/supabaseClient';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -109,6 +112,56 @@ export default function SpareParts() {
 
   const totalValue = useMemo(() => parts.reduce((s, p) => s + p.price * p.quantity, 0), [parts]);
 
+  /* ── Export ── */
+  const exportExcel = () => {
+    const headers = ['اسم القطعة', 'رقم القطعة', 'المورد', 'السعر (د.ع)', 'الكمية المتوفرة', 'عدد مرات الاستخدام', 'ملاحظات'];
+    const rows = filteredParts.map(p => [
+      p.name,
+      p.part_number || '—',
+      p.supplier || '—',
+      p.price,
+      p.quantity,
+      getPartUsageCount(p.id),
+      p.notes || '—'
+    ]);
+    const filename = `تقرير_قطع_الغيار_${new Date().toISOString().slice(0,10)}`;
+    exportToExcel([headers, ...rows], filename, 'المخزن');
+  };
+
+  const exportPDF = async () => {
+    const headers = ['القطعة', 'المورد', 'السعر', 'الكمية'];
+    const rows = filteredParts.map(p => [
+      p.name,
+      p.supplier || '—',
+      Number(p.price).toLocaleString(),
+      p.quantity
+    ]);
+
+    let html = `
+      <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير مخزون قطع الغيار</h1>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | إجمالي عدد الأنواع: ${filteredParts.length}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#2563eb;color:#fff">
+          ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${rows.map((row, i) => `
+            <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
+              ${row.map(cell => `<td style="padding:6px 8px;border:1px solid #ddd">${cell}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `قطع_الغيار_${Date.now()}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -161,13 +214,27 @@ export default function SpareParts() {
             className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={openNewForm}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/30"
-        >
-          <Plus className="w-4 h-4" /> إضافة قطعة غيار
-        </motion.button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={exportExcel}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 transition-colors"
+          >
+            <Download className="w-4 h-4" /> تصدير Excel
+          </button>
+          <button
+            onClick={exportPDF}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+          >
+            <Printer className="w-4 h-4" /> تصدير PDF
+          </button>
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={openNewForm}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/30"
+          >
+            <Plus className="w-4 h-4" /> إضافة قطعة غيار
+          </motion.button>
+        </div>
       </div>
 
       {/* Parts table */}

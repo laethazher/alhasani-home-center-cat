@@ -8,6 +8,8 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
+import { exportToExcel } from '../lib/excelExport';
 
 interface Props {
   profile: UserProfile | null;
@@ -180,6 +182,26 @@ export default function MaintenanceHistory({ profile }: Props) {
     }
   }
 
+  const exportExcel = () => {
+    const headers = ['التاريخ', 'رقم المركبة', 'نوع الصيانة', 'التكلفة', 'الفني', 'العمل المنجز', 'قطع الغيار المستهلكة', 'ملاحظات'];
+    const rows = filteredRecords.map(r => {
+      const v = vehicles.find(v => v.id === r.vehicle_id);
+      return [
+        new Date(r.created_at).toLocaleDateString('ar-IQ'),
+        v?.plate_number || `ID: ${r.vehicle_id}`,
+        r.maintenance_type,
+        r.cost,
+        r.technician_name || '—',
+        r.work_done,
+        r.parts_replaced || '—',
+        r.notes || '—'
+      ];
+    });
+    const vehicle = selectedVehicle ? vehicles.find(v => v.id === selectedVehicle) : null;
+    const filename = `سجل_صيانة_${vehicle?.plate_number ?? 'الكل'}_${new Date().toISOString().slice(0,10)}`;
+    exportToExcel([headers, ...rows], filename, 'سجلات الصيانة');
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -258,9 +280,17 @@ export default function MaintenanceHistory({ profile }: Props) {
           )}
           <motion.button
             whileTap={{ scale: 0.98 }}
+            onClick={exportExcel}
+            disabled={filteredRecords.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" /> تصدير Excel
+          </motion.button>
+          <motion.button
+            whileTap={{ scale: 0.98 }}
             onClick={exportPDF}
             disabled={filteredRecords.length === 0}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
           >
             <Download className="w-4 h-4" /> تصدير PDF
           </motion.button>

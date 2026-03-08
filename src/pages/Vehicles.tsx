@@ -23,7 +23,9 @@ import type { Vehicle, VehicleMaintenance, VehicleStatus, StaffMember, ExitReque
 import type { UserProfile } from '../lib/supabaseClient';
 import VehicleHistory from './VehicleHistory';
 import { DRIVER_VEHICLE_PDF_ROWS } from '../data/driverVehiclePdfData';
-import { Download, Loader2 as Loader2Icon } from 'lucide-react';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
+import { Download, Loader2 as Loader2Icon, Printer, FileSpreadsheet } from 'lucide-react';
 
 /* ── Constants ── */
 const VEHICLE_TYPES = ['كانتر', 'كيا'];
@@ -375,6 +377,63 @@ export default function Vehicles({ profile }: VehiclesProps) {
   const totalMaintenanceCost = (vehicleId: number) =>
     (maintenanceByVehicle.get(vehicleId) || []).reduce((sum, m) => sum + Number(m.cost), 0);
 
+  /* ── Export ── */
+  const exportExcel = () => {
+    const headers = ['رقم اللوحة', 'السائق المسؤول', 'الحالة', 'نوع المركبة', 'اللون', 'سنة الصنع', 'العداد (كم)', 'نوع الوقود', 'رقم الشاسي', 'انتهاء الرخصة', 'انتهاء التأمين', 'تكلفة الصيانة'];
+    const rows = filtered.map(v => [
+      v.plate_number,
+      driverMap.get(String(v.assigned_driver_id)) || 'غير معين',
+      STATUS_CONFIG[v.status]?.label || v.status,
+      v.vehicle_type || '—',
+      v.color || '—',
+      v.year || '—',
+      v.odometer_km,
+      v.fuel_type || '—',
+      v.chassis_number || '—',
+      v.license_expiry || '—',
+      v.insurance_expiry || '—',
+      totalMaintenanceCost(v.id)
+    ]);
+    const filename = `تقرير_المركبات_${new Date().toISOString().slice(0,10)}`;
+    exportToExcel([headers, ...rows], filename, 'المركبات');
+  };
+
+  const exportPDF = async () => {
+    const headers = ['رقم اللوحة', 'السائق', 'الحالة', 'النوع', 'العداد', 'الرخصة'];
+    const rows = filtered.map(v => [
+      v.plate_number,
+      (driverMap.get(String(v.assigned_driver_id)) || '').slice(0, 15),
+      STATUS_CONFIG[v.status]?.label || v.status,
+      v.vehicle_type || '—',
+      `${v.odometer_km.toLocaleString()} كم`,
+      v.license_expiry || '—'
+    ]);
+
+    let html = `
+      <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير قائمة المركبات</h1>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | عدد المركبات: ${filtered.length}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:#3b82f6;color:#fff">
+          ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${rows.map((row, i) => `
+            <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
+              ${row.map(cell => `<td style="padding:6px 8px;border:1px solid #ddd">${cell}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `قائمة_المركبات_${Date.now()}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    }
+  };
+
   /* ── استيراد بيانات المركبات 1 (من PDF) إلى Supabase ── */
   const handleImportPdfData = useCallback(async () => {
     if (profile?.role !== 'admin') return;
@@ -458,16 +517,34 @@ export default function Vehicles({ profile }: VehiclesProps) {
         <h2 className="text-2xl font-bold">المركبات</h2>
         <div className="flex items-center gap-2 flex-wrap">
           {profile?.role === 'admin' && (
-            <motion.button
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleImportPdfData}
-              disabled={importingPdf}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 disabled:opacity-60 transition-colors"
-            >
-              {importingPdf ? <Loader2Icon className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {importingPdf ? 'جاري الاستيراد...' : 'استيراد بيانات المركبات 1 (PDF)'}
-            </motion.button>
+            <>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={exportExcel}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors"
+              >
+                <FileSpreadsheet className="w-4 h-4" /> تصدير Excel
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={exportPDF}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+              >
+                <Printer className="w-4 h-4" /> تصدير PDF
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={handleImportPdfData}
+                disabled={importingPdf}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+              >
+                {importingPdf ? <Loader2Icon className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {importingPdf ? 'جاري الاستيراد...' : 'استيراد بيانات المركبات 1 (PDF)'}
+              </motion.button>
+            </>
           )}
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={openAddForm}

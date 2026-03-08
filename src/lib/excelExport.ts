@@ -1,6 +1,6 @@
 /**
  * Excel export utility - ensures proper UTF-8/Arabic encoding.
- * CSV with UTF-8 BOM is the most reliable for Arabic in Excel.
+ * Both XLSX and CSV with BOM are supported.
  */
 import * as XLSX from 'xlsx';
 
@@ -29,82 +29,56 @@ export function exportToCsv(rows: unknown[][], filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename.endsWith('.csv') ? filename : filename.replace(/\.xlsx?$/i, '.csv');
+  a.download = filename.endsWith('.csv') ? filename : `${filename.split('.')[0]}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 /**
- * Export multiple sheets as separate CSV files (for multi-sheet data).
- * Or use single CSV with section headers.
+ * Export to XLSX - Better for modern Excel and preserves RTL formatting.
+ */
+export function exportToExcel(rows: unknown[][], filename: string, sheetName = 'Sheet1'): void {
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  
+  // Set RTL property if supported by the file format
+  if (!ws['!views']) ws['!views'] = [];
+  ws['!views'].push({ RTL: true });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  
+  XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename.split('.')[0]}.xlsx`);
+}
+
+/**
+ * Export multiple sheets to a single XLSX file.
+ */
+export function exportSheetsToExcel(
+  sheets: { data: unknown[][]; name: string }[],
+  filename: string
+): void {
+  const wb = XLSX.utils.book_new();
+  for (const { data, name } of sheets) {
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    if (!ws['!views']) ws['!views'] = [];
+    ws['!views'].push({ RTL: true });
+    XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+  }
+  XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename.split('.')[0]}.xlsx`);
+}
+
+/**
+ * Legacy support for multi-sheet CSV (exports as single CSV with headers).
  */
 export function exportSheetsToCsv(
   sheets: { data: unknown[][]; name: string }[],
   baseFilename: string
 ): void {
-  if (sheets.length === 1) {
-    exportToCsv(sheets[0].data, `${baseFilename}.csv`);
-    return;
-  }
   const combined: unknown[][] = [];
   for (const { data, name } of sheets) {
     combined.push([name]);
     combined.push(...data);
     combined.push([]);
   }
-  exportToCsv(combined, `${baseFilename}.csv`);
-}
-
-/** Truncate sheet name for Excel (max 31 chars) */
-function safeSheetName(name: string): string {
-  const cleaned = name.replace(/[\\/*?:\[\]]/g, '').trim();
-  return cleaned.slice(0, 31) || 'Sheet1';
-}
-
-/**
- * Write workbook to file (xlsx) - may have encoding issues with Arabic.
- * Prefer exportToCsv for Arabic content.
- */
-export function writeExcelFile(wb: XLSX.WorkBook, filename: string): void {
-  XLSX.writeFile(wb, filename, { bookType: 'xlsx', bookSST: true });
-}
-
-/**
- * Create sheet from array of arrays (headers + rows).
- */
-export function createSheetFromArrays(data: unknown[][]): XLSX.WorkSheet {
-  return XLSX.utils.aoa_to_sheet(data);
-}
-
-/**
- * Create sheet from array of objects.
- */
-export function createSheetFromObjects<T extends Record<string, unknown>>(data: T[]): XLSX.WorkSheet {
-  return XLSX.utils.json_to_sheet(data);
-}
-
-/**
- * Create workbook and add sheet.
- */
-export function createWorkbook(sheet: XLSX.WorkSheet, sheetName: string): XLSX.WorkBook {
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheet, safeSheetName(sheetName));
-  return wb;
-}
-
-/**
- * Create workbook with multiple sheets.
- */
-export function createWorkbookWithSheets(
-  sheets: { data: unknown[][] | Record<string, unknown>[]; name: string }[]
-): XLSX.WorkBook {
-  const wb = XLSX.utils.book_new();
-  for (const { data, name } of sheets) {
-    const isAoa = data.length > 0 && Array.isArray(data[0]);
-    const ws = isAoa
-      ? XLSX.utils.aoa_to_sheet(data as unknown[][])
-      : XLSX.utils.json_to_sheet(data as Record<string, unknown>[]);
-    XLSX.utils.book_append_sheet(wb, ws, safeSheetName(name));
-  }
-  return wb;
+  exportToCsv(combined, baseFilename);
 }

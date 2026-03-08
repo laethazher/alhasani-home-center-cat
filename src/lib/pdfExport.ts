@@ -4,13 +4,17 @@
  */
 const PRINT_STYLES = `
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 20px; font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif; direction: rtl; background: #fff; color: #1c1917; font-size: 14px; line-height: 1.6; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 8px; border: 1px solid #ddd; text-align: right; }
-  th { background: #3b82f6; color: #fff; }
+  body { margin: 0; padding: 20px; font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; background: #fff; color: #1c1917; font-size: 14px; line-height: 1.6; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th, td { padding: 10px 12px; border: 1px solid #e2e8f0; text-align: right; }
+  th { background: #f1f5f9; color: #0f172a; font-weight: 700; border-bottom: 2px solid #cbd5e1; }
   tr:nth-child(even) { background: #f8fafc; }
-  h1, h2 { margin: 16px 0 8px; }
-  @media print { body { padding: 0; } }
+  h1, h2, h3 { color: #0f172a; margin: 16px 0 8px; }
+  .no-print { display: none !important; }
+  @media print { 
+    body { padding: 0; } 
+    @page { margin: 1.5cm; }
+  }
 `;
 
 /**
@@ -22,6 +26,9 @@ export function exportHtmlToPdf(htmlContent: string, filename: string): Promise<
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap" rel="stylesheet">
   <style>${PRINT_STYLES}</style>
   <title>${filename.replace('.pdf', '')}</title>
@@ -30,10 +37,14 @@ export function exportHtmlToPdf(htmlContent: string, filename: string): Promise<
   ${htmlContent}
   <script>
     window.onload = function() {
-      setTimeout(function() {
-        window.print();
-        document.body.innerHTML += '<p style="margin-top:24px;color:#666">تم فتح نافذة الطباعة. اختر "حفظ كـ PDF" أو "Microsoft Print to PDF" ثم احفظ الملف.</p>';
-      }, 300);
+      // Ensure fonts are loaded before printing
+      if (document.fonts) {
+        document.fonts.ready.then(function() {
+          setTimeout(() => { window.print(); }, 500);
+        });
+      } else {
+        setTimeout(() => { window.print(); }, 1000);
+      }
     };
   <\/script>
 </body>

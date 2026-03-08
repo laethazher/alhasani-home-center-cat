@@ -29,7 +29,7 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
-import { exportToCsv } from '../lib/excelExport';
+import { exportToExcel } from '../lib/excelExport';
 import type {
   UserProfile,
   StaffMember,
@@ -765,10 +765,19 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   }));
 
   const exportExcel = (reqs: ExitRequest[], filename: string) => {
-    const data = getExportData(reqs);
-    const headers = Object.keys(data[0] || {});
-    const rows = data.map((row) => headers.map((h) => row[h as keyof typeof row]));
-    exportToCsv([headers, ...rows], `${filename}.csv`);
+    const headers = ['الحالة', 'نوع الخروج', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'ملاحظات', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
+    const rows = reqs.map((r) => [
+      STATUS_CONFIG[r.status].label,
+      r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
+      driverMap.get(String(r.driver_id)) || r.driver_name || '—',
+      r.assistant_names.join(' ، ') || 'لا يوجد',
+      r.exit_reason || '—',
+      r.vehicle_plate || '—',
+      r.notes || '—',
+      new Date(r.created_at).toLocaleString('ar-IQ'),
+      r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
+    ]);
+    exportToExcel([headers, ...rows], filename, 'إخراجات الكادر');
   };
 
   const exportPDF = async (reqs: ExitRequest[], filename: string) => {
