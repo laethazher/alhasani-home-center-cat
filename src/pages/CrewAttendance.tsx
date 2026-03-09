@@ -17,7 +17,7 @@ import {
   ChevronDown,
   Truck,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToCsv } from '../lib/excelExport';
@@ -557,6 +557,21 @@ export default function CrewAttendance({ profile }: Props) {
         </div>
       </div>
 
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 items-center text-sm">
+        {ATTENDANCE_TYPES.map((t) => (
+          <div key={t.value} className="flex items-center gap-2">
+            <span
+              className={cn(
+                'w-2.5 h-2.5 rounded-full',
+                ATTENDANCE_TYPE_COLORS[t.value]?.dot ?? 'bg-stone-300'
+              )}
+            />
+            <span className="text-stone-600 dark:text-stone-400">{t.label}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Table */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -604,7 +619,18 @@ export default function CrewAttendance({ profile }: Props) {
                         />
                       </td>
                     )}
-                    <td className="px-4 py-2 font-medium">{s.full_name}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            'w-2.5 h-2.5 rounded-full shrink-0',
+                            ATTENDANCE_TYPE_COLORS[r.attendance_type]?.dot ?? 'bg-stone-300'
+                          )}
+                          title={ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label}
+                        />
+                        <span className="font-medium">{s.full_name}</span>
+                      </div>
+                    </td>
                     <td className="px-4 py-2 text-stone-600 dark:text-stone-400">{roleLabel}</td>
                     <td className="px-4 py-2">
                       <select

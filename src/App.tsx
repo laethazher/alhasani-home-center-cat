@@ -19,6 +19,7 @@ import MaintenanceHistory from './pages/MaintenanceHistory';
 import SpareParts from './pages/SpareParts';
 import MaintenanceNotifications from './pages/MaintenanceNotifications';
 import CrewAttendance from './pages/CrewAttendance';
+import CrewStaff from './pages/CrewStaff';
 import AttendanceHistory from './pages/AttendanceHistory';
 import AttendanceReports from './pages/AttendanceReports';
 import AttendanceActivityLog from './pages/AttendanceActivityLog';
@@ -98,7 +99,7 @@ export default function App() {
   /* Role-based page guard — redirect to dashboard if unauthorized */
   const maintenancePages: PageKey[] = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'];
   const maintenanceManagerPages: PageKey[] = ['maintenance-requests', 'active-maintenance', 'maintenance-history', 'notifications'];
-  const attendancePages: PageKey[] = ['crew-attendance', 'attendance-history', 'attendance-reports', 'attendance-activity-log'];
+  const attendancePages: PageKey[] = ['crew-attendance', 'crew-staff', 'attendance-history', 'attendance-reports', 'attendance-activity-log'];
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
@@ -137,6 +138,8 @@ export default function App() {
         return <MaintenanceNotifications />;
       case 'crew-attendance':
         return <CrewAttendance profile={profile} />;
+      case 'crew-staff':
+        return <CrewStaff profile={profile} />;
       case 'attendance-history':
         return <AttendanceHistory profile={profile} />;
       case 'attendance-reports':

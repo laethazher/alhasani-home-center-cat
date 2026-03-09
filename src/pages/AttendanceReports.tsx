@@ -9,7 +9,7 @@ import {
   Calendar,
   FileText,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToCsv } from '../lib/excelExport';
@@ -29,6 +29,18 @@ interface StaffStats {
   absent: number;
   full_leave: number;
   time_leave: number;
+}
+
+function getDominantType(s: StaffStats): string {
+  const types = [
+    { k: 'present', v: s.present },
+    { k: 'late', v: s.late },
+    { k: 'absent', v: s.absent },
+    { k: 'full_leave', v: s.full_leave },
+    { k: 'time_leave', v: s.time_leave },
+  ];
+  const max = types.reduce((a, b) => (b.v > a.v ? b : a), { k: 'present', v: 0 });
+  return max.v > 0 ? max.k : 'present';
 }
 
 interface Props {
@@ -361,7 +373,17 @@ export default function AttendanceReports({ profile }: Props) {
                     idx % 2 === 0 && 'bg-stone-50/50 dark:bg-stone-800/30'
                   )}
                 >
-                  <td className="px-4 py-2 font-medium">{s.full_name}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          'w-2.5 h-2.5 rounded-full shrink-0',
+                          ATTENDANCE_TYPE_COLORS[getDominantType(s)]?.dot ?? 'bg-stone-300'
+                        )}
+                      />
+                      <span className="font-medium">{s.full_name}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-2">{s.role === 'driver' ? 'سائق' : 'مساعد سائق'}</td>
                   <td className="px-4 py-2 text-emerald-600 dark:text-emerald-400">{s.present}</td>
                   <td className="px-4 py-2 text-amber-600 dark:text-amber-400">{s.late}</td>

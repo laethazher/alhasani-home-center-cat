@@ -9,8 +9,9 @@ import {
   Pencil,
   Check,
   X,
+  Trash2,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type {
   UserProfile,
@@ -49,6 +50,9 @@ export default function AttendanceHistory({ profile }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editPayload, setEditPayload] = useState<Partial<AttendanceArchive>>({});
   const [saving, setSaving] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedRecordIds, setSelectedRecordIds] = useState<number[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   const canEdit = profile?.role === 'admin' || profile?.role === 'manager';
 
@@ -163,8 +167,53 @@ export default function AttendanceHistory({ profile }: Props) {
     }
   };
 
+  const toggleSelectAll = () => {
+    if (selectedRecordIds.length === filteredRecords.length) {
+      setSelectedRecordIds([]);
+    } else {
+      setSelectedRecordIds(filteredRecords.map((r) => r.id));
+    }
+  };
+
+  const toggleRecordSelection = (id: number) => {
+    setSelectedRecordIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedRecordIds.length === 0 || !canEdit) return;
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedRecordIds.length} سجل؟`)) return;
+    setDeleting(true);
+    try {
+      await supabase.from('attendance_archive').delete().in('id', selectedRecordIds);
+      setSelectedRecordIds([]);
+      setIsSelectionMode(false);
+      await fetchData();
+    } catch (e) {
+      alert('فشل الحذف: ' + (e instanceof Error ? e.message : 'خطأ'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 items-center text-sm">
+        {Object.entries(ATTENDANCE_TYPE_LABELS).map(([k, v]) => (
+          <div key={k} className="flex items-center gap-2">
+            <span
+              className={cn(
+                'w-2.5 h-2.5 rounded-full',
+                ATTENDANCE_TYPE_COLORS[k]?.dot ?? 'bg-stone-300'
+              )}
+            />
+            <span className="text-stone-600 dark:text-stone-400">{v}</span>
+          </div>
+        ))}
+      </div>
+
       {/* Filters */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -175,6 +224,37 @@ export default function AttendanceHistory({ profile }: Props) {
           <Filter className="w-5 h-5 text-stone-500" />
           <h3 className="font-semibold">البحث والفلترة</h3>
         </div>
+        {canEdit && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              onClick={() => setIsSelectionMode(!isSelectionMode)}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium',
+                isSelectionMode ? 'bg-stone-200 dark:bg-stone-700' : 'bg-stone-100 dark:bg-stone-800'
+              )}
+            >
+              <Check className="w-4 h-4" /> {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+            </button>
+            {isSelectionMode && (
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-stone-200 dark:bg-stone-700 text-sm font-medium"
+              >
+                {selectedRecordIds.length === filteredRecords.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              </button>
+            )}
+            {isSelectionMode && selectedRecordIds.length > 0 && (
+              <button
+                onClick={handleDeleteSelected}
+                disabled={deleting}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                حذف ({selectedRecordIds.length})
+              </button>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm text-stone-500 mb-1">من تاريخ</label>
@@ -251,7 +331,15 @@ export default function AttendanceHistory({ profile }: Props) {
               <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="bg-stone-100 dark:bg-stone-700/50">
-                    {canEdit && <th className="px-4 py-3 text-right text-sm font-semibold w-20"></th>}
+                    {canEdit && (
+                      <th className="px-4 py-3 text-right text-sm font-semibold w-20">
+                        {isSelectionMode ? (
+                          <button onClick={toggleSelectAll} className="text-blue-600 hover:underline">
+                            {selectedRecordIds.length === filteredRecords.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                          </button>
+                        ) : null}
+                      </th>
+                    )}
                     <th className="px-4 py-3 text-right text-sm font-semibold">التاريخ</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold">الموظف</th>
                     <th className="px-4 py-3 text-right text-sm font-semibold">الدور</th>
@@ -276,7 +364,14 @@ export default function AttendanceHistory({ profile }: Props) {
                       >
                         {canEdit && (
                           <td className="px-4 py-2">
-                            {isEditing ? (
+                            {isSelectionMode ? (
+                              <input
+                                type="checkbox"
+                                checked={selectedRecordIds.includes(r.id)}
+                                onChange={() => toggleRecordSelection(r.id)}
+                                className="rounded"
+                              />
+                            ) : isEditing ? (
                               <div className="flex gap-1">
                                 <button
                                   onClick={saveEdit}
@@ -300,7 +395,18 @@ export default function AttendanceHistory({ profile }: Props) {
                           </td>
                         )}
                         <td className="px-4 py-2">{new Date(r.attendance_date).toLocaleDateString('ar-IQ')}</td>
-                        <td className="px-4 py-2 font-medium">{r.staff?.full_name ?? '—'}</td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                'w-2.5 h-2.5 rounded-full shrink-0',
+                                ATTENDANCE_TYPE_COLORS[r.attendance_type]?.dot ?? 'bg-stone-300'
+                              )}
+                              title={ATTENDANCE_TYPE_LABELS[r.attendance_type]}
+                            />
+                            <span className="font-medium">{r.staff?.full_name ?? '—'}</span>
+                          </div>
+                        </td>
                         <td className="px-4 py-2">{r.staff?.role === 'driver' ? 'سائق' : 'مساعد سائق'}</td>
                         <td className="px-4 py-2">
                           {isEditing ? (

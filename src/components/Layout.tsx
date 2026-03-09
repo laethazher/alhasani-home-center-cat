@@ -51,7 +51,8 @@ export type PageKey =
   | 'crew-attendance'
   | 'attendance-history'
   | 'attendance-reports'
-  | 'attendance-activity-log';
+  | 'attendance-activity-log'
+  | 'crew-staff';
 
 interface NavItem {
   key: PageKey;
@@ -78,6 +79,7 @@ const MAINTENANCE_CHILDREN: MaintenanceChild[] = [
 
 const ATTENDANCE_CHILDREN: MaintenanceChild[] = [
   { key: 'crew-attendance',       label: 'الحضور اليومي',      icon: CalendarCheck,  roles: ['admin', 'manager'] },
+  { key: 'crew-staff',           label: 'الكادر',             icon: Users,           roles: ['admin', 'manager'] },
   { key: 'attendance-history',   label: 'سجل الحضور',         icon: History,         roles: ['admin', 'manager'] },
   { key: 'attendance-reports',   label: 'تقارير الحضور',      icon: BarChart3,       roles: ['admin', 'manager'] },
   { key: 'attendance-activity-log', label: 'سجل النشاط',       icon: Activity,        roles: ['admin', 'manager'] },
@@ -136,7 +138,7 @@ export default function Layout({
   const safeRole = profile?.role ?? 'driver';
 
   const isMaintenancePage = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'].includes(activePage);
-  const isAttendancePage = ['crew-attendance', 'attendance-history', 'attendance-reports', 'attendance-activity-log'].includes(activePage);
+  const isAttendancePage = ['crew-attendance', 'crew-staff', 'attendance-history', 'attendance-reports', 'attendance-activity-log'].includes(activePage);
   const visibleMaintenanceChildren = MAINTENANCE_CHILDREN.filter((c) => c.roles.includes(safeRole));
   const visibleAttendanceChildren = ATTENDANCE_CHILDREN.filter((c) => c.roles.includes(safeRole));
   const [attendanceExpanded, setAttendanceExpanded] = useState(true);
