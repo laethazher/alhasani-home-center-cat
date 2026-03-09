@@ -643,7 +643,7 @@ export default function Violations() {
                   ) : (
                     <ChevronDown className="w-5 h-5 text-stone-400 flex-shrink-0" />
                   )}
-                </button>
+                </div>
 
                 {/* Expanded Records */}
                 <AnimatePresence>

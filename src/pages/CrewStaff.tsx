@@ -13,7 +13,7 @@ import {
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
-import { exportToCsv } from '../lib/excelExport';
+import { exportToExcel } from '../lib/excelExport';
 import type { UserProfile, StaffMember, AttendanceArchive } from '../lib/supabaseClient';
 
 interface StaffStats {
@@ -385,7 +385,7 @@ export default function CrewStaff({ profile }: Props) {
             {selectedReport && (
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleExport('csv')}
+                  onClick={() => handleExport('excel')}
                   disabled={exporting}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:opacity-50"
                 >

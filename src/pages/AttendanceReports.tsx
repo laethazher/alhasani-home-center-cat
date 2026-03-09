@@ -12,7 +12,7 @@ import {
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
-import { exportToCsv } from '../lib/excelExport';
+import { exportToExcel } from '../lib/excelExport';
 import { logAttendanceActivity } from '../lib/attendanceActivity';
 import type {
   UserProfile,
@@ -163,7 +163,7 @@ export default function AttendanceReports({ profile }: Props) {
     };
   }, [staffStats]);
 
-  const handleExport = async (format: 'pdf' | 'csv') => {
+  const handleExport = async (format: 'pdf' | 'excel') => {
     const toExport = isSelectionMode && selectedStaffIds.length > 0
       ? staffStats.filter((s) => selectedStaffIds.includes(s.staff_id))
       : staffStats;
@@ -186,8 +186,8 @@ export default function AttendanceReports({ profile }: Props) {
         s.time_leave,
       ]);
 
-      if (format === 'csv') {
-        exportToCsv([headers, ...rows], `تقرير_حضور_${dateFrom}_${dateTo}.csv`);
+      if (format === 'excel') {
+        exportToExcel([headers, ...rows], `تقرير_حضور_${dateFrom}_${dateTo}.xlsx`);
       } else {
         const html = `
           <h1 style="text-align:center;font-size:22px;margin-bottom:16px">تقرير الحضور</h1>
@@ -279,7 +279,7 @@ export default function AttendanceReports({ profile }: Props) {
 
           <div className="flex gap-2">
             <button
-              onClick={() => handleExport('csv')}
+              onClick={() => handleExport('excel')}
               disabled={exporting}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
             >
