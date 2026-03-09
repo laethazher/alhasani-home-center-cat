@@ -326,9 +326,19 @@ export default function CrewStaff({ profile }: Props) {
           animate={{ opacity: 1 }}
           className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 shadow-sm overflow-hidden"
         >
-          <div className="px-4 py-3 border-b border-stone-200 dark:border-stone-700 flex items-center gap-2">
-            <Users className="w-5 h-5 text-stone-500" />
-            <h3 className="font-semibold">الكادر</h3>
+          <div className="px-4 py-3 border-b border-stone-200 dark:border-stone-700 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-stone-500" />
+              <h3 className="font-semibold">الكادر</h3>
+            </div>
+            {isSelectionMode && staffStats.length > 0 && (
+              <button 
+                onClick={toggleSelectAll}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+              >
+                {selectedStaffIds.length === staffStats.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              </button>
+            )}
           </div>
           <div className="max-h-[400px] overflow-y-auto">
             {staffStats.map((s) => (

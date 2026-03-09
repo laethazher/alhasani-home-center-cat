@@ -395,8 +395,11 @@ export default function AttendanceReports({ profile }: Props) {
             <thead>
               <tr className="bg-stone-100 dark:bg-stone-700/50">
                 {isSelectionMode && (
-                  <th className="px-4 py-3 text-right text-sm font-semibold">
-                    <button onClick={toggleSelectAll} className="text-blue-600 hover:underline">
+                  <th className="px-4 py-3 text-right text-sm font-semibold w-24">
+                    <button 
+                      onClick={toggleSelectAll} 
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                    >
                       {selectedStaffIds.length === staffStats.length ? 'إلغاء الكل' : 'تحديد الكل'}
                     </button>
                   </th>
