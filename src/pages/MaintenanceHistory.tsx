@@ -139,15 +139,23 @@ export default function MaintenanceHistory({ profile }: Props) {
   }
 
   async function exportPDF() {
+    const toExport = isSelectionMode && selectedIds.length > 0
+      ? filteredRecords.filter((r) => selectedIds.includes(r.id))
+      : filteredRecords;
+
+    if (toExport.length === 0) {
+      alert('لا توجد سجلات للتصدير');
+      return;
+    }
+
     const vehicle = selectedVehicle ? vehicles.find(v => v.id === selectedVehicle) : null;
-    const recs = filteredRecords;
-    const totalCost = recs.reduce((s, r) => s + Number(r.cost), 0);
+    const totalCost = toExport.reduce((s, r) => s + Number(r.cost), 0);
 
     let html = `
       <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير سجل الصيانة</h1>
       ${vehicle ? `<p style="text-align:center;font-size:14px;margin-bottom:8px">المركبة: ${vehicle.plate_number} ${vehicle.model ? '- ' + vehicle.model : ''}</p>` : ''}
       <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} ${new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}</p>
-      <p style="margin-bottom:16px"><strong>إجمالي السجلات:</strong> ${recs.length} &nbsp;|&nbsp; <strong>إجمالي التكلفة:</strong> ${totalCost.toLocaleString('ar-IQ')} د.ع</p>
+      <p style="margin-bottom:16px"><strong>إجمالي السجلات:</strong> ${toExport.length} &nbsp;|&nbsp; <strong>إجمالي التكلفة:</strong> ${totalCost.toLocaleString('ar-IQ')} د.ع</p>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#3b82f6;color:#fff">
           <th style="padding:8px;text-align:right">التاريخ</th>
@@ -159,8 +167,8 @@ export default function MaintenanceHistory({ profile }: Props) {
         </tr></thead>
         <tbody>
     `;
-    for (let i = 0; i < recs.length; i++) {
-      const rec = recs[i];
+    for (let i = 0; i < toExport.length; i++) {
+      const rec = toExport[i];
       const bg = i % 2 === 0 ? 'background:#f8fafc' : '';
       html += `<tr style="${bg}">
         <td style="padding:6px 8px;border:1px solid #ddd">${new Date(rec.created_at).toLocaleDateString('ar-IQ')}</td>
@@ -177,13 +185,22 @@ export default function MaintenanceHistory({ profile }: Props) {
       await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `maintenance_report_${vehicle?.plate_number ?? 'all'}_${Date.now()}.pdf`);
     } catch (e) {
       console.error(e);
-      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+      alert('فشل تصدير PDF');
     }
   }
 
   const exportExcel = () => {
+    const toExport = isSelectionMode && selectedIds.length > 0
+      ? filteredRecords.filter((r) => selectedIds.includes(r.id))
+      : filteredRecords;
+
+    if (toExport.length === 0) {
+      alert('لا توجد سجلات للتصدير');
+      return;
+    }
+
     const headers = ['التاريخ', 'رقم المركبة', 'نوع الصيانة', 'التكلفة', 'الفني', 'العمل المنجز', 'قطع الغيار المستهلكة', 'ملاحظات'];
-    const rows = filteredRecords.map(r => {
+    const rows = toExport.map(r => {
       const v = vehicles.find(v => v.id === r.vehicle_id);
       return [
         new Date(r.created_at).toLocaleDateString('ar-IQ'),
@@ -283,7 +300,8 @@ export default function MaintenanceHistory({ profile }: Props) {
             disabled={filteredRecords.length === 0}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
           >
-            <Download className="w-4 h-4" /> تصدير Excel
+            <Download className="w-4 h-4" /> 
+            {isSelectionMode && selectedIds.length > 0 ? `Excel (${selectedIds.length})` : 'Excel الكل'}
           </motion.button>
           <motion.button
             whileTap={{ scale: 0.98 }}
@@ -291,7 +309,8 @@ export default function MaintenanceHistory({ profile }: Props) {
             disabled={filteredRecords.length === 0}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg disabled:opacity-50"
           >
-            <Download className="w-4 h-4" /> تصدير PDF
+            <Download className="w-4 h-4" /> 
+            {isSelectionMode && selectedIds.length > 0 ? `PDF (${selectedIds.length})` : 'PDF الكل'}
           </motion.button>
         </div>
       </div>

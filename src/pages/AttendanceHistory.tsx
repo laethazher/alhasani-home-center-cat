@@ -10,9 +10,13 @@ import {
   Check,
   X,
   Trash2,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
 import type {
   UserProfile,
   StaffMember,
@@ -53,8 +57,64 @@ export default function AttendanceHistory({ profile }: Props) {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedRecordIds, setSelectedRecordIds] = useState<number[]>([]);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const canEdit = profile?.role === 'admin' || profile?.role === 'manager';
+
+  const handleExport = (format: 'pdf' | 'excel') => {
+    const toExport = isSelectionMode && selectedRecordIds.length > 0
+      ? filteredRecords.filter((r) => selectedRecordIds.includes(r.id))
+      : filteredRecords;
+
+    if (toExport.length === 0) {
+      alert('لا توجد سجلات للتصدير');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const headers = ['التاريخ', 'الموظف', 'الدور', 'نوع الحضور', 'الوقت', 'المركبة', 'ملاحظات'];
+      const rows = toExport.map(r => [
+        new Date(r.attendance_date).toLocaleDateString('ar-IQ'),
+        r.staff?.full_name ?? '—',
+        r.staff?.role === 'driver' ? 'سائق' : 'مساعد سائق',
+        ATTENDANCE_TYPE_LABELS[r.attendance_type] ?? r.attendance_type,
+        r.attendance_type === 'time_leave' && r.check_in_time && r.check_out_time
+          ? `${String(r.check_in_time).slice(0, 5)} → ${String(r.check_out_time).slice(0, 5)}`
+          : r.check_in_time ? String(r.check_in_time).slice(0, 5) : '—',
+        r.vehicle?.plate_number ?? '—',
+        r.notes || '—',
+      ]);
+
+      const filename = `سجل_الحضور_${new Date().toISOString().slice(0, 10)}`;
+
+      if (format === 'excel') {
+        exportToExcel([headers, ...rows], `${filename}.xlsx`);
+      } else {
+        const html = `
+          <h1 style="text-align:center;font-size:22px;margin-bottom:16px">سجل الحضور والأرشيف</h1>
+          <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:10px">
+            <thead><tr style="background:#3b82f6;color:#fff">
+              ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+            </tr></thead>
+            <tbody>
+              ${rows.map((row, i) => `
+                <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
+                  ${row.map(cell => `<td style="padding:6px;border:1px solid #ddd">${cell}</td>`).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`);
+      }
+    } catch (e) {
+      alert('فشل التصدير');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -244,14 +304,50 @@ export default function AttendanceHistory({ profile }: Props) {
               </button>
             )}
             {isSelectionMode && selectedRecordIds.length > 0 && (
-              <button
-                onClick={handleDeleteSelected}
-                disabled={deleting}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                حذف ({selectedRecordIds.length})
-              </button>
+              <>
+                <button
+                  onClick={() => handleExport('excel')}
+                  disabled={exporting}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Excel ({selectedRecordIds.length})
+                </button>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  disabled={exporting}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  PDF ({selectedRecordIds.length})
+                </button>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  حذف ({selectedRecordIds.length})
+                </button>
+              </>
+            )}
+            {!isSelectionMode && (
+               <>
+                <button
+                  onClick={() => handleExport('excel')}
+                  disabled={exporting}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" /> Excel الكل
+                </button>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  disabled={exporting}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                >
+                  <FileText className="w-4 h-4" /> PDF الكل
+                </button>
+              </>
             )}
           </div>
         )}

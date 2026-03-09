@@ -72,6 +72,23 @@ export default function Violations() {
   const [search, setSearch] = useState('');
   const [expandedStaff, setExpandedStaff] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'violations' | 'delay'>('violations');
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
+
+  const toggleSelectAll = () => {
+    if (selectedStaffIds.length === violationsList.length) {
+      setSelectedStaffIds([]);
+    } else {
+      setSelectedStaffIds(violationsList.map((v) => v.staffId));
+    }
+  };
+
+  const toggleStaffSelection = (id: string) => {
+    setSelectedStaffIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
   const [showAddViolation, setShowAddViolation] = useState(false);
   const [formStaffId, setFormStaffId] = useState('');
   const [formViolationType, setFormViolationType] = useState('');
@@ -281,8 +298,17 @@ export default function Violations() {
 
   /* ── Export ── */
   const exportExcel = () => {
+    const toExport = isSelectionMode && selectedStaffIds.length > 0
+      ? violationsList.filter((v) => selectedStaffIds.includes(v.staffId))
+      : violationsList;
+
+    if (toExport.length === 0) {
+      alert('لا توجد مخالفات للتصدير');
+      return;
+    }
+
     const headers = ['الموظف', 'الرتبة', 'إجمالي المخالفات', 'إجمالي التأخير', 'حالة الخطورة'];
-    const rows = violationsList.map(v => {
+    const rows = toExport.map(v => {
       const severity = getSeverity(v.totalViolations);
       return [
         v.staffName,
@@ -297,8 +323,18 @@ export default function Violations() {
   };
 
   const exportPDF = async () => {
+    const toExport = isSelectionMode && selectedStaffIds.length > 0
+      ? violationsList.filter((v) => selectedStaffIds.includes(v.staffId))
+      : violationsList;
+
+    if (toExport.length === 0) {
+      alert('لا توجد مخالفات للتصدير');
+      return;
+    }
+
+    setExporting(true);
     const headers = ['الموظف', 'الرتبة', 'المخالفات', 'التأخير'];
-    const rows = violationsList.map(v => [
+    const rows = toExport.map(v => [
       v.staffName,
       v.staffRole === 'driver' ? 'سائق' : 'مساعد',
       v.totalViolations,
@@ -307,7 +343,7 @@ export default function Violations() {
 
     let html = `
       <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير سجل المخالفات والتأخير</h1>
-      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | إجمالي الموظفين المخالفين: ${violationsList.length}</p>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | إجمالي الموظفين المخالفين: ${toExport.length}</p>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#dc2626;color:#fff">
           ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
@@ -326,7 +362,9 @@ export default function Violations() {
       await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `سجل_المخالفات_${Date.now()}.pdf`);
     } catch (e) {
       console.error(e);
-      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+      alert('فشل تصدير PDF');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -351,19 +389,65 @@ export default function Violations() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={exportExcel}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors"
+            onClick={() => setIsSelectionMode(!isSelectionMode)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors",
+              isSelectionMode ? "bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600 text-stone-900 dark:text-white" : "bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:bg-stone-50"
+            )}
           >
-            <Download className="w-4 h-4" />
-            تصدير Excel
+            <CheckCircle2 className="w-4 h-4" />
+            {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
           </button>
-          <button
-            onClick={exportPDF}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            تصدير PDF
-          </button>
+
+          {isSelectionMode && (
+            <>
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-700 text-sm font-medium border border-stone-200 dark:border-stone-600"
+              >
+                {selectedStaffIds.length === violationsList.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              </button>
+              
+              {selectedStaffIds.length > 0 && (
+                <>
+                  <button
+                    onClick={exportExcel}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" /> Excel ({selectedStaffIds.length})
+                  </button>
+                  <button
+                    onClick={exportPDF}
+                    disabled={exporting}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+                  >
+                    {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                    PDF ({selectedStaffIds.length})
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {!isSelectionMode && (
+            <>
+              <button
+                onClick={exportExcel}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                تصدير Excel
+              </button>
+              <button
+                onClick={exportPDF}
+                disabled={exporting}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+              >
+                {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                تصدير PDF
+              </button>
+            </>
+          )}
           {profile?.role === 'admin' && (
             <button
               onClick={() => setShowAddViolation(true)}
@@ -496,19 +580,32 @@ export default function Violations() {
                 )}
               >
                 {/* Header */}
-                <button
-                  onClick={() => toggleExpand(v.staffId)}
+                <div
                   className="w-full flex items-center justify-between p-4 text-right hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors"
                 >
                   <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className={cn(
-                      'w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0',
-                      v.totalViolations >= 5
-                        ? 'bg-red-100 dark:bg-red-900/30'
-                        : v.totalViolations >= 3
-                          ? 'bg-orange-100 dark:bg-orange-900/30'
-                          : 'bg-amber-100 dark:bg-amber-900/30'
-                    )}>
+                    {isSelectionMode && (
+                      <input
+                        type="checkbox"
+                        checked={selectedStaffIds.includes(v.staffId)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleStaffSelection(v.staffId);
+                        }}
+                        className="w-4 h-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    )}
+                    <div 
+                      className={cn(
+                        'w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 cursor-pointer',
+                        v.totalViolations >= 5
+                          ? 'bg-red-100 dark:bg-red-900/30'
+                          : v.totalViolations >= 3
+                            ? 'bg-orange-100 dark:bg-orange-900/30'
+                            : 'bg-amber-100 dark:bg-amber-900/30'
+                      )}
+                      onClick={() => toggleExpand(v.staffId)}
+                    >
                       <User className={cn(
                         'w-5 h-5',
                         v.totalViolations >= 5
@@ -518,7 +615,7 @@ export default function Violations() {
                             : 'text-amber-600 dark:text-amber-400'
                       )} />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(v.staffId)}>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-stone-900 dark:text-white truncate">{v.staffName}</span>
                         <span className="text-xs text-stone-400">

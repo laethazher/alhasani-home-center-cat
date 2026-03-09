@@ -55,6 +55,22 @@ export default function AttendanceReports({ profile }: Props) {
   const [dateTo, setDateTo] = useState('');
   const [reportMode, setReportMode] = useState<'individual' | 'drivers' | 'assistants'>('individual');
   const [exporting, setExporting] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
+
+  const toggleSelectAll = () => {
+    if (selectedStaffIds.length === staffStats.length) {
+      setSelectedStaffIds([]);
+    } else {
+      setSelectedStaffIds(staffStats.map((s) => s.staff_id));
+    }
+  };
+
+  const toggleStaffSelection = (id: number) => {
+    setSelectedStaffIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -148,10 +164,19 @@ export default function AttendanceReports({ profile }: Props) {
   }, [staffStats]);
 
   const handleExport = async (format: 'pdf' | 'csv') => {
+    const toExport = isSelectionMode && selectedStaffIds.length > 0
+      ? staffStats.filter((s) => selectedStaffIds.includes(s.staff_id))
+      : staffStats;
+
+    if (toExport.length === 0) {
+      alert('لا توجد بيانات للتصدير');
+      return;
+    }
+
     setExporting(true);
     try {
       const headers = ['الموظف', 'الدور', 'حاضر', 'متأخر', 'غائب', 'إجازة كاملة', 'إجازة زمنية'];
-      const rows = staffStats.map((s) => [
+      const rows = toExport.map((s) => [
         s.full_name,
         s.role === 'driver' ? 'سائق' : 'مساعد سائق',
         s.present,
@@ -238,6 +263,20 @@ export default function AttendanceReports({ profile }: Props) {
               <option value="assistants">تقرير مساعدي السائقين</option>
             </select>
           </div>
+          
+          <button
+            onClick={() => {
+              setIsSelectionMode(!isSelectionMode);
+              setSelectedStaffIds([]);
+            }}
+            className={cn(
+              "px-4 py-2 rounded-xl text-sm font-medium border transition-colors",
+              isSelectionMode ? "bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600" : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700"
+            )}
+          >
+            {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+          </button>
+
           <div className="flex gap-2">
             <button
               onClick={() => handleExport('csv')}
@@ -245,7 +284,7 @@ export default function AttendanceReports({ profile }: Props) {
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
             >
               {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              Excel
+              Excel {isSelectionMode && selectedStaffIds.length > 0 ? `(${selectedStaffIds.length})` : 'الكل'}
             </button>
             <button
               onClick={() => handleExport('pdf')}
@@ -253,7 +292,7 @@ export default function AttendanceReports({ profile }: Props) {
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
             >
               {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              PDF
+              PDF {isSelectionMode && selectedStaffIds.length > 0 ? `(${selectedStaffIds.length})` : 'الكل'}
             </button>
           </div>
         </div>
@@ -355,6 +394,13 @@ export default function AttendanceReports({ profile }: Props) {
           <table className="w-full min-w-[640px]">
             <thead>
               <tr className="bg-stone-100 dark:bg-stone-700/50">
+                {isSelectionMode && (
+                  <th className="px-4 py-3 text-right text-sm font-semibold">
+                    <button onClick={toggleSelectAll} className="text-blue-600 hover:underline">
+                      {selectedStaffIds.length === staffStats.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                    </button>
+                  </th>
+                )}
                 <th className="px-4 py-3 text-right text-sm font-semibold">الموظف</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">الدور</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">حاضر</th>
@@ -370,9 +416,20 @@ export default function AttendanceReports({ profile }: Props) {
                   key={s.staff_id}
                   className={cn(
                     'border-t border-stone-100 dark:border-stone-700/50',
-                    idx % 2 === 0 && 'bg-stone-50/50 dark:bg-stone-800/30'
+                    idx % 2 === 0 && 'bg-stone-50/50 dark:bg-stone-800/30',
+                    selectedStaffIds.includes(s.staff_id) && 'bg-blue-50 dark:bg-blue-900/10'
                   )}
                 >
+                  {isSelectionMode && (
+                    <td className="px-4 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedStaffIds.includes(s.staff_id)}
+                        onChange={() => toggleStaffSelection(s.staff_id)}
+                        className="rounded"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2">
                       <span

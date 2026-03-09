@@ -23,6 +23,40 @@ export default function SpareParts() {
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
+  // Selection state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredParts.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredParts.map((p) => p.id));
+    }
+  };
+
+  const togglePartSelection = (id: number) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} قطعة؟`)) return;
+    setLoading(true);
+    try {
+      await supabase.from('spare_parts').delete().in('id', selectedIds);
+      setSelectedIds([]);
+      setIsSelectionMode(false);
+      await fetchData();
+    } catch (e) {
+      alert('فشل الحذف');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // Form state
   const [formName, setFormName] = useState('');
   const [formPartNumber, setFormPartNumber] = useState('');
@@ -114,8 +148,17 @@ export default function SpareParts() {
 
   /* ── Export ── */
   const exportExcel = () => {
+    const toExport = isSelectionMode && selectedIds.length > 0
+      ? filteredParts.filter((p) => selectedIds.includes(p.id))
+      : filteredParts;
+
+    if (toExport.length === 0) {
+      alert('لا توجد قطع غيار للتصدير');
+      return;
+    }
+
     const headers = ['اسم القطعة', 'رقم القطعة', 'المورد', 'السعر (د.ع)', 'الكمية المتوفرة', 'عدد مرات الاستخدام', 'ملاحظات'];
-    const rows = filteredParts.map(p => [
+    const rows = toExport.map(p => [
       p.name,
       p.part_number || '—',
       p.supplier || '—',
@@ -129,8 +172,17 @@ export default function SpareParts() {
   };
 
   const exportPDF = async () => {
+    const toExport = isSelectionMode && selectedIds.length > 0
+      ? filteredParts.filter((p) => selectedIds.includes(p.id))
+      : filteredParts;
+
+    if (toExport.length === 0) {
+      alert('لا توجد قطع غيار للتصدير');
+      return;
+    }
+
     const headers = ['القطعة', 'المورد', 'السعر', 'الكمية'];
-    const rows = filteredParts.map(p => [
+    const rows = toExport.map(p => [
       p.name,
       p.supplier || '—',
       Number(p.price).toLocaleString(),
@@ -139,7 +191,7 @@ export default function SpareParts() {
 
     let html = `
       <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير مخزون قطع الغيار</h1>
-      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | إجمالي عدد الأنواع: ${filteredParts.length}</p>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | إجمالي عدد الأنواع: ${toExport.length}</p>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#2563eb;color:#fff">
           ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
@@ -158,7 +210,7 @@ export default function SpareParts() {
       await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `قطع_الغيار_${Date.now()}.pdf`);
     } catch (e) {
       console.error(e);
-      alert('فشل تصدير PDF: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+      alert('فشل تصدير PDF');
     }
   };
 
@@ -214,26 +266,63 @@ export default function SpareParts() {
             className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => {
+              setIsSelectionMode(!isSelectionMode);
+              setSelectedIds([]);
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors",
+              isSelectionMode ? "bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600" : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700"
+            )}
+          >
+            {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+          </button>
+
+          {isSelectionMode && (
+            <>
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-700 text-sm font-medium border border-stone-200 dark:border-stone-600"
+              >
+                {selectedIds.length === filteredParts.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              </button>
+              
+              {selectedIds.length > 0 && (
+                <button
+                  onClick={handleDeleteSelected}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg hover:bg-red-700"
+                >
+                  <Trash2 className="w-4 h-4" /> حذف ({selectedIds.length})
+                </button>
+              )}
+            </>
+          )}
+
           <button
             onClick={exportExcel}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 transition-colors"
           >
-            <Download className="w-4 h-4" /> تصدير Excel
+            <Download className="w-4 h-4" /> 
+            {isSelectionMode && selectedIds.length > 0 ? `Excel (${selectedIds.length})` : 'Excel الكل'}
           </button>
           <button
             onClick={exportPDF}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
           >
-            <Printer className="w-4 h-4" /> تصدير PDF
+            <Printer className="w-4 h-4" /> 
+            {isSelectionMode && selectedIds.length > 0 ? `PDF (${selectedIds.length})` : 'PDF الكل'}
           </button>
-          <motion.button
-            whileTap={{ scale: 0.98 }}
-            onClick={openNewForm}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/30"
-          >
-            <Plus className="w-4 h-4" /> إضافة قطعة غيار
-          </motion.button>
+          {!isSelectionMode && (
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={openNewForm}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium shadow-lg shadow-blue-600/30"
+            >
+              <Plus className="w-4 h-4" /> إضافة قطعة غيار
+            </motion.button>
+          )}
         </div>
       </div>
 
@@ -243,6 +332,7 @@ export default function SpareParts() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800/50">
+                {isSelectionMode && <th className="px-4 py-3 w-10"></th>}
                 <th className="text-right px-4 py-3 font-medium text-stone-600 dark:text-stone-400">اسم القطعة</th>
                 <th className="text-right px-4 py-3 font-medium text-stone-600 dark:text-stone-400 hidden sm:table-cell">رقم القطعة</th>
                 <th className="text-right px-4 py-3 font-medium text-stone-600 dark:text-stone-400 hidden md:table-cell">المورد</th>
@@ -262,7 +352,20 @@ export default function SpareParts() {
                 </tr>
               )}
               {filteredParts.map(part => (
-                <tr key={part.id} className="border-b border-stone-100 dark:border-stone-800/50 hover:bg-stone-50 dark:hover:bg-stone-800/30 transition-colors">
+                <tr key={part.id} className={cn(
+                  "border-b border-stone-100 dark:border-stone-800/50 hover:bg-stone-50 dark:hover:bg-stone-800/30 transition-colors",
+                  selectedIds.includes(part.id) && "bg-blue-50 dark:bg-blue-900/10"
+                )}>
+                  {isSelectionMode && (
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(part.id)}
+                        onChange={() => togglePartSelection(part.id)}
+                        className="w-4 h-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <Package className="w-4 h-4 text-blue-500 flex-shrink-0" />

@@ -521,6 +521,23 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* Archive view */
   const [showArchive, setShowArchive] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+
+  const toggleSelectAll = () => {
+    const currentList = showArchive ? archiveRequests : todayRequests;
+    if (selectedRequestIds.length === currentList.length) {
+      setSelectedRequestIds([]);
+    } else {
+      setSelectedRequestIds(currentList.map((r) => r.id));
+    }
+  };
+
+  const toggleRequestSelection = (id: string) => {
+    setSelectedRequestIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
   /* Remaining staff dropdowns */
   const [showRemainingDrivers, setShowRemainingDrivers] = useState(false);
@@ -985,56 +1002,88 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
       {/* ── Archive Toggle & Export Buttons ── */}
       {!isGateGuard && (
-        <div className="flex flex-wrap gap-3">
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => setShowArchive(!showArchive)}
-          className={cn(
-            'w-full sm:w-auto flex items-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all',
-            showArchive
-              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25'
-              : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800'
-          )}
-        >
-          {showArchive ? (
-            <><ArrowRight className="w-5 h-5" /> العودة لإخراجات اليوم</>
-          ) : (
-            <><History className="w-5 h-5" /> سجل إخراجات الكادر {archiveRequests.length > 0 && <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2 py-0.5 rounded-full text-xs">{archiveRequests.length}</span>}</>
-          )}
-        </motion.button>
+        <div className="flex flex-wrap gap-3 items-center">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {
+              setShowArchive(!showArchive);
+              setSelectedRequestIds([]);
+              setIsSelectionMode(false);
+            }}
+            className={cn(
+              'w-full sm:w-auto flex items-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all',
+              showArchive
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25'
+                : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800'
+            )}
+          >
+            {showArchive ? (
+              <><ArrowRight className="w-5 h-5" /> العودة لإخراجات اليوم</>
+            ) : (
+              <><History className="w-5 h-5" /> سجل إخراجات الكادر {archiveRequests.length > 0 && <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2 py-0.5 rounded-full text-xs">{archiveRequests.length}</span>}</>
+            )}
+          </motion.button>
 
-        {/* Export Buttons */}
-        {isAdmin && (
-          <>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                const data = showArchive ? archiveRequests : todayRequests;
-                const name = showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
-                exportExcel(data, name);
-              }}
-              className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-medium text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all"
+          <button
+            onClick={() => setIsSelectionMode(!isSelectionMode)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium border transition-colors",
+              isSelectionMode ? "bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600" : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 hover:bg-stone-50"
+            )}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            {isSelectionMode ? 'إلغاء التحديد' : 'تحديد للتصدير'}
+          </button>
+
+          {isSelectionMode && (
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl bg-stone-100 dark:bg-stone-700 text-sm font-medium border border-stone-200 dark:border-stone-600"
             >
-              <Download className="w-4 h-4" />
-              تصدير Excel
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                const data = showArchive ? archiveRequests : todayRequests;
-                const name = showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
-                exportPDF(data, name);
-              }}
-              className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-medium text-sm hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
-            >
-              <Download className="w-4 h-4" />
-              تصدير PDF
-            </motion.button>
-          </>
-        )}
+              {(showArchive ? archiveRequests : todayRequests).length === selectedRequestIds.length ? 'إلغاء الكل' : 'تحديد الكل'}
+            </button>
+          )}
+
+          {/* Export Buttons */}
+          {isAdmin && (
+            <>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  const data = isSelectionMode && selectedRequestIds.length > 0
+                    ? requests.filter((r) => selectedRequestIds.includes(r.id))
+                    : showArchive ? archiveRequests : todayRequests;
+                  const name = isSelectionMode && selectedRequestIds.length > 0
+                    ? `إخراجات_محددة_${Date.now()}`
+                    : showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
+                  exportExcel(data, name);
+                }}
+                className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-medium text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all"
+              >
+                <Download className="w-4 h-4" />
+                Excel {isSelectionMode && selectedRequestIds.length > 0 ? `(${selectedRequestIds.length})` : 'الكل'}
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  const data = isSelectionMode && selectedRequestIds.length > 0
+                    ? requests.filter((r) => selectedRequestIds.includes(r.id))
+                    : showArchive ? archiveRequests : todayRequests;
+                  const name = isSelectionMode && selectedRequestIds.length > 0
+                    ? `إخراجات_محددة_${Date.now()}`
+                    : showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
+                  exportPDF(data, name);
+                }}
+                className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-medium text-sm hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
+              >
+                <Download className="w-4 h-4" />
+                PDF {isSelectionMode && selectedRequestIds.length > 0 ? `(${selectedRequestIds.length})` : 'الكل'}
+              </motion.button>
+            </>
+          )}
         </div>
       )}
 
@@ -1556,7 +1605,15 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   >
                     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                       <div className="flex-1 space-y-3">
-                        <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-3 flex-wrap">
+                          {isSelectionMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedRequestIds.includes(req.id)}
+                              onChange={() => toggleRequestSelection(req.id)}
+                              className="w-4 h-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          )}
                           <StatusBadge status={req.status} />
                           {req.exit_type === 'temporary' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">

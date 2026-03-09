@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, X, Search, Filter, ChevronDown, Check, XCircle, Eye,
   Camera, Upload, Wrench, AlertTriangle, Clock, Truck, User,
-  MessageSquare, Image as ImageIcon, FileWarning,
+  MessageSquare, Image as ImageIcon, FileWarning, Download, Printer, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -12,6 +12,8 @@ import type {
   UserProfile, DriverIssueReport, MaintenanceRecord,
 } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
+import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
 
 const MAINTENANCE_TYPES = [
   'صيانة عامة', 'تغيير زيت', 'فلتر زيت', 'فلتر هواء', 'فحص الفرامل',
@@ -56,6 +58,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Form state
   const [formDriverId, setFormDriverId] = useState('');
@@ -113,6 +116,61 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     }
     setDeleting(false);
   }
+
+  const handleExport = (format: 'pdf' | 'excel') => {
+    const toExport = isSelectionMode && selectedIds.length > 0
+      ? filteredRequests.filter((r) => selectedIds.includes(r.id))
+      : filteredRequests;
+
+    if (toExport.length === 0) {
+      alert('لا توجد طلبات للتصدير');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const headers = ['التاريخ', 'المركبة', 'نوع الصيانة', 'الأولوية', 'الحالة', 'وصف المشكلة'];
+      const rows = toExport.map(r => {
+        const v = vehicles.find(veh => veh.id === r.vehicle_id);
+        return [
+          new Date(r.created_at).toLocaleDateString('ar-IQ'),
+          v?.plate_number || `ID: ${r.vehicle_id}`,
+          r.maintenance_type,
+          PRIORITY_CONFIG[r.priority]?.label || r.priority,
+          STATUS_CONFIG[r.status]?.label || r.status,
+          r.description || '—',
+        ];
+      });
+
+      const filename = `طلبات_الصيانة_${new Date().toISOString().slice(0, 10)}`;
+
+      if (format === 'excel') {
+        exportToExcel([headers, ...rows], filename, 'الطلبات');
+      } else {
+        const html = `
+          <h1 style="text-align:center;font-size:22px;margin-bottom:16px">سجل طلبات الصيانة</h1>
+          <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')}</p>
+          <table style="width:100%;border-collapse:collapse;font-size:10px">
+            <thead><tr style="background:#3b82f6;color:#fff">
+              ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+            </tr></thead>
+            <tbody>
+              ${rows.map((row, i) => `
+                <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
+                  ${row.map(cell => `<td style="padding:6px;border:1px solid #ddd">${cell}</td>`).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`);
+      }
+    } catch (e) {
+      alert('فشل التصدير');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const driverVehicleMap = useMemo(() => {
     const map: Record<string, Vehicle | undefined> = {};
@@ -309,6 +367,22 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
             <div className="flex gap-2 w-full sm:w-auto">
               {isAdmin && (
                 <>
+                  <button
+                    onClick={() => handleExport('excel')}
+                    disabled={exporting}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    Excel {isSelectionMode && selectedIds.length > 0 ? `(${selectedIds.length})` : 'الكل'}
+                  </button>
+                  <button
+                    onClick={() => handleExport('pdf')}
+                    disabled={exporting}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                    PDF {isSelectionMode && selectedIds.length > 0 ? `(${selectedIds.length})` : 'الكل'}
+                  </button>
                   {selectedIds.length > 0 && (
                     <motion.button
                       initial={{ opacity: 0, scale: 0.9 }}

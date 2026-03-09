@@ -161,47 +161,53 @@ export default function CrewStaff({ profile }: Props) {
     }
   };
 
-  const handleExport = (format: 'pdf' | 'csv') => {
-    const report = selectedReport;
-    if (!report) {
-      alert('يرجى اختيار موظف لعرض تقريره أولاً');
+  const handleExport = (format: 'pdf' | 'excel') => {
+    const toExport = isSelectionMode && selectedStaffIds.length > 0
+      ? staffStats.filter((s) => selectedStaffIds.includes(s.staff_id))
+      : selectedReport ? [selectedReport] : [];
+
+    if (toExport.length === 0) {
+      alert(isSelectionMode ? 'يرجى تحديد موظف واحد على الأقل' : 'يرجى اختيار موظف لعرض تقريره أولاً');
       return;
     }
+
     setExporting(true);
     try {
-      const headers = ['البند', 'القيمة'];
-      const rows = [
-        ['الموظف', report.full_name],
-        ['الدور', report.role === 'driver' ? 'سائق' : 'مساعد سائق'],
-        ['أيام الحضور', String(report.present)],
-        ['مرات التأخير', String(report.late)],
-        ['أيام الغياب', String(report.absent)],
-        ['إجازات كاملة', String(report.full_leave)],
-        ['إجازات زمنية', String(report.time_leave)],
-      ];
-      const safeName = report.full_name.replace(/[^\w\s\u0600-\u06FF]/g, '_');
-      if (format === 'csv') {
-        exportToCsv([headers, ...rows], `تقرير_${safeName}_${dateFrom}_${dateTo}.csv`);
+      const headers = ['الموظف', 'الدور', 'الحضور', 'التأخير', 'الغياب', 'إجازة كاملة', 'إجازة زمنية'];
+      const rows = toExport.map(s => [
+        s.full_name,
+        s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+        String(s.present),
+        String(s.late),
+        String(s.absent),
+        String(s.full_leave),
+        String(s.time_leave),
+      ]);
+
+      const filename = toExport.length === 1 
+        ? `تقرير_${toExport[0].full_name.replace(/[^\w\s\u0600-\u06FF]/g, '_')}_${dateFrom}_${dateTo}`
+        : `تقرير_الكادر_المحدد_${dateFrom}_${dateTo}`;
+
+      if (format === 'excel') {
+        exportToExcel([headers, ...rows], `${filename}.xlsx`);
       } else {
         const html = `
-          <h1 style="text-align:center;font-size:22px;margin-bottom:16px">تقرير حضور - ${report.full_name}</h1>
+          <h1 style="text-align:center;font-size:22px;margin-bottom:16px">${toExport.length === 1 ? `تقرير حضور - ${toExport[0].full_name}` : 'تقرير حضور الكادر المحدد'}</h1>
           <p style="text-align:center;color:#666;margin-bottom:20px">من ${dateFrom} إلى ${dateTo}</p>
-          <table style="width:100%;border-collapse:collapse;font-size:14px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#3b82f6;color:#fff">
-              <th style="padding:10px;text-align:right">البند</th>
-              <th style="padding:10px;text-align:right">القيمة</th>
+              ${headers.map(h => `<th style="padding:10px;text-align:right">${h}</th>`).join('')}
             </tr></thead>
             <tbody>
-              ${rows.map(([label, val], i) => `
+              ${rows.map((row, i) => `
                 <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
-                  <td style="padding:8px;border:1px solid #ddd">${label}</td>
-                  <td style="padding:8px;border:1px solid #ddd">${val}</td>
+                  ${row.map(cell => `<td style="padding:8px;border:1px solid #ddd">${cell}</td>`).join('')}
                 </tr>
               `).join('')}
             </tbody>
           </table>
         `;
-        exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `تقرير_${safeName}_${dateFrom}_${dateTo}.pdf`);
+        exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`);
       }
     } catch (e) {
       alert('فشل التصدير');
@@ -281,14 +287,32 @@ export default function CrewStaff({ profile }: Props) {
                 </button>
               )}
               {isSelectionMode && selectedStaffIds.length > 0 && (
-                <button
-                  onClick={handleDeleteSelected}
-                  disabled={deleting}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                  حذف ({selectedStaffIds.length})
-                </button>
+                <>
+                  <button
+                    onClick={() => handleExport('excel')}
+                    disabled={exporting}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    تصدير Excel ({selectedStaffIds.length})
+                  </button>
+                  <button
+                    onClick={() => handleExport('pdf')}
+                    disabled={exporting}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                    تصدير PDF ({selectedStaffIds.length})
+                  </button>
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    حذف ({selectedStaffIds.length})
+                  </button>
+                </>
               )}
             </>
           )}

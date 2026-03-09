@@ -35,6 +35,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportToExcel } from '../lib/excelExport';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
@@ -200,6 +201,83 @@ export default function Reports({ userId }: ReportsProps) {
   const [viewingReport, setViewingReport] = useState<SavedReportView | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
+  
+  // Selection state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedReportIds, setSelectedStaffIds] = useState<number[]>([]);
+  const [exportingSelected, setExportingSelected] = useState(false);
+
+  const toggleSelectAll = () => {
+    if (selectedReportIds.length === savedReports.length) {
+      setSelectedStaffIds([]);
+    } else {
+      setSelectedStaffIds(savedReports.map((r) => r.id));
+    }
+  };
+
+  const toggleReportSelection = (id: number) => {
+    setSelectedStaffIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const exportSelectedExcel = () => {
+    const toExport = savedReports.filter(r => selectedReportIds.includes(r.id));
+    if (toExport.length === 0) return;
+
+    const headers = ['المعرف', 'اسم السائق', 'رقم المركبة', 'التاريخ', 'عدد الأضرار', 'اكتمال الفحص', 'تاريخ الإنشاء'];
+    const rows = toExport.map(r => [
+      r.id,
+      r.driverName,
+      r.truckNumber,
+      r.date,
+      r.damagePoints.length,
+      `${Object.values(r.inspectionValues).filter(Boolean).length}/17`,
+      new Date(r.createdAt).toLocaleString('ar-IQ')
+    ]);
+    
+    exportToExcel([headers, ...rows], `سجل_التقارير_المحددة_${Date.now()}`);
+  };
+
+  const exportSelectedPDF = async () => {
+    const toExport = savedReports.filter(r => selectedReportIds.includes(r.id));
+    if (toExport.length === 0) return;
+
+    setExportingSelected(true);
+    const headers = ['السائق', 'المركبة', 'التاريخ', 'الأضرار', 'الفحص'];
+    const rows = toExport.map(r => [
+      r.driverName,
+      r.truckNumber,
+      r.date,
+      r.damagePoints.length,
+      `${Object.values(r.inspectionValues).filter(Boolean).length}/17`
+    ]);
+
+    let html = `
+      <h1 style="text-align:center;font-size:22px;margin-bottom:12px">ملخص سجل تقارير الفحص المختارة</h1>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#dc2626;color:#fff">
+          ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+          ${rows.map((row, i) => `
+            <tr style="${i % 2 === 0 ? 'background:#fef2f2' : ''}">
+              ${row.map(cell => `<td style="padding:6px 8px;border:1px solid #ddd">${cell}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    try {
+      await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `ملخص_تقارير_${Date.now()}.pdf`);
+    } catch (e) {
+      alert('فشل تصدير PDF');
+    } finally {
+      setExportingSelected(false);
+    }
+  };
   
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -432,6 +510,38 @@ export default function Reports({ userId }: ReportsProps) {
                 سجل التقارير المحفوظة
               </h2>
               <div className="flex items-center gap-4">
+                <button
+                  onClick={() => {
+                    setIsSelectionMode(!isSelectionMode);
+                    setSelectedStaffIds([]);
+                  }}
+                  className={cn(
+                    "px-4 py-2 rounded-xl text-sm font-bold border transition-colors",
+                    isSelectionMode ? "bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600" : "bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700"
+                  )}
+                >
+                  {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+                </button>
+
+                {isSelectionMode && selectedReportIds.length > 0 && (
+                  <>
+                    <button
+                      onClick={exportSelectedExcel}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold shadow-lg"
+                    >
+                      <Download className="w-4 h-4" /> Excel ({selectedReportIds.length})
+                    </button>
+                    <button
+                      onClick={exportSelectedPDF}
+                      disabled={exportingSelected}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold shadow-lg"
+                    >
+                      {exportingSelected ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                      PDF ({selectedReportIds.length})
+                    </button>
+                  </>
+                )}
+
                 <button 
                   onClick={fetchReports}
                   className="p-2 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 transition-colors"
@@ -459,9 +569,22 @@ export default function Reports({ userId }: ReportsProps) {
                 savedReports.map((report) => (
                   <div 
                     key={report.id}
-                    className="glass p-6 rounded-2xl hover:border-red-200 transition-all cursor-pointer group"
-                    onClick={() => setViewingReport(report)}
+                    className={cn(
+                      "glass p-6 rounded-2xl hover:border-red-200 transition-all cursor-pointer group relative",
+                      selectedReportIds.includes(report.id) && "ring-2 ring-red-500/50 bg-red-50/10"
+                    )}
+                    onClick={() => isSelectionMode ? toggleReportSelection(report.id) : setViewingReport(report)}
                   >
+                    {isSelectionMode && (
+                      <div className="absolute top-4 left-4 z-10" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedReportIds.includes(report.id)}
+                          onChange={() => toggleReportSelection(report.id)}
+                          className="w-5 h-5 rounded border-stone-300 text-red-600 focus:ring-red-500"
+                        />
+                      </div>
+                    )}
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="font-bold text-lg">{report.driverName}</h3>

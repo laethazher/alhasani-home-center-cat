@@ -377,10 +377,53 @@ export default function Vehicles({ profile }: VehiclesProps) {
   const totalMaintenanceCost = (vehicleId: number) =>
     (maintenanceByVehicle.get(vehicleId) || []).reduce((sum, m) => sum + Number(m.cost), 0);
 
+  /* Selection state */
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState<number[]>([]);
+
+  const toggleSelectAll = () => {
+    if (selectedVehicleIds.length === filtered.length) {
+      setSelectedVehicleIds([]);
+    } else {
+      setSelectedVehicleIds(filtered.map((v) => v.id));
+    }
+  };
+
+  const toggleVehicleSelection = (id: number) => {
+    setSelectedVehicleIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedVehicleIds.length === 0) return;
+    if (!window.confirm(`هل أنت متأكد من حذف ${selectedVehicleIds.length} مركبة؟`)) return;
+    setSaving(true);
+    try {
+      await supabase.from('vehicles').delete().in('id', selectedVehicleIds);
+      setSelectedVehicleIds([]);
+      setIsSelectionMode(false);
+      await fetchData();
+    } catch (e) {
+      alert('فشل الحذف');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   /* ── Export ── */
   const exportExcel = () => {
+    const toExport = isSelectionMode && selectedVehicleIds.length > 0
+      ? filtered.filter((v) => selectedVehicleIds.includes(v.id))
+      : filtered;
+
+    if (toExport.length === 0) {
+      alert('لا توجد مركبات للتصدير');
+      return;
+    }
+
     const headers = ['رقم اللوحة', 'السائق المسؤول', 'الحالة', 'نوع المركبة', 'اللون', 'سنة الصنع', 'العداد (كم)', 'نوع الوقود', 'رقم الشاسي', 'انتهاء الرخصة', 'انتهاء التأمين', 'تكلفة الصيانة'];
-    const rows = filtered.map(v => [
+    const rows = toExport.map(v => [
       v.plate_number,
       driverMap.get(String(v.assigned_driver_id)) || 'غير معين',
       STATUS_CONFIG[v.status]?.label || v.status,
@@ -399,8 +442,17 @@ export default function Vehicles({ profile }: VehiclesProps) {
   };
 
   const exportPDF = async () => {
+    const toExport = isSelectionMode && selectedVehicleIds.length > 0
+      ? filtered.filter((v) => selectedVehicleIds.includes(v.id))
+      : filtered;
+
+    if (toExport.length === 0) {
+      alert('لا توجد مركبات للتصدير');
+      return;
+    }
+
     const headers = ['رقم اللوحة', 'السائق', 'الحالة', 'النوع', 'العداد', 'الرخصة'];
-    const rows = filtered.map(v => [
+    const rows = toExport.map(v => [
       v.plate_number,
       (driverMap.get(String(v.assigned_driver_id)) || '').slice(0, 15),
       STATUS_CONFIG[v.status]?.label || v.status,
@@ -411,7 +463,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
 
     let html = `
       <h1 style="text-align:center;font-size:22px;margin-bottom:12px">تقرير قائمة المركبات</h1>
-      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | عدد المركبات: ${filtered.length}</p>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')} | عدد المركبات: ${toExport.length}</p>
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:#3b82f6;color:#fff">
           ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
@@ -593,6 +645,53 @@ export default function Vehicles({ profile }: VehiclesProps) {
           <option value="reserve">احتياط</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
+        
+        <div className="flex gap-2">
+          <button
+            onClick={() => setIsSelectionMode(!isSelectionMode)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors",
+              isSelectionMode ? "bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600" : "bg-white dark:bg-stone-800 border-stone-200 dark:border-stone-700"
+            )}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+          </button>
+          
+          {isSelectionMode && (
+            <>
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-100 dark:bg-stone-700 text-sm font-medium border border-stone-200 dark:border-stone-600"
+              >
+                {selectedVehicleIds.length === filtered.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              </button>
+              
+              {selectedVehicleIds.length > 0 && (
+                <>
+                  <button
+                    onClick={exportExcel}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 transition-colors"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" /> Excel ({selectedVehicleIds.length})
+                  </button>
+                  <button
+                    onClick={exportPDF}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+                  >
+                    <Printer className="w-4 h-4" /> PDF ({selectedVehicleIds.length})
+                  </button>
+                  <button
+                    onClick={handleDeleteSelected}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg shadow-red-600/25 hover:bg-red-700 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" /> حذف ({selectedVehicleIds.length})
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Add/Edit Form ── */}
@@ -845,6 +944,14 @@ export default function Vehicles({ profile }: VehiclesProps) {
                     {/* Top row: status badge + vehicle type */}
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
+                        {isSelectionMode && (
+                          <input
+                            type="checkbox"
+                            checked={selectedVehicleIds.includes(v.id)}
+                            onChange={() => toggleVehicleSelection(v.id)}
+                            className="w-4 h-4 rounded border-stone-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        )}
                         <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', sc.bgColor)}>
                           <Truck className={cn('w-5 h-5', sc.color)} />
                         </div>

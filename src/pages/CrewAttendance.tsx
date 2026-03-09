@@ -274,9 +274,18 @@ export default function CrewAttendance({ profile }: Props) {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = (format: 'pdf' | 'excel') => {
+    const toExportRows = isSelectionMode && selectedStaffIds.length > 0
+      ? rows.filter((r) => selectedStaffIds.includes(r.staff_id))
+      : rows;
+
+    if (toExportRows.length === 0) {
+      alert('لا توجد بيانات للتصدير');
+      return;
+    }
+
     const headers = ['الموظف', 'الدور', 'نوع الحضور', 'الوقت / المدى', 'الملاحظات'];
-    const exportRows = rows.map((r) => {
+    const exportRows = toExportRows.map((r) => {
       const s = staff.find((x) => Number(x.id) === r.staff_id);
       const roleLabel = s?.role === 'driver' ? 'سائق' : 'مساعد سائق';
       const typeLabel = ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label ?? r.attendance_type;
@@ -285,24 +294,29 @@ export default function CrewAttendance({ profile }: Props) {
       else if (r.attendance_type === 'time_leave') timeStr = `${r.check_in_time} → ${r.check_out_time}`;
       return [s?.full_name ?? '', roleLabel, typeLabel, timeStr, r.notes];
     });
-    exportToCsv([headers, ...exportRows], `حضور_${todayStr}.csv`);
 
-    const html = `
-      <h1 style="text-align:center;font-size:22px;margin-bottom:16px">حضور الكادر - ${todayStr}</h1>
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="background:#3b82f6;color:#fff">
-          ${headers.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
-        </tr></thead>
-        <tbody>
-          ${exportRows.map((row, i) => `
-            <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
-              ${row.map((c) => `<td style="padding:6px 8px;border:1px solid #ddd">${c}</td>`).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    `;
-    exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `حضور_${todayStr}.pdf`);
+    const filename = `حضور_${todayStr}`;
+
+    if (format === 'excel') {
+      exportToCsv([headers, ...exportRows], `${filename}.csv`);
+    } else {
+      const html = `
+        <h1 style="text-align:center;font-size:22px;margin-bottom:16px">حضور الكادر - ${todayStr}</h1>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#3b82f6;color:#fff">
+            ${headers.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${exportRows.map((row, i) => `
+              <tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
+                ${row.map((c) => `<td style="padding:6px 8px;border:1px solid #ddd">${c}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`);
+    }
     logAttendanceActivity('export', { date: todayStr });
   };
 
@@ -549,10 +563,18 @@ export default function CrewAttendance({ profile }: Props) {
             </button>
           )}
           <button
-            onClick={handleExport}
+            onClick={() => handleExport('excel')}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
           >
-            <Download className="w-4 h-4" /> تصدير
+            <Download className="w-4 h-4" /> 
+            Excel {isSelectionMode && selectedStaffIds.length > 0 ? `(${selectedStaffIds.length})` : 'الكل'}
+          </button>
+          <button
+            onClick={() => handleExport('pdf')}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700"
+          >
+            <Download className="w-4 h-4" /> 
+            PDF {isSelectionMode && selectedStaffIds.length > 0 ? `(${selectedStaffIds.length})` : 'الكل'}
           </button>
         </div>
       </div>
