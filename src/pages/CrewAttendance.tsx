@@ -8,6 +8,8 @@ import {
   RotateCcw,
   Archive,
   Download,
+  Search,
+  X,
   Check,
   Clock,
   XCircle,
@@ -81,6 +83,7 @@ export default function CrewAttendance({ profile }: Props) {
   const [addError, setAddError] = useState('');
   const [addLoading, setAddLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const todayStr = getTodayDateStr();
   const isAdmin = profile?.role === 'admin';
@@ -142,6 +145,16 @@ export default function CrewAttendance({ profile }: Props) {
     setRows(initial);
   }, [filteredStaff, attendanceByStaff, vehicleByDriver]);
 
+  const visibleRows = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return rows;
+    
+    return rows.filter((r) => {
+      const s = staff.find((x) => Number(x.id) === r.staff_id);
+      return s?.full_name.toLowerCase().includes(query);
+    });
+  }, [rows, searchQuery, staff]);
+
   const stats = useMemo(() => {
     let present = 0, late = 0, absent = 0, leave = 0;
     attendance.forEach((a) => {
@@ -166,10 +179,13 @@ export default function CrewAttendance({ profile }: Props) {
   };
 
   const toggleSelectAll = () => {
-    if (selectedStaffIds.length === filteredStaff.length) {
-      setSelectedStaffIds([]);
+    const visibleIds = visibleRows.map((r) => r.staff_id);
+    const allVisibleSelected = visibleIds.every(id => selectedStaffIds.includes(id));
+
+    if (allVisibleSelected) {
+      setSelectedStaffIds(prev => prev.filter(id => !visibleIds.includes(id)));
     } else {
-      setSelectedStaffIds(filteredStaff.map((s) => Number(s.id)));
+      setSelectedStaffIds(prev => Array.from(new Set([...prev, ...visibleIds])));
     }
   };
 
@@ -489,8 +505,28 @@ export default function CrewAttendance({ profile }: Props) {
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex flex-wrap gap-2 items-center">
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+        <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+          {/* Search Field */}
+          <div className="relative flex-1 min-w-[240px] max-w-md">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="بحث باسم الموظف (كلمات مفتاحية)..."
+              className="w-full pr-10 pl-10 py-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute left-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
@@ -619,7 +655,7 @@ export default function CrewAttendance({ profile }: Props) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, idx) => {
+              {visibleRows.map((r, idx) => {
                 const s = staff.find((x) => Number(x.id) === r.staff_id);
                 if (!s) return null;
                 const roleLabel = s.role === 'driver' ? 'سائق' : 'مساعد سائق';
@@ -708,9 +744,9 @@ export default function CrewAttendance({ profile }: Props) {
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && (
+        {visibleRows.length === 0 && (
           <div className="py-16 text-center text-stone-500 dark:text-stone-400">
-            لا يوجد موظفين لعرضهم. أضف سائقاً أو مساعد سائق.
+            {searchQuery ? 'لا توجد نتائج تطابق بحثك' : 'لا يوجد موظفين لعرضهم. أضف سائقاً أو مساعد سائق.'}
           </div>
         )}
       </motion.div>
