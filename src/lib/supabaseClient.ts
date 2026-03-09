@@ -251,3 +251,44 @@ export interface MaintenanceNotification {
   target_role: string | null;
   created_at: string;
 }
+
+/* ── Crew Attendance Types ── */
+
+export type AttendanceType = 'present' | 'late' | 'absent' | 'full_leave' | 'time_leave';
+
+export interface Attendance {
+  id: number;
+  staff_id: number;
+  attendance_date: string;
+  attendance_type: AttendanceType;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  notes: string | null;
+  vehicle_id: number | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceArchive {
+  id: number;
+  staff_id: number;
+  attendance_date: string;
+  attendance_type: AttendanceType;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  notes: string | null;
+  vehicle_id: number | null;
+  created_by: string | null;
+  archived_by: string | null;
+  archived_at: string;
+}
+
+export interface AttendanceActivityLog {
+  id: number;
+  action_type: 'add' | 'edit' | 'archive' | 'export';
+  entity_type: string;
+  metadata: Record<string, unknown>;
+  user_id: string | null;
+  created_at: string;
+}

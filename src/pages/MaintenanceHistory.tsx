@@ -9,7 +9,6 @@ import { supabase } from '../lib/supabaseClient';
 import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
-import { exportToExcel } from '../lib/excelExport';
 
 interface Props {
   profile: UserProfile | null;

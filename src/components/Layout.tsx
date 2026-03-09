@@ -24,6 +24,9 @@ import {
   History,
   Package,
   Bell,
+  Users,
+  CalendarCheck,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -44,7 +47,11 @@ export type PageKey =
   | 'active-maintenance'
   | 'maintenance-history'
   | 'spare-parts'
-  | 'notifications';
+  | 'notifications'
+  | 'crew-attendance'
+  | 'attendance-history'
+  | 'attendance-reports'
+  | 'attendance-activity-log';
 
 interface NavItem {
   key: PageKey;
@@ -67,6 +74,13 @@ const MAINTENANCE_CHILDREN: MaintenanceChild[] = [
   { key: 'maintenance-history',   label: 'سجل الصيانة',        icon: History,         roles: ['admin', 'maintenance_manager'] },
   { key: 'spare-parts',           label: 'قطع الغيار',         icon: Package,         roles: ['admin'] },
   { key: 'notifications',         label: 'التنبيهات',          icon: Bell,            roles: ['admin', 'maintenance_manager'] },
+];
+
+const ATTENDANCE_CHILDREN: MaintenanceChild[] = [
+  { key: 'crew-attendance',       label: 'الحضور اليومي',      icon: CalendarCheck,  roles: ['admin', 'manager'] },
+  { key: 'attendance-history',   label: 'سجل الحضور',         icon: History,         roles: ['admin', 'manager'] },
+  { key: 'attendance-reports',   label: 'تقارير الحضور',      icon: BarChart3,       roles: ['admin', 'manager'] },
+  { key: 'attendance-activity-log', label: 'سجل النشاط',       icon: Activity,        roles: ['admin', 'manager'] },
 ];
 
 const NAV_ITEMS: NavItem[] = [
@@ -122,11 +136,18 @@ export default function Layout({
   const safeRole = profile?.role ?? 'driver';
 
   const isMaintenancePage = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'].includes(activePage);
+  const isAttendancePage = ['crew-attendance', 'attendance-history', 'attendance-reports', 'attendance-activity-log'].includes(activePage);
   const visibleMaintenanceChildren = MAINTENANCE_CHILDREN.filter((c) => c.roles.includes(safeRole));
+  const visibleAttendanceChildren = ATTENDANCE_CHILDREN.filter((c) => c.roles.includes(safeRole));
+  const [attendanceExpanded, setAttendanceExpanded] = useState(true);
 
   useEffect(() => {
     if (isMaintenancePage) setMaintenanceExpanded(true);
   }, [isMaintenancePage]);
+
+  useEffect(() => {
+    if (isAttendancePage) setAttendanceExpanded(true);
+  }, [isAttendancePage]);
 
   useEffect(() => {
     if (safeRole !== 'admin' && safeRole !== 'maintenance_manager') return;
@@ -282,6 +303,75 @@ export default function Layout({
               </AnimatePresence>
             </div>
           )}
+
+          {/* Crew Attendance section */}
+          {visibleAttendanceChildren.length > 0 && (
+            <div className="space-y-1 mt-1">
+              <button
+                onClick={() => {
+                  if (!sidebarOpen && !mobile) {
+                    const first = visibleAttendanceChildren[0];
+                    if (first) { onNavigate(first.key); if (mobile) setMobileOpen(false); }
+                  } else {
+                    setAttendanceExpanded((e) => !e);
+                  }
+                }}
+                className={cn(
+                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                  isAttendancePage
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                    : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
+                )}
+              >
+                <Users className="w-5 h-5 flex-shrink-0" />
+                <AnimatePresence>
+                  {(sidebarOpen || mobile) && (
+                    <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 text-right whitespace-nowrap overflow-hidden">
+                      حضور الكادر
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+                {(sidebarOpen || mobile) && (
+                  attendanceExpanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />
+                )}
+              </button>
+              <AnimatePresence>
+                {attendanceExpanded && (sidebarOpen || mobile) && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden pr-2 space-y-0.5"
+                  >
+                    {visibleAttendanceChildren.map((child) => {
+                      const childActive = activePage === child.key;
+                      return (
+                        <motion.button
+                          key={child.key}
+                          whileHover={{ x: -2 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => {
+                            onNavigate(child.key);
+                            if (mobile) setMobileOpen(false);
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all duration-200',
+                            childActive
+                              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+                              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/60',
+                          )}
+                        >
+                          <child.icon className="w-4 h-4 flex-shrink-0" />
+                          <span className="whitespace-nowrap overflow-hidden text-right">{child.label}</span>
+                        </motion.button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </nav>
 
         {/* User card */}
@@ -419,7 +509,7 @@ export default function Layout({
             )}
 
             <h1 className="text-lg font-bold hidden sm:block text-stone-900 dark:text-white">
-              {visibleItems.find((i) => i.key === activePage)?.label ?? MAINTENANCE_CHILDREN.find((c) => c.key === activePage)?.label ?? 'لوحة التحكم'}
+              {visibleItems.find((i) => i.key === activePage)?.label ?? MAINTENANCE_CHILDREN.find((c) => c.key === activePage)?.label ?? ATTENDANCE_CHILDREN.find((c) => c.key === activePage)?.label ?? 'لوحة التحكم'}
             </h1>
           </div>
 

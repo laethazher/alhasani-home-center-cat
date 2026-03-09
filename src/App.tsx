@@ -18,6 +18,10 @@ import ActiveMaintenance from './pages/ActiveMaintenance';
 import MaintenanceHistory from './pages/MaintenanceHistory';
 import SpareParts from './pages/SpareParts';
 import MaintenanceNotifications from './pages/MaintenanceNotifications';
+import CrewAttendance from './pages/CrewAttendance';
+import AttendanceHistory from './pages/AttendanceHistory';
+import AttendanceReports from './pages/AttendanceReports';
+import AttendanceActivityLog from './pages/AttendanceActivityLog';
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
@@ -94,10 +98,12 @@ export default function App() {
   /* Role-based page guard — redirect to dashboard if unauthorized */
   const maintenancePages: PageKey[] = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'];
   const maintenanceManagerPages: PageKey[] = ['maintenance-requests', 'active-maintenance', 'maintenance-history', 'notifications'];
+  const attendancePages: PageKey[] = ['crew-attendance', 'attendance-history', 'attendance-reports', 'attendance-activity-log'];
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
     if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
+    if (attendancePages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
     if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
     if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard') return 'maintenance-requests';
     return activePage;
@@ -129,6 +135,14 @@ export default function App() {
         return <SpareParts />;
       case 'notifications':
         return <MaintenanceNotifications />;
+      case 'crew-attendance':
+        return <CrewAttendance profile={profile} />;
+      case 'attendance-history':
+        return <AttendanceHistory profile={profile} />;
+      case 'attendance-reports':
+        return <AttendanceReports profile={profile} />;
+      case 'attendance-activity-log':
+        return <AttendanceActivityLog profile={profile} />;
       case 'settings':
         return <div className="text-center py-20 text-stone-500">الإعدادات — قيد التطوير</div>;
       default:
