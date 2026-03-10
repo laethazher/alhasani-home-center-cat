@@ -431,13 +431,19 @@ export default function Layout({
   }
 
   /* ─── STYLES ─── */
-  const sidebarStyle: React.CSSProperties = isDarkMode
-    ? { background:'linear-gradient(180deg,#0d1117,#0a0f1a)', borderLeft:'1px solid rgba(255,255,255,0.05)', boxShadow:'4px 0 32px rgba(0,0,0,0.4)' }
-    : { background:'linear-gradient(180deg,#ffffff,#fafbfc)', borderLeft:'1px solid rgba(0,0,0,0.07)', boxShadow:'4px 0 24px rgba(0,0,0,0.04)' };
+  const sidebarStyle: React.CSSProperties = {
+    background: isDarkMode ? 'transparent' : 'linear-gradient(180deg,#ffffff,#fafbfc)',
+    borderLeft: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.07)',
+    boxShadow: isDarkMode ? 'none' : '4px 0 24px rgba(0,0,0,0.04)',
+    transition: 'all 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
+  };
 
-  const headerStyle: React.CSSProperties = isDarkMode
-    ? { background:'rgba(13,17,23,0.85)', borderBottom:'1px solid rgba(255,255,255,0.05)', backdropFilter:'blur(20px)' }
-    : { background:'rgba(255,255,255,0.85)', borderBottom:'1px solid rgba(0,0,0,0.06)', backdropFilter:'blur(20px)' };
+  const headerStyle: React.CSSProperties = {
+    background: isDarkMode ? 'rgba(6, 10, 18, 0.8)' : 'rgba(255,255,255,0.85)',
+    borderBottom: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.06)',
+    backdropFilter: 'blur(20px)',
+    transition: 'all 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
+  };
 
   /* ─── RENDER ─── */
   return (
