@@ -101,7 +101,7 @@ function DarkHero({ profile, count }: { profile: UserProfile; count: number }) {
             </div>
             <div>
               <h2 className="text-4xl font-black tracking-tight leading-none" style={{ color:'#f1f5f9', textShadow:'0 0 40px rgba(96,165,250,0.2)' }}>
-                {firstName}
+                Alhasani Home Center Logistics
               </h2>
               <div className="flex items-center gap-2.5 mt-3 flex-wrap">
                 <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background:role.bgDark, border:`1px solid ${role.border}` }}>
@@ -180,7 +180,7 @@ function LightHero({ profile, count }: { profile: UserProfile; count: number }) 
               <span className="text-sm font-medium text-slate-500">{ar}</span>
             </div>
             <div>
-              <h2 className="text-4xl font-black tracking-tight leading-none text-slate-900">{firstName}</h2>
+              <h2 className="text-4xl font-black tracking-tight leading-none text-slate-900">Alhasani Home Center Logistics</h2>
               <div className="flex items-center gap-2.5 mt-3 flex-wrap">
                 <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background:role.bgLight, border:`1px solid ${role.color}40` }}>
                   <div className="w-1.5 h-1.5 rounded-full" style={{ background:role.color }}/>
