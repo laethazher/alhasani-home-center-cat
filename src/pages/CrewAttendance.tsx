@@ -222,32 +222,31 @@ export default function CrewAttendance({ profile }: Props) {
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const existingStaffIds = new Set(attendance.map((a) => Number(a.staff_id)));
+      const payloads = rows.map((r) => ({
+        staff_id: r.staff_id,
+        attendance_date: todayStr,
+        attendance_type: r.attendance_type,
+        check_in_time: needsTime(r.attendance_type) ? r.check_in_time : null,
+        check_out_time: r.attendance_type === 'time_leave' ? r.check_out_time : null,
+        notes: r.notes || null,
+        vehicle_id: r.vehicle_id,
+        created_by: user?.id,
+      }));
+
+      const { error: upsertErr } = await supabase
+        .from('attendance')
+        .upsert(payloads, { onConflict: 'staff_id,attendance_date' });
+
+      if (upsertErr) throw upsertErr;
+
       let addCount = 0;
       let editCount = 0;
-      for (const r of rows) {
-        const payload = {
-          staff_id: r.staff_id,
-          attendance_date: todayStr,
-          attendance_type: r.attendance_type,
-          check_in_time: needsTime(r.attendance_type) ? (r.attendance_type === 'time_leave' ? r.check_in_time : r.check_in_time) : null,
-          check_out_time: r.attendance_type === 'time_leave' ? r.check_out_time : null,
-          notes: r.notes || null,
-          vehicle_id: r.vehicle_id,
-          created_by: user?.id,
-        };
-        if (r.attendance_id) {
-          await supabase.from('attendance').update(payload).eq('id', r.attendance_id);
-          editCount++;
-        } else {
-          const { error: insErr } = await supabase.from('attendance').insert(payload);
-          if (insErr && insErr.code === '23505') {
-            const { data: existing } = await supabase.from('attendance').select('id').eq('staff_id', r.staff_id).eq('attendance_date', todayStr).single();
-            if (existing) await supabase.from('attendance').update(payload).eq('id', existing.id);
-            editCount++;
-          } else if (insErr) throw insErr;
-          else addCount++;
-        }
-      }
+      rows.forEach((r) => {
+        if (existingStaffIds.has(r.staff_id)) editCount++;
+        else addCount++;
+      });
+
       if (addCount > 0) await logAttendanceActivity('add', { date: todayStr, count: addCount });
       if (editCount > 0) await logAttendanceActivity('edit', { date: todayStr, count: editCount });
       await fetchData();
