@@ -117,6 +117,23 @@ function getTodayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** إضافة أيام إلى مفتاح تاريخ YYYY-MM-DD (تقويم محلي) */
+function addDaysToDateKey(dateKey: string, deltaDays: number): string {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + deltaDays);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function matchesExitArchiveSearch(r: ExitRequest, term: string, driverMap: Map<string, string>): boolean {
+  if (!term.trim()) return true;
+  const t = term.trim().toLowerCase();
+  return (
+    (driverMap.get(String(r.driver_id)) || r.driver_name || '').toLowerCase().includes(t) ||
+    r.assistant_names.some((n) => n.toLowerCase().includes(t)) ||
+    (r.notes?.toLowerCase().includes(t) ?? false)
+  );
+}
+
 function getDayLabel(dateKey: string): string {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -138,6 +155,32 @@ function groupByDate(items: ExitRequest[]): { dateKey: string; label: string; re
   return Array.from(map.entries())
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([key, reqs]) => ({ dateKey: key, label: getDayLabel(key), requests: reqs }));
+}
+
+function getArchiveDisplayGroups(
+  archiveRequests: ExitRequest[],
+  searchTerm: string,
+  archiveSelectedDateKey: string | null,
+  driverMap: Map<string, string>
+): { dateKey: string; label: string; requests: ExitRequest[] }[] {
+  const term = searchTerm.trim();
+  if (term) {
+    const base = archiveRequests.filter((r) => matchesExitArchiveSearch(r, term, driverMap));
+    return groupByDate(base);
+  }
+  if (!archiveSelectedDateKey) return [];
+  const dayReqs = archiveRequests.filter((r) => getDateKey(r.created_at) === archiveSelectedDateKey);
+  if (dayReqs.length === 0) return [];
+  return [{ dateKey: archiveSelectedDateKey, label: getDayLabel(archiveSelectedDateKey), requests: dayReqs }];
+}
+
+function getArchiveVisibleFlat(
+  archiveRequests: ExitRequest[],
+  searchTerm: string,
+  archiveSelectedDateKey: string | null,
+  driverMap: Map<string, string>
+): ExitRequest[] {
+  return getArchiveDisplayGroups(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap).flatMap((g) => g.requests);
 }
 
 /* ── Exit Reasons ── */
@@ -521,11 +564,15 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* Archive view */
   const [showArchive, setShowArchive] = useState(false);
+  /** يوم واحد يُعرض في السجل (بدون بحث). عند البحث يُعرض كل الأيام المطابقة. */
+  const [archiveSelectedDateKey, setArchiveSelectedDateKey] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
 
   const toggleSelectAll = () => {
-    const currentList = showArchive ? archiveRequests : todayRequests;
+    const currentList = showArchive
+      ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
+      : todayRequests;
     if (selectedRequestIds.length === currentList.length) {
       setSelectedRequestIds([]);
     } else {
@@ -888,7 +935,22 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   }, [requests]);
 
   const archiveRequests = requests.filter((r) => getDateKey(r.created_at) !== todayKey);
-  const archiveGroups = groupByDate(archiveRequests);
+
+  const yesterdayKey = useMemo(() => addDaysToDateKey(todayKey, -1), [todayKey]);
+  const dayBeforeYesterdayKey = useMemo(() => addDaysToDateKey(todayKey, -2), [todayKey]);
+  const archiveDateKeysSorted = useMemo(() => {
+    const keys = new Set<string>();
+    archiveRequests.forEach((r) => keys.add(getDateKey(r.created_at)));
+    return Array.from(keys).sort((a, b) => b.localeCompare(a));
+  }, [archiveRequests]);
+
+  const archiveDisplayGroups = useMemo(
+    () =>
+      showArchive
+        ? getArchiveDisplayGroups(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
+        : [],
+    [showArchive, archiveRequests, searchTerm, archiveSelectedDateKey, driverMap]
+  );
 
   /* ── Filtered requests (today only) ── */
   const filtered = todayRequests.filter((r) => {
@@ -918,22 +980,6 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     }
     return true;
   });
-
-  /* ── Filter archive by search ── */
-  const filteredArchiveGroups = archiveGroups.map((g) => ({
-    ...g,
-    requests: g.requests.filter((r) => {
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        return (
-          (driverMap.get(String(r.driver_id)) || r.driver_name || '').toLowerCase().includes(term) ||
-          r.assistant_names.some((n) => n.toLowerCase().includes(term)) ||
-          (r.notes?.toLowerCase().includes(term) ?? false)
-        );
-      }
-      return true;
-    }),
-  })).filter((g) => g.requests.length > 0);
 
   /* ── Stats (today only) ── */
   const stats = {
@@ -1007,9 +1053,23 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => {
-              setShowArchive(!showArchive);
+              const opening = !showArchive;
+              setShowArchive(opening);
               setSelectedRequestIds([]);
               setIsSelectionMode(false);
+              if (opening) {
+                const keys = new Set<string>();
+                requests
+                  .filter((r) => getDateKey(r.created_at) !== todayKey)
+                  .forEach((r) => keys.add(getDateKey(r.created_at)));
+                const sorted = Array.from(keys).sort((a, b) => b.localeCompare(a));
+                const yKey = addDaysToDateKey(todayKey, -1);
+                const dbKey = addDaysToDateKey(todayKey, -2);
+                const preferred = sorted.includes(yKey) ? yKey : sorted.includes(dbKey) ? dbKey : sorted[0] ?? null;
+                setArchiveSelectedDateKey(preferred);
+              } else {
+                setArchiveSelectedDateKey(null);
+              }
             }}
             className={cn(
               'w-full sm:w-auto flex items-center gap-2 px-5 py-3 rounded-xl font-semibold transition-all',
@@ -1041,7 +1101,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               onClick={toggleSelectAll}
               className="flex items-center gap-2 px-4 py-3 rounded-xl bg-stone-100 dark:bg-stone-700 text-sm font-medium border border-stone-200 dark:border-stone-600"
             >
-              {(showArchive ? archiveRequests : todayRequests).length === selectedRequestIds.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              {(showArchive
+                ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
+                : todayRequests
+              ).length === selectedRequestIds.length ? 'إلغاء الكل' : 'تحديد الكل'}
             </button>
           )}
 
@@ -1054,7 +1117,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 onClick={() => {
                   const data = isSelectionMode && selectedRequestIds.length > 0
                     ? requests.filter((r) => selectedRequestIds.includes(r.id))
-                    : showArchive ? archiveRequests : todayRequests;
+                    : showArchive
+                      ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
+                      : todayRequests;
                   const name = isSelectionMode && selectedRequestIds.length > 0
                     ? `إخراجات_محددة_${Date.now()}`
                     : showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
@@ -1071,7 +1136,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 onClick={() => {
                   const data = isSelectionMode && selectedRequestIds.length > 0
                     ? requests.filter((r) => selectedRequestIds.includes(r.id))
-                    : showArchive ? archiveRequests : todayRequests;
+                    : showArchive
+                      ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
+                      : todayRequests;
                   const name = isSelectionMode && selectedRequestIds.length > 0
                     ? `إخراجات_محددة_${Date.now()}`
                     : showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
@@ -1250,7 +1317,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="بحث بالاسم أو الملاحظات..."
+            placeholder={showArchive ? 'بحث في السجل (جميع التواريخ عند وجود نص)...' : 'بحث بالاسم أو الملاحظات...'}
             className="w-full pr-10 pl-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none transition-all text-stone-900 dark:text-white placeholder:text-stone-400"
           />
         </div>
@@ -1572,7 +1639,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       {/* ── ARCHIVE VIEW ── */}
       {showArchive && !isGateGuard && (
         <div className="space-y-6">
-          {filteredArchiveGroups.length === 0 ? (
+          {archiveRequests.length === 0 ? (
             <div className="text-center py-20">
               <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800/50 flex items-center justify-center mx-auto mb-4">
                 <History className="w-8 h-8 text-stone-400" />
@@ -1580,7 +1647,92 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               <p className="text-stone-500 dark:text-stone-400 font-medium">لا توجد سجلات سابقة</p>
             </div>
           ) : (
-            filteredArchiveGroups.map((group) => (
+            <>
+              {!searchTerm.trim() && (
+                <div className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 shadow-sm space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <p className="text-sm font-bold text-stone-800 dark:text-stone-200">تصفية السجل حسب اليوم</p>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">يُعرض يوم واحد فقط؛ البحث يعرض كل التواريخ المطابقة.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setArchiveSelectedDateKey(yesterdayKey)}
+                      disabled={!archiveDateKeysSorted.includes(yesterdayKey)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                        archiveSelectedDateKey === yesterdayKey
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                          : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-600 hover:bg-stone-200 dark:hover:bg-stone-700',
+                        !archiveDateKeysSorted.includes(yesterdayKey) && 'opacity-40 cursor-not-allowed'
+                      )}
+                    >
+                      أمس
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setArchiveSelectedDateKey(dayBeforeYesterdayKey)}
+                      disabled={!archiveDateKeysSorted.includes(dayBeforeYesterdayKey)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-xs font-bold transition-all border',
+                        archiveSelectedDateKey === dayBeforeYesterdayKey
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                          : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-600 hover:bg-stone-200 dark:hover:bg-stone-700',
+                        !archiveDateKeysSorted.includes(dayBeforeYesterdayKey) && 'opacity-40 cursor-not-allowed'
+                      )}
+                    >
+                      أول أمس
+                    </button>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-stone-500 dark:text-stone-400 mb-2">تواريخ أخرى في السجل</p>
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1">
+                      {archiveDateKeysSorted
+                        .filter((k) => k !== yesterdayKey && k !== dayBeforeYesterdayKey)
+                        .map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => setArchiveSelectedDateKey(k)}
+                            className={cn(
+                              'px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all',
+                              archiveSelectedDateKey === k
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-600 hover:border-blue-400'
+                            )}
+                          >
+                            {getDayLabel(k)}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-stone-100 dark:border-stone-800">
+                    <label className="text-xs text-stone-600 dark:text-stone-400 font-medium">تاريخ محدد:</label>
+                    <input
+                      type="date"
+                      value={archiveSelectedDateKey ?? ''}
+                      onChange={(e) => setArchiveSelectedDateKey(e.target.value || null)}
+                      className="px-3 py-1.5 rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-xs text-stone-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+              )}
+              {searchTerm.trim() && (
+                <div className="rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/80 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-900 dark:text-blue-200">
+                  <span className="font-bold">بحث نشط:</span> عرض الإخراجات المطابقة من <span className="font-bold">جميع التواريخ</span>، مجمّعة حسب اليوم.
+                </div>
+              )}
+              {archiveDisplayGroups.length === 0 ? (
+                <div className="text-center py-16 rounded-2xl border border-dashed border-stone-300 dark:border-stone-600 bg-stone-50/50 dark:bg-stone-900/30">
+                  <History className="w-10 h-10 text-stone-400 mx-auto mb-3" />
+                  <p className="text-stone-600 dark:text-stone-400 font-medium">
+                    {searchTerm.trim()
+                      ? 'لا توجد نتائج تطابق البحث في السجل'
+                      : 'لا توجد إخراجات في اليوم المحدد'}
+                  </p>
+                </div>
+              ) : (
+            archiveDisplayGroups.map((group) => (
               <div key={group.dateKey} className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
@@ -1724,6 +1876,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 ))}
               </div>
             ))
+              )}
+            </>
           )}
         </div>
       )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users,
@@ -61,6 +61,24 @@ interface RowState {
   attendance_id?: number;
 }
 
+function buildAttendanceRow(
+  s: StaffMember,
+  att: Attendance | undefined,
+  vehicleByDriver: Record<number, Vehicle>
+): RowState {
+  const id = Number(s.id);
+  const defaultVehicleId = s.role === 'driver' ? vehicleByDriver[id]?.id ?? null : null;
+  return {
+    staff_id: id,
+    attendance_type: (att?.attendance_type as AttendanceType) ?? 'present',
+    check_in_time: att?.check_in_time ? String(att.check_in_time).slice(0, 5) : '08:00',
+    check_out_time: att?.check_out_time ? String(att.check_out_time).slice(0, 5) : '12:00',
+    notes: att?.notes ?? '',
+    vehicle_id: att?.vehicle_id ?? defaultVehicleId,
+    attendance_id: att?.id,
+  };
+}
+
 interface Props {
   profile: UserProfile | null;
 }
@@ -85,11 +103,13 @@ export default function CrewAttendance({ profile }: Props) {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const resyncRowsFromServerRef = useRef(false);
+
   const todayStr = getTodayDateStr();
   const isAdmin = profile?.role === 'admin';
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const [staffRes, vehRes, attRes] = await Promise.all([
       supabase.from('staff_members').select('*').eq('is_active', true).order('role').order('full_name'),
       supabase.from('vehicles').select('*'),
@@ -98,7 +118,7 @@ export default function CrewAttendance({ profile }: Props) {
     if (staffRes.data) setStaff(staffRes.data);
     if (vehRes.data) setVehicles(vehRes.data);
     if (attRes.data) setAttendance(attRes.data);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [todayStr]);
 
   useEffect(() => {
@@ -107,12 +127,6 @@ export default function CrewAttendance({ profile }: Props) {
 
   const drivers = useMemo(() => staff.filter((s) => s.role === 'driver'), [staff]);
   const assistants = useMemo(() => staff.filter((s) => s.role === 'assistant'), [staff]);
-
-  const filteredStaff = useMemo(() => {
-    if (roleFilter === 'driver') return drivers;
-    if (roleFilter === 'assistant') return assistants;
-    return staff;
-  }, [staff, drivers, assistants, roleFilter]);
 
   const attendanceByStaff = useMemo(() => {
     const m: Record<number, Attendance> = {};
@@ -129,31 +143,44 @@ export default function CrewAttendance({ profile }: Props) {
   }, [vehicles]);
 
   useEffect(() => {
-    const initial: RowState[] = filteredStaff.map((s) => {
-      const att = attendanceByStaff[Number(s.id)];
-      const vehicleId = s.role === 'driver' ? vehicleByDriver[Number(s.id)]?.id ?? null : null;
-      return {
-        staff_id: Number(s.id),
-        attendance_type: (att?.attendance_type as AttendanceType) ?? 'present',
-        check_in_time: att?.check_in_time ? String(att.check_in_time).slice(0, 5) : '08:00',
-        check_out_time: att?.check_out_time ? String(att.check_out_time).slice(0, 5) : '12:00',
-        notes: att?.notes ?? '',
-        vehicle_id: att?.vehicle_id ?? vehicleId,
-        attendance_id: att?.id,
-      };
+    if (resyncRowsFromServerRef.current) {
+      resyncRowsFromServerRef.current = false;
+      setRows(staff.map((s) => buildAttendanceRow(s, attendanceByStaff[Number(s.id)], vehicleByDriver)));
+      return;
+    }
+    setRows((prev) => {
+      const prevMap = new Map<number, RowState>(prev.map((r) => [r.staff_id, r]));
+      return staff.map((s) => {
+        const id = Number(s.id);
+        const att = attendanceByStaff[id];
+        const existing = prevMap.get(id);
+        const defaultVehicleId = s.role === 'driver' ? vehicleByDriver[id]?.id ?? null : null;
+        if (existing) {
+          return {
+            ...existing,
+            attendance_id: att?.id ?? existing.attendance_id,
+            vehicle_id: existing.vehicle_id ?? att?.vehicle_id ?? defaultVehicleId,
+          };
+        }
+        return buildAttendanceRow(s, att, vehicleByDriver);
+      });
     });
-    setRows(initial);
-  }, [filteredStaff, attendanceByStaff, vehicleByDriver]);
+  }, [staff, attendanceByStaff, vehicleByDriver]);
 
   const visibleRows = useMemo(() => {
+    let list = rows;
+    if (roleFilter === 'driver') {
+      list = list.filter((r) => staff.find((x) => Number(x.id) === r.staff_id)?.role === 'driver');
+    } else if (roleFilter === 'assistant') {
+      list = list.filter((r) => staff.find((x) => Number(x.id) === r.staff_id)?.role === 'assistant');
+    }
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return rows;
-    
-    return rows.filter((r) => {
+    if (!query) return list;
+    return list.filter((r) => {
       const s = staff.find((x) => Number(x.id) === r.staff_id);
       return s?.full_name.toLowerCase().includes(query);
     });
-  }, [rows, searchQuery, staff]);
+  }, [rows, searchQuery, staff, roleFilter]);
 
   const stats = useMemo(() => {
     let present = 0, late = 0, absent = 0, leave = 0;
@@ -249,7 +276,8 @@ export default function CrewAttendance({ profile }: Props) {
 
       if (addCount > 0) await logAttendanceActivity('add', { date: todayStr, count: addCount });
       if (editCount > 0) await logAttendanceActivity('edit', { date: todayStr, count: editCount });
-      await fetchData();
+      resyncRowsFromServerRef.current = true;
+      await fetchData(true);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (e) {
@@ -261,6 +289,7 @@ export default function CrewAttendance({ profile }: Props) {
   };
 
   const handleReset = () => {
+    resyncRowsFromServerRef.current = true;
     fetchData();
   };
 
@@ -279,7 +308,8 @@ export default function CrewAttendance({ profile }: Props) {
         return;
       }
       await logAttendanceActivity('archive', { date: todayStr, archived_count: result?.archived_count ?? 0 });
-      await fetchData();
+      resyncRowsFromServerRef.current = true;
+      await fetchData(true);
       alert(`تم أرشفة ${result?.archived_count ?? 0} سجل بنجاح`);
     } catch (e) {
       console.error(e);
@@ -353,7 +383,7 @@ export default function CrewAttendance({ profile }: Props) {
       setNewName('');
       setShowAddDriver(false);
       setShowAddAssistant(false);
-      await fetchData();
+      await fetchData(true);
     } catch (e) {
       setAddError(e instanceof Error ? e.message : 'فشل الإضافة');
     } finally {
@@ -371,7 +401,8 @@ export default function CrewAttendance({ profile }: Props) {
       }
       setSelectedStaffIds([]);
       setIsSelectionMode(false);
-      await fetchData();
+      resyncRowsFromServerRef.current = true;
+      await fetchData(true);
     } catch (e) {
       alert('فشل الحذف: ' + (e instanceof Error ? e.message : 'خطأ'));
     } finally {
@@ -642,7 +673,7 @@ export default function CrewAttendance({ profile }: Props) {
                 {isSelectionMode && (
                   <th className="px-4 py-3 text-right text-sm font-semibold">
                     <button onClick={toggleSelectAll} className="text-blue-600 hover:underline">
-                      {selectedStaffIds.length === filteredStaff.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                      {selectedStaffIds.length === visibleRows.length && visibleRows.length > 0 ? 'إلغاء الكل' : 'تحديد الكل'}
                     </button>
                   </th>
                 )}

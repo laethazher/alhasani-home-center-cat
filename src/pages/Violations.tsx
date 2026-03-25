@@ -18,6 +18,7 @@ import {
   X,
   Download,
   Printer,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -97,6 +98,7 @@ export default function Violations() {
   const [formNotes, setFormNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [deletingManualId, setDeletingManualId] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     const [reqRes, staffRes, violationsRes] = await Promise.all([
@@ -109,6 +111,27 @@ export default function Violations() {
     if (violationsRes.data) setManualViolations(violationsRes.data);
     setLoading(false);
   }, []);
+
+  const deleteManualViolation = useCallback(
+    async (requestId: string) => {
+      if (profile?.role !== 'admin' || !requestId.startsWith('manual-')) return;
+      const raw = requestId.replace(/^manual-/, '');
+      const id = Number(raw);
+      if (!Number.isFinite(id) || id <= 0) return;
+      if (!window.confirm('حذف هذه المخالفة اليدوية من السجل؟ لا يمكن التراجع.')) return;
+      setDeletingManualId(id);
+      try {
+        const { error } = await supabase.from('violations').delete().eq('id', id);
+        if (error) throw error;
+        await fetchData();
+      } catch (e) {
+        alert('فشل الحذف: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+      } finally {
+        setDeletingManualId(null);
+      }
+    },
+    [profile?.role, fetchData]
+  );
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -693,24 +716,41 @@ export default function Violations() {
                                 </div>
                               </div>
                             </div>
-                            <span className={cn(
-                              'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium flex-shrink-0',
-                              rec.returned
-                                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                            )}>
-                              {rec.returned ? (
-                                <>
-                                  <Clock className="w-3 h-3" />
-                                  عاد متأخراً
-                                </>
-                              ) : (
-                                <>
-                                  <AlertTriangle className="w-3 h-3" />
-                                  لم يعُد بعد
-                                </>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {profile?.role === 'admin' && rec.requestId.startsWith('manual-') && (
+                                <button
+                                  type="button"
+                                  title="حذف المخالفة اليدوية"
+                                  disabled={deletingManualId === Number(rec.requestId.replace(/^manual-/, ''))}
+                                  onClick={() => deleteManualViolation(rec.requestId)}
+                                  className="p-1.5 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                                >
+                                  {deletingManualId === Number(rec.requestId.replace(/^manual-/, '')) ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </button>
                               )}
-                            </span>
+                              <span className={cn(
+                                'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
+                                rec.returned
+                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                  : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                              )}>
+                                {rec.returned ? (
+                                  <>
+                                    <Clock className="w-3 h-3" />
+                                    عاد متأخراً
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertTriangle className="w-3 h-3" />
+                                    لم يعُد بعد
+                                  </>
+                                )}
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>

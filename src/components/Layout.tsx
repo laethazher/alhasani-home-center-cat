@@ -123,7 +123,7 @@ export default function Layout({
   }, [safeRole]);
 
   /* ─── NAV BUTTON ─── */
-  function NavBtn({ item, mobile }: { item: NavItem; mobile?: boolean }) {
+  function NavBtn({ item, mobile }: { item: NavItem; mobile?: boolean; key?: React.Key }) {
     const active = activePage === item.key;
     return (
       <motion.button
@@ -175,7 +175,7 @@ export default function Layout({
   }
 
   /* ─── CHILD BUTTON ─── */
-  function ChildBtn({ child, mobile, accentColor }: { child: ChildItem; mobile?: boolean; accentColor: string }) {
+  function ChildBtn({ child, mobile, accentColor }: { child: ChildItem; mobile?: boolean; accentColor: string; key?: React.Key }) {
     const active   = activePage === child.key;
     const hasNotif = child.key === 'notifications' && unreadNotifs > 0;
     return (
