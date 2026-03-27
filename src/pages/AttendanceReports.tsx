@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { logAttendanceActivity } from '../lib/attendanceActivity';
+import { getBaghdadDateKey } from '../lib/loadingTime';
 import type {
   UserProfile,
   StaffMember,
@@ -29,6 +30,9 @@ interface StaffStats {
   absent: number;
   full_leave: number;
   time_leave: number;
+  /** من exit_requests: مرات تأخير التحميل بعد 8:15 (للسائقين فقط) */
+  loading_delay_events: number;
+  loading_delay_minutes_sum: number;
 }
 
 function getDominantType(s: StaffStats): string {
@@ -47,9 +51,17 @@ interface Props {
   profile: UserProfile | null;
 }
 
+type ExitLoadingRow = {
+  driver_id: string | number | null;
+  created_at: string;
+  loading_is_delay: boolean | null;
+  loading_delay_minutes: number | null;
+};
+
 export default function AttendanceReports({ profile }: Props) {
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -74,12 +86,17 @@ export default function AttendanceReports({ profile }: Props) {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [archRes, staffRes] = await Promise.all([
+    const [archRes, staffRes, exitRes] = await Promise.all([
       supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
       supabase.from('staff_members').select('*').eq('is_active', true),
+      supabase
+        .from('exit_requests')
+        .select('driver_id, created_at, loading_is_delay, loading_delay_minutes')
+        .eq('track_driver_loading_time', true),
     ]);
     if (archRes.data) setArchive(archRes.data);
     if (staffRes.data) setStaff(staffRes.data);
+    if (exitRes.data) setExitLoadingRows(exitRes.data as ExitLoadingRow[]);
     setLoading(false);
   }, []);
 
@@ -108,9 +125,23 @@ export default function AttendanceReports({ profile }: Props) {
     const staffMap = new Map<number, StaffMember>();
     staff.forEach((s) => staffMap.set(Number(s.id), s));
 
+    const loadingByDriver = new Map<number, { events: number; minutes: number }>();
+    for (const row of exitLoadingRows) {
+      if (row.driver_id == null) continue;
+      const dk = getBaghdadDateKey(row.created_at);
+      if (dateFrom && dk < dateFrom) continue;
+      if (dateTo && dk > dateTo) continue;
+      const id = Number(row.driver_id);
+      if (!loadingByDriver.has(id)) loadingByDriver.set(id, { events: 0, minutes: 0 });
+      const cur = loadingByDriver.get(id)!;
+      if (row.loading_is_delay === true || (row.loading_delay_minutes ?? 0) > 0) cur.events += 1;
+      cur.minutes += row.loading_delay_minutes ?? 0;
+    }
+
     const statsMap = new Map<number, StaffStats>();
     for (const s of staff) {
       const id = Number(s.id);
+      const load = loadingByDriver.get(id);
       statsMap.set(id, {
         staff_id: id,
         full_name: s.full_name,
@@ -120,6 +151,8 @@ export default function AttendanceReports({ profile }: Props) {
         absent: 0,
         full_leave: 0,
         time_leave: 0,
+        loading_delay_events: s.role === 'driver' ? (load?.events ?? 0) : 0,
+        loading_delay_minutes_sum: s.role === 'driver' ? (load?.minutes ?? 0) : 0,
       });
     }
 
@@ -137,7 +170,7 @@ export default function AttendanceReports({ profile }: Props) {
     if (reportMode === 'drivers') list = list.filter((s) => s.role === 'driver');
     else if (reportMode === 'assistants') list = list.filter((s) => s.role === 'assistant');
     return list.sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [archive, staff, dateFrom, dateTo, reportMode]);
+  }, [archive, staff, dateFrom, dateTo, reportMode, exitLoadingRows]);
 
   const driversSummary = useMemo(() => {
     const drivers = staffStats.filter((s) => s.role === 'driver');
@@ -148,6 +181,8 @@ export default function AttendanceReports({ profile }: Props) {
       absent: drivers.reduce((s, d) => s + d.absent, 0),
       full_leave: drivers.reduce((s, d) => s + d.full_leave, 0),
       time_leave: drivers.reduce((s, d) => s + d.time_leave, 0),
+      loading_delay_events: drivers.reduce((s, d) => s + d.loading_delay_events, 0),
+      loading_delay_minutes: drivers.reduce((s, d) => s + d.loading_delay_minutes_sum, 0),
     };
   }, [staffStats]);
 
@@ -175,7 +210,10 @@ export default function AttendanceReports({ profile }: Props) {
 
     setExporting(true);
     try {
-      const headers = ['الموظف', 'الدور', 'حاضر', 'متأخر', 'غائب', 'إجازة كاملة', 'إجازة زمنية'];
+      const headers = [
+        'الموظف', 'الدور', 'حاضر', 'متأخر', 'غائب', 'إجازة كاملة', 'إجازة زمنية',
+        'مرات تأخير التحميل', 'مجموع دقائق تأخير التحميل',
+      ];
       const rows = toExport.map((s) => [
         s.full_name,
         s.role === 'driver' ? 'سائق' : 'مساعد سائق',
@@ -184,6 +222,8 @@ export default function AttendanceReports({ profile }: Props) {
         s.absent,
         s.full_leave,
         s.time_leave,
+        s.role === 'driver' ? s.loading_delay_events : '—',
+        s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
       ]);
 
       if (format === 'excel') {
@@ -336,6 +376,12 @@ export default function AttendanceReports({ profile }: Props) {
               <span className="text-stone-500">إجازات زمنية</span>
               <span className="font-semibold">{driversSummary.time_leave}</span>
             </div>
+            <div className="flex justify-between col-span-2 border-t border-stone-100 dark:border-stone-700 pt-2 mt-1">
+              <span className="text-stone-500">تأخير تحميل (طلبات إخراج، بعد 8:15)</span>
+              <span className="font-semibold text-amber-700 dark:text-amber-300">
+                {driversSummary.loading_delay_events} مرات / {driversSummary.loading_delay_minutes} دقيقة
+              </span>
+            </div>
           </div>
         </motion.div>
 
@@ -411,6 +457,8 @@ export default function AttendanceReports({ profile }: Props) {
                 <th className="px-4 py-3 text-right text-sm font-semibold">غائب</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">إجازة كاملة</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">إجازة زمنية</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">تأخير تحميل (مرات)</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">دقائق تأخير التحميل</th>
               </tr>
             </thead>
             <tbody>
@@ -450,6 +498,12 @@ export default function AttendanceReports({ profile }: Props) {
                   <td className="px-4 py-2 text-red-600 dark:text-red-400">{s.absent}</td>
                   <td className="px-4 py-2">{s.full_leave}</td>
                   <td className="px-4 py-2">{s.time_leave}</td>
+                  <td className="px-4 py-2 text-amber-700 dark:text-amber-300">
+                    {s.role === 'driver' ? s.loading_delay_events : '—'}
+                  </td>
+                  <td className="px-4 py-2 text-amber-800 dark:text-amber-200">
+                    {s.role === 'driver' ? s.loading_delay_minutes_sum : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>

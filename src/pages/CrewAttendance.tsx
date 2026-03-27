@@ -18,6 +18,8 @@ import {
   Loader2,
   ChevronDown,
   Truck,
+  Package,
+  BarChart3,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -30,7 +32,9 @@ import type {
   Attendance,
   AttendanceType,
   Vehicle,
+  ExitRequest,
 } from '../lib/supabaseClient';
+import { WORK_TIMEZONE } from '../lib/loadingTime';
 
 const ATTENDANCE_TYPES: { value: AttendanceType; label: string }[] = [
   { value: 'present', label: 'حاضر' },
@@ -102,6 +106,13 @@ export default function CrewAttendance({ profile }: Props) {
   const [addLoading, setAddLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [driverLoadingModal, setDriverLoadingModal] = useState<{ staffId: number; name: string } | null>(null);
+  const [driverExitRequests, setDriverExitRequests] = useState<ExitRequest[]>([]);
+  const [driverExitLoading, setDriverExitLoading] = useState(false);
+  /** تجميع احتساب التحميل لكل سائق (للتصدير وبطاقات سريعة) */
+  const [driverExitAggMap, setDriverExitAggMap] = useState<
+    Record<number, { tracked: number; delayEvents: number; totalDelayMin: number }>
+  >({});
 
   const resyncRowsFromServerRef = useRef(false);
 
@@ -110,20 +121,66 @@ export default function CrewAttendance({ profile }: Props) {
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
-    const [staffRes, vehRes, attRes] = await Promise.all([
+    const [staffRes, vehRes, attRes, exitRes] = await Promise.all([
       supabase.from('staff_members').select('*').eq('is_active', true).order('role').order('full_name'),
       supabase.from('vehicles').select('*'),
       supabase.from('attendance').select('*').eq('attendance_date', todayStr),
+      supabase
+        .from('exit_requests')
+        .select('driver_id, loading_is_delay, loading_delay_minutes')
+        .eq('track_driver_loading_time', true),
     ]);
     if (staffRes.data) setStaff(staffRes.data);
     if (vehRes.data) setVehicles(vehRes.data);
     if (attRes.data) setAttendance(attRes.data);
+    if (exitRes.data) {
+      const m: Record<number, { tracked: number; delayEvents: number; totalDelayMin: number }> = {};
+      for (const row of exitRes.data) {
+        if (row.driver_id == null) continue;
+        const id = Number(row.driver_id);
+        if (!Number.isFinite(id)) continue;
+        if (!m[id]) m[id] = { tracked: 0, delayEvents: 0, totalDelayMin: 0 };
+        m[id].tracked += 1;
+        if (row.loading_is_delay === true || (row.loading_delay_minutes ?? 0) > 0) {
+          m[id].delayEvents += 1;
+          m[id].totalDelayMin += row.loading_delay_minutes ?? 0;
+        }
+      }
+      setDriverExitAggMap(m);
+    } else {
+      setDriverExitAggMap({});
+    }
     if (!silent) setLoading(false);
   }, [todayStr]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!driverLoadingModal) {
+      setDriverExitRequests([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setDriverExitLoading(true);
+      const { data, error } = await supabase
+        .from('exit_requests')
+        .select('*')
+        .eq('track_driver_loading_time', true)
+        .eq('driver_id', driverLoadingModal.staffId)
+        .order('created_at', { ascending: false });
+      if (!cancelled) {
+        if (!error && data) setDriverExitRequests(data as ExitRequest[]);
+        else setDriverExitRequests([]);
+        setDriverExitLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [driverLoadingModal]);
 
   const drivers = useMemo(() => staff.filter((s) => s.role === 'driver'), [staff]);
   const assistants = useMemo(() => staff.filter((s) => s.role === 'assistant'), [staff]);
@@ -166,6 +223,15 @@ export default function CrewAttendance({ profile }: Props) {
       });
     });
   }, [staff, attendanceByStaff, vehicleByDriver]);
+
+  const driverLoadingStats = useMemo(() => {
+    const delayRows = driverExitRequests.filter((r) => r.loading_is_delay === true || (r.loading_delay_minutes ?? 0) > 0);
+    const delayCount = delayRows.length;
+    const totalDelayMinutes = driverExitRequests.reduce((s, r) => s + (r.loading_delay_minutes ?? 0), 0);
+    const avgDelayMinutes =
+      delayCount > 0 ? Math.round((totalDelayMinutes / delayCount) * 10) / 10 : 0;
+    return { delayCount, totalDelayMinutes, avgDelayMinutes };
+  }, [driverExitRequests]);
 
   const visibleRows = useMemo(() => {
     let list = rows;
@@ -329,7 +395,16 @@ export default function CrewAttendance({ profile }: Props) {
       return;
     }
 
-    const headers = ['الموظف', 'الدور', 'نوع الحضور', 'الوقت / المدى', 'الملاحظات'];
+    const headers = [
+      'الموظف',
+      'الدور',
+      'نوع الحضور',
+      'الوقت / المدى',
+      'الملاحظات',
+      'طلبات إخراج باحتساب تحميل',
+      'مرات تأخير التحميل',
+      'مجموع دقائق تأخير التحميل',
+    ];
     const exportRows = toExportRows.map((r) => {
       const s = staff.find((x) => Number(x.id) === r.staff_id);
       const roleLabel = s?.role === 'driver' ? 'سائق' : 'مساعد سائق';
@@ -337,7 +412,17 @@ export default function CrewAttendance({ profile }: Props) {
       let timeStr = '—';
       if (r.attendance_type === 'present' || r.attendance_type === 'late') timeStr = r.check_in_time;
       else if (r.attendance_type === 'time_leave') timeStr = `${r.check_in_time} → ${r.check_out_time}`;
-      return [s?.full_name ?? '', roleLabel, typeLabel, timeStr, r.notes];
+      const agg = s?.role === 'driver' ? driverExitAggMap[r.staff_id] : undefined;
+      return [
+        s?.full_name ?? '',
+        roleLabel,
+        typeLabel,
+        timeStr,
+        r.notes,
+        agg ? String(agg.tracked) : '—',
+        agg ? String(agg.delayEvents) : '—',
+        agg ? String(agg.totalDelayMin) : '—',
+      ];
     });
 
     const filename = `حضور_${todayStr}`;
@@ -347,9 +432,9 @@ export default function CrewAttendance({ profile }: Props) {
     } else {
       const html = `
         <h1 style="text-align:center;font-size:22px;margin-bottom:16px">حضور الكادر - ${todayStr}</h1>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead><tr style="background:#3b82f6;color:#fff">
-            ${headers.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
+            ${headers.map((h) => `<th style="padding:6px 4px;text-align:right">${h}</th>`).join('')}
           </tr></thead>
           <tbody>
             ${exportRows.map((row, i) => `
@@ -716,7 +801,17 @@ export default function CrewAttendance({ profile }: Props) {
                           )}
                           title={ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label}
                         />
-                        <span className="font-medium">{s.full_name}</span>
+                        {s.role === 'driver' ? (
+                          <button
+                            type="button"
+                            onClick={() => setDriverLoadingModal({ staffId: r.staff_id, name: s.full_name })}
+                            className="font-medium text-left text-blue-700 dark:text-blue-300 hover:underline underline-offset-2"
+                          >
+                            {s.full_name}
+                          </button>
+                        ) : (
+                          <span className="font-medium">{s.full_name}</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-2 text-stone-600 dark:text-stone-400">{roleLabel}</td>
@@ -817,6 +912,136 @@ export default function CrewAttendance({ profile }: Props) {
                   {addLoading ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'إضافة'}
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Driver loading delay modal */}
+      <AnimatePresence>
+        {driverLoadingModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+            onClick={() => setDriverLoadingModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-stone-800 rounded-2xl p-6 w-full max-w-3xl max-h-[85vh] overflow-hidden shadow-xl flex flex-col"
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 shadow-lg shadow-amber-500/20">
+                    <Package className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-stone-900 dark:text-white leading-tight">ملف تحميل السائق</h3>
+                    <p className="text-base font-semibold text-amber-800 dark:text-amber-200 mt-0.5 truncate">{driverLoadingModal.name}</p>
+                    <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1 flex items-center gap-1">
+                      <BarChart3 className="w-3 h-3" />
+                      {WORK_TIMEZONE} — التأخير يُحسب بعد 8:15 صباحاً من وقت إنشاء الطلب
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDriverLoadingModal(null)}
+                  className="p-2 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-700"
+                  aria-label="إغلاق"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              {driverExitLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                    <div className="rounded-2xl border border-stone-200/80 dark:border-stone-600 bg-gradient-to-br from-stone-50 to-stone-100/80 dark:from-stone-800/80 dark:to-stone-900 p-4 shadow-sm">
+                      <p className="text-[11px] font-medium text-stone-500 dark:text-stone-400 uppercase tracking-wide">طلبات باحتساب</p>
+                      <p className="text-2xl font-black text-stone-900 dark:text-white tabular-nums mt-1">{driverExitRequests.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-amber-200 dark:border-amber-800/80 bg-gradient-to-br from-amber-50 to-amber-100/70 dark:from-amber-950/50 dark:to-amber-900/30 p-4 shadow-sm">
+                      <p className="text-[11px] font-medium text-amber-800/90 dark:text-amber-300">مرات التأخير</p>
+                      <p className="text-2xl font-black text-amber-900 dark:text-amber-100 tabular-nums mt-1">{driverLoadingStats.delayCount}</p>
+                    </div>
+                    <div className="rounded-2xl border border-red-200 dark:border-red-900/60 bg-gradient-to-br from-red-50 to-red-100/60 dark:from-red-950/40 dark:to-red-900/20 p-4 shadow-sm">
+                      <p className="text-[11px] font-medium text-red-700/90 dark:text-red-300">مجموع دقائق التأخير</p>
+                      <p className="text-2xl font-black text-red-800 dark:text-red-200 tabular-nums mt-1">{driverLoadingStats.totalDelayMinutes}</p>
+                      <p className="text-[10px] text-red-600/80 dark:text-red-400/90 mt-0.5">دقيقة</p>
+                    </div>
+                    <div className="rounded-2xl border border-violet-200 dark:border-violet-900/50 bg-gradient-to-br from-violet-50 to-violet-100/60 dark:from-violet-950/40 dark:to-violet-900/20 p-4 shadow-sm col-span-2 lg:col-span-1">
+                      <p className="text-[11px] font-medium text-violet-800/90 dark:text-violet-300">متوسط التأخير</p>
+                      <p className="text-2xl font-black text-violet-900 dark:text-violet-100 tabular-nums mt-1">
+                        {driverLoadingStats.delayCount > 0 ? driverLoadingStats.avgDelayMinutes : '—'}
+                      </p>
+                      <p className="text-[10px] text-violet-600/80 dark:text-violet-400/90 mt-0.5">دقيقة / حادثة</p>
+                    </div>
+                  </div>
+                  <div className="overflow-auto flex-1 min-h-0 rounded-2xl border border-stone-200 dark:border-stone-600 shadow-inner bg-stone-50/30 dark:bg-stone-900/40">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead>
+                        <tr className="bg-stone-200/90 dark:bg-stone-700 text-right text-stone-800 dark:text-stone-100">
+                          <th className="px-3 py-2.5 font-bold text-xs">اليوم / التاريخ</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">وقت الطلب</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">وقت الخروج</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">دقائق من 7:00</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">تأخير؟</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">دقائق التأخير</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">الطلب</th>
+                          <th className="px-3 py-2.5 font-bold text-xs">المركبة</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {driverExitRequests.map((req, idx) => (
+                          <tr
+                            key={req.id}
+                            className={cn(
+                              'border-t border-stone-200 dark:border-stone-600/80 transition-colors',
+                              idx % 2 === 0 ? 'bg-white/90 dark:bg-stone-800/40' : 'bg-stone-50/90 dark:bg-stone-800/20'
+                            )}
+                          >
+                            <td className="px-3 py-2.5 whitespace-nowrap text-stone-800 dark:text-stone-200">
+                              {new Date(req.created_at).toLocaleDateString('ar-IQ', { weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric' })}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap font-medium">
+                              {new Date(req.created_at).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap text-xs">
+                              {req.exited_at
+                                ? new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' })
+                                : '—'}
+                            </td>
+                            <td className="px-3 py-2.5 tabular-nums text-stone-700 dark:text-stone-300">{req.loading_minutes_from_shift_start ?? '—'}</td>
+                            <td className="px-3 py-2.5">
+                              {req.loading_is_delay ? (
+                                <span className="inline-flex items-center rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-[11px] font-bold text-red-700 dark:text-red-300">نعم</span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">لا</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 tabular-nums font-semibold text-red-700 dark:text-red-300">{req.loading_delay_minutes ?? '—'}</td>
+                            <td className="px-3 py-2.5 font-mono text-[11px] text-stone-500">#{String(req.id).slice(0, 8)}</td>
+                            <td className="px-3 py-2.5 max-w-[130px] truncate text-xs" title={req.vehicle_plate ?? ''}>
+                              {req.vehicle_plate || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {driverExitRequests.length === 0 && (
+                      <p className="text-center py-10 text-stone-500 text-sm">لا توجد طلبات إخراج باحتساب وقت التحميل لهذا السائق</p>
+                    )}
+                  </div>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}

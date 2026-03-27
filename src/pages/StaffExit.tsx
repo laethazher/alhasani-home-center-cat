@@ -25,11 +25,19 @@ import {
   Timer,
   FileText,
   Download,
+  Package,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
+import {
+  computeDriverLoadingFromCreatedAt,
+  computeDriverLoadingPreview,
+  getOfficialOfficeHoursLabelAr,
+  isOutsideOfficialWorkingHours,
+  WORK_TIMEZONE,
+} from '../lib/loadingTime';
 import type {
   UserProfile,
   StaffMember,
@@ -104,6 +112,55 @@ function getOverdueInfo(req: ExitRequest, now: Date): { isOverdue: boolean; dela
   else if (mins > 0) delayText = `${mins} دقيقة`;
   else delayText = 'أقل من دقيقة';
   return { isOverdue: true, delayMinutes, delayText };
+}
+
+function DriverLoadingDetails({ req }: { req: ExitRequest }) {
+  if (!req.track_driver_loading_time || !req.driver_id) return null;
+  const mins = req.loading_minutes_from_shift_start;
+  const delay = req.loading_delay_minutes;
+  const isDel = req.loading_is_delay;
+  const outsideOffice = isOutsideOfficialWorkingHours(req.created_at);
+  return (
+    <div className="mt-3 pt-3 border-t border-amber-200/80 dark:border-amber-800/50 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 px-3 py-2.5 text-xs space-y-1.5">
+      <p className="font-bold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
+        <Clock className="w-3.5 h-3.5 shrink-0" />
+        احتساب وقت التحميل ({WORK_TIMEZONE})
+      </p>
+      {outsideOffice && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300/80 bg-amber-100/80 dark:bg-amber-950/50 dark:border-amber-700 px-2.5 py-2 text-amber-950 dark:text-amber-100">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            <span className="font-semibold">خارج وقت الدوام الرسمي</span>
+            {' — '}تم إنشاء الطلب في وقت لا يقع ضمن نافذة العمل المعتمدة ({getOfficialOfficeHoursLabelAr()}).
+          </span>
+        </div>
+      )}
+      <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-stone-700 dark:text-stone-300">
+        <span>
+          <span className="text-stone-500 dark:text-stone-400">وقت إنشاء الطلب: </span>
+          {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+        </span>
+        <span>
+          <span className="text-stone-500 dark:text-stone-400">المدة من بدء الدوام (7:00): </span>
+          {mins != null ? `${mins} دقيقة` : '—'}
+        </span>
+        {req.exited_at && (
+          <span className="sm:col-span-2">
+            <span className="text-stone-500 dark:text-stone-400">وقت الخروج الفعلي: </span>
+            {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
+          </span>
+        )}
+        <span>
+          <span className="text-stone-500 dark:text-stone-400">تأخير بعد 8:15: </span>
+          {isDel ? (
+            <span className="font-semibold text-red-600 dark:text-red-400">{delay != null ? `${delay} دقيقة` : 'نعم'}</span>
+          ) : (
+            <span className="text-emerald-600 dark:text-emerald-400">لا (ضمن المهلة)</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 /* ── Date Helpers ── */
@@ -545,6 +602,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [loadingData, setLoadingData] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExitRequestStatus | 'all'>('all');
+  /** تصفية طلبات الإخراج: الكل أو التي فُعّل فيها احتساب وقت التحميل فقط */
+  const [loadingExitFilter, setLoadingExitFilter] = useState<'all' | 'loading_only'>('all');
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
@@ -560,6 +619,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [formVehiclePlate, setFormVehiclePlate] = useState('');
   const [formExitType, setFormExitType] = useState<ExitType>('permanent');
   const [formDurationMinutes, setFormDurationMinutes] = useState<number>(30);
+  const [formTrackLoadingTime, setFormTrackLoadingTime] = useState(false);
+  const [formPreviewNow, setFormPreviewNow] = useState(() => new Date());
   const [submitting, setSubmitting] = useState(false);
 
   /* Archive view */
@@ -568,17 +629,6 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [archiveSelectedDateKey, setArchiveSelectedDateKey] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
-
-  const toggleSelectAll = () => {
-    const currentList = showArchive
-      ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
-      : todayRequests;
-    if (selectedRequestIds.length === currentList.length) {
-      setSelectedRequestIds([]);
-    } else {
-      setSelectedRequestIds(currentList.map((r) => r.id));
-    }
-  };
 
   const toggleRequestSelection = (id: string) => {
     setSelectedRequestIds((prev) =>
@@ -701,6 +751,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     return () => clearInterval(id);
   }, [isGateGuard, fetchRequests]);
 
+  useEffect(() => {
+    if (!showForm || !formDriverId || !formTrackLoadingTime) return;
+    const id = setInterval(() => setFormPreviewNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, [showForm, formDriverId, formTrackLoadingTime]);
+
   /* ── Actions ── */
   const handleCreate = async () => {
     if (!formDriverId && formAssistantIds.length === 0) return;
@@ -711,6 +767,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
     const finalReason = formExitReason === 'أخرى' ? formCustomReason : formExitReason;
 
+    const trackLoading = Boolean(formDriverId && formTrackLoadingTime);
+
+    /* لا نرسل أعمدة احتساب التحميل في INSERT حتى يبقى الطلب يُنشأ حتى لو لم يُطبَّق ترحيل قاعدة البيانات بعد؛ نُكمّلها بـ UPDATE اختياري */
     const { data: insertedRequest, error } = await supabase.from('exit_requests').insert({
       driver_id: formDriverId || null,
       driver_name: formDriverName || '',
@@ -725,6 +784,29 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       created_by: userId,
       status: 'pending',
     }).select().single();
+
+    if (error) {
+      console.error('exit_requests insert:', error);
+      alert('فشل إنشاء الطلب: ' + (error.message || 'خطأ غير معروف'));
+      setSubmitting(false);
+      return;
+    }
+
+    if (insertedRequest && trackLoading) {
+      const calc = computeDriverLoadingFromCreatedAt(insertedRequest.created_at);
+      const { error: loadUpdateErr } = await supabase
+        .from('exit_requests')
+        .update({
+          track_driver_loading_time: true,
+          loading_minutes_from_shift_start: calc.minutesFromShiftStart,
+          loading_delay_minutes: calc.delayMinutes,
+          loading_is_delay: calc.isDelay,
+        })
+        .eq('id', insertedRequest.id);
+      if (loadUpdateErr) {
+        console.warn('تعذر حفظ احتساب وقت التحميل (طبّق ترحيل قاعدة البيانات إن أردت هذه الميزة):', loadUpdateErr.message);
+      }
+    }
 
     if (!error && insertedRequest && formVehicleId) {
       // إضافة event لإخراج المركبة في سجل المركبة
@@ -769,6 +851,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       setFormVehiclePlate('');
       setFormExitType('permanent');
       setFormDurationMinutes(30);
+      setFormTrackLoadingTime(false);
       await fetchRequests();
     }
     setSubmitting(false);
@@ -826,10 +909,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     'ملاحظات': r.notes || '—',
     'تاريخ الإنشاء': new Date(r.created_at).toLocaleString('ar-IQ'),
     'تاريخ المغادرة': r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
+    'احتساب وقت التحميل': r.track_driver_loading_time ? 'نعم' : 'لا',
+    'دقائق من بدء الدوام 7:00': r.loading_minutes_from_shift_start != null ? String(r.loading_minutes_from_shift_start) : '—',
+    'دقائق التأخير بعد 8:15': r.loading_delay_minutes != null ? String(r.loading_delay_minutes) : '—',
+    'تأخير تحميل': r.loading_is_delay === true ? 'نعم' : r.loading_is_delay === false ? 'لا' : '—',
   }));
 
   const exportExcel = (reqs: ExitRequest[], filename: string) => {
-    const headers = ['الحالة', 'نوع الخروج', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'ملاحظات', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
+    const headers = ['الحالة', 'نوع الخروج', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'ملاحظات', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'احتساب وقت التحميل', 'دقائق من 7:00', 'دقائق التأخير بعد 8:15', 'تأخير تحميل'];
     const rows = reqs.map((r) => [
       STATUS_CONFIG[r.status].label,
       r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
@@ -840,28 +927,36 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       r.notes || '—',
       new Date(r.created_at).toLocaleString('ar-IQ'),
       r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
+      r.track_driver_loading_time ? 'نعم' : 'لا',
+      r.loading_minutes_from_shift_start != null ? String(r.loading_minutes_from_shift_start) : '—',
+      r.loading_delay_minutes != null ? String(r.loading_delay_minutes) : '—',
+      r.loading_is_delay === true ? 'نعم' : r.loading_is_delay === false ? 'لا' : '—',
     ]);
     exportToExcel([headers, ...rows], filename, 'إخراجات الكادر');
   };
 
   const exportPDF = async (reqs: ExitRequest[], filename: string) => {
-    const headers = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة'];
+    const headers = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'تحميل', 'من7:00', 'تأخيرد', 'تأخير؟'];
     let html = `<h1 style="text-align:center;font-size:20px;margin-bottom:16px">إخراجات الكادر</h1>
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <table style="width:100%;border-collapse:collapse;font-size:10px">
         <thead><tr style="background:#10b981;color:#fff">
-          ${headers.map((h) => `<th style="padding:6px 8px;text-align:right">${h}</th>`).join('')}
+          ${headers.map((h) => `<th style="padding:6px 4px;text-align:right">${h}</th>`).join('')}
         </tr></thead><tbody>`;
     for (let i = 0; i < reqs.length; i++) {
       const r = reqs[i];
       const bg = i % 2 === 0 ? 'background:#f8fafc' : '';
       html += `<tr style="${bg}">
-        <td style="padding:6px 8px;border:1px solid #ddd">${STATUS_CONFIG[r.status].label}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd">${driverMap.get(String(r.driver_id)) || r.driver_name || '—'}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd">${r.assistant_names.join(' ، ') || 'لا يوجد'}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd">${r.exit_reason || '—'}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd">${r.vehicle_plate || '—'}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd">${new Date(r.created_at).toLocaleString('ar-IQ')}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd">${r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${STATUS_CONFIG[r.status].label}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${driverMap.get(String(r.driver_id)) || r.driver_name || '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.assistant_names.join(' ، ') || 'لا يوجد'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.exit_reason || '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.vehicle_plate || '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${new Date(r.created_at).toLocaleString('ar-IQ')}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.track_driver_loading_time ? 'نعم' : 'لا'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.loading_minutes_from_shift_start != null ? r.loading_minutes_from_shift_start : '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.loading_delay_minutes != null ? r.loading_delay_minutes : '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.loading_is_delay === true ? 'نعم' : r.loading_is_delay === false ? 'لا' : '—'}</td>
       </tr>`;
     }
     html += '</tbody></table>';
@@ -980,6 +1075,35 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     }
     return true;
   });
+
+  const filteredWithLoading = useMemo(() => {
+    if (loadingExitFilter === 'all') return filtered;
+    return filtered.filter((r) => r.track_driver_loading_time === true);
+  }, [filtered, loadingExitFilter]);
+
+  const archiveDisplayGroupsFiltered = useMemo(() => {
+    if (loadingExitFilter === 'all') return archiveDisplayGroups;
+    return archiveDisplayGroups
+      .map((g) => ({
+        ...g,
+        requests: g.requests.filter((r) => r.track_driver_loading_time === true),
+      }))
+      .filter((g) => g.requests.length > 0);
+  }, [archiveDisplayGroups, loadingExitFilter]);
+
+  const visibleExitRequestsFlat = useMemo(
+    () => (showArchive ? archiveDisplayGroupsFiltered.flatMap((g) => g.requests) : filteredWithLoading),
+    [showArchive, archiveDisplayGroupsFiltered, filteredWithLoading]
+  );
+
+  const toggleSelectAll = useCallback(() => {
+    const currentList = visibleExitRequestsFlat;
+    if (selectedRequestIds.length === currentList.length) {
+      setSelectedRequestIds([]);
+    } else {
+      setSelectedRequestIds(currentList.map((r) => r.id));
+    }
+  }, [visibleExitRequestsFlat, selectedRequestIds.length]);
 
   /* ── Stats (today only) ── */
   const stats = {
@@ -1101,10 +1225,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               onClick={toggleSelectAll}
               className="flex items-center gap-2 px-4 py-3 rounded-xl bg-stone-100 dark:bg-stone-700 text-sm font-medium border border-stone-200 dark:border-stone-600"
             >
-              {(showArchive
-                ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
-                : todayRequests
-              ).length === selectedRequestIds.length ? 'إلغاء الكل' : 'تحديد الكل'}
+              {visibleExitRequestsFlat.length === selectedRequestIds.length ? 'إلغاء الكل' : 'تحديد الكل'}
             </button>
           )}
 
@@ -1117,9 +1238,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 onClick={() => {
                   const data = isSelectionMode && selectedRequestIds.length > 0
                     ? requests.filter((r) => selectedRequestIds.includes(r.id))
-                    : showArchive
-                      ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
-                      : todayRequests;
+                    : visibleExitRequestsFlat;
                   const name = isSelectionMode && selectedRequestIds.length > 0
                     ? `إخراجات_محددة_${Date.now()}`
                     : showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
@@ -1136,9 +1255,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 onClick={() => {
                   const data = isSelectionMode && selectedRequestIds.length > 0
                     ? requests.filter((r) => selectedRequestIds.includes(r.id))
-                    : showArchive
-                      ? getArchiveVisibleFlat(archiveRequests, searchTerm, archiveSelectedDateKey, driverMap)
-                      : todayRequests;
+                    : visibleExitRequestsFlat;
                   const name = isSelectionMode && selectedRequestIds.length > 0
                     ? `إخراجات_محددة_${Date.now()}`
                     : showArchive ? 'سجل_الإخراجات' : `إخراجات_اليوم_${todayKey}`;
@@ -1338,6 +1455,33 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 {s === 'all' ? 'الكل' : STATUS_CONFIG[s].label}
               </button>
             ))}
+            <div className="flex items-center gap-1.5 rounded-xl border border-amber-200/80 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-950/20 p-1">
+              <button
+                type="button"
+                onClick={() => setLoadingExitFilter('all')}
+                className={cn(
+                  'px-3 py-2 rounded-lg text-xs font-semibold transition-all',
+                  loadingExitFilter === 'all'
+                    ? 'bg-white dark:bg-stone-800 shadow text-amber-900 dark:text-amber-100'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900'
+                )}
+              >
+                كل الطلبات
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoadingExitFilter('loading_only')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all',
+                  loadingExitFilter === 'loading_only'
+                    ? 'bg-amber-500 text-white shadow'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-amber-800 dark:hover:text-amber-200'
+                )}
+              >
+                <Package className="w-3.5 h-3.5" />
+                باحتساب تحميل فقط
+              </button>
+            </div>
           </div>
         )}
 
@@ -1467,6 +1611,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       const idStr = String(id || '');
                       setFormDriverId(idStr);
                       setFormDriverName(name);
+                      if (!idStr) setFormTrackLoadingTime(false);
                       // ربط المركبة تلقائياً من جدول vehicles (نفس المصدر: تغيير السائق من صفحة المركبات ينعكس هنا)
                       if (idStr) {
                         const v = vehicles.find((vv) => {
@@ -1528,6 +1673,55 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 </div>
               )}
 
+              {formDriverId && (
+                <div className="mt-4 rounded-xl border border-amber-200/80 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3 space-y-2">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formTrackLoadingTime}
+                      onChange={(e) => setFormTrackLoadingTime(e.target.checked)}
+                      className="mt-1 rounded border-stone-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span className="text-sm text-stone-800 dark:text-stone-200">
+                      <span className="font-semibold">احتساب وقت التحميل</span>
+                      <span className="block text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+                        الدوام الرسمي للمراجعة: {getOfficialOfficeHoursLabelAr()} ({WORK_TIMEZONE}). احتساب مدة التحميل من 7:00 صباحاً؛ يُعتبر <span className="font-semibold">تأخير تحميل</span> بعد 8:15 صباحاً. سيظهر تحذير إن وُجد الطلب خارج نافذة الدوام.
+                      </span>
+                    </span>
+                  </label>
+                  {formTrackLoadingTime && (() => {
+                    const prev = computeDriverLoadingPreview(formPreviewNow);
+                    return (
+                      <div className="text-xs rounded-lg bg-white/80 dark:bg-stone-900/50 px-3 py-2 border border-amber-100 dark:border-amber-900/40 space-y-2">
+                        <p className="font-semibold text-amber-900 dark:text-amber-100">معاينة (قبل الإرسال)</p>
+                        {prev.outsideOfficialOfficeHours ? (
+                          <div className="flex items-start gap-2 rounded-md border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-2.5 py-2 text-red-900 dark:text-red-100">
+                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold">خارج وقت الدوام الرسمي</p>
+                              <p className="mt-0.5 opacity-95">
+                                الوقت الحالي ({WORK_TIMEZONE}) خارج نافذة العمل المعتمدة ({getOfficialOfficeHoursLabelAr()}). يمكنك متابعة الطلب للضرورة، مع العلم أنه لا يقع ضمن ساعات الدوام المعتمدة لبدء التحميل الرسمي.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <p>
+                            المدة من 7:00 حتى وقت الطلب: <span className="font-bold">{prev.minutesFromShiftStart}</span> دقيقة
+                          </p>
+                        )}
+                        <p>
+                          {prev.isDelay ? (
+                            <span className="text-red-600 dark:text-red-400">تأخير تحميل (بعد 8:15): <span className="font-bold">{prev.delayMinutes} دقيقة</span></span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400">لا يُحسب كتأخير تحميل بعد 8:15 — ضمن المهلة الصباحية</span>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {/* Exit Reason & Vehicle */}
               <div className="grid md:grid-cols-2 gap-6 mt-4">
                 {/* Exit Reason */}
@@ -1578,6 +1772,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       } else {
                         setFormDriverId('');
                         setFormDriverName('');
+                        setFormTrackLoadingTime(false);
                       }
                     }}
                     className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white"
@@ -1722,7 +1917,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   <span className="font-bold">بحث نشط:</span> عرض الإخراجات المطابقة من <span className="font-bold">جميع التواريخ</span>، مجمّعة حسب اليوم.
                 </div>
               )}
-              {archiveDisplayGroups.length === 0 ? (
+              {archiveDisplayGroupsFiltered.length === 0 ? (
                 <div className="text-center py-16 rounded-2xl border border-dashed border-stone-300 dark:border-stone-600 bg-stone-50/50 dark:bg-stone-900/30">
                   <History className="w-10 h-10 text-stone-400 mx-auto mb-3" />
                   <p className="text-stone-600 dark:text-stone-400 font-medium">
@@ -1732,7 +1927,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   </p>
                 </div>
               ) : (
-            archiveDisplayGroups.map((group) => (
+            archiveDisplayGroupsFiltered.map((group) => (
               <div key={group.dateKey} className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
@@ -1778,6 +1973,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                               دائم
                             </span>
                           )}
+                          {req.track_driver_loading_time && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/90 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border border-amber-300/60 dark:border-amber-700/60">
+                              <Package className="w-3 h-3 shrink-0" />
+                              احتساب تحميل
+                            </span>
+                          )}
                           <span className="text-xs text-stone-400">
                             {new Date(req.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                           </span>
@@ -1821,6 +2022,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                           </div>
                         )}
+                        <DriverLoadingDetails req={req} />
                         {/* Archive: show return summary — temporary only */}
                         {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-1">
@@ -1885,17 +2087,19 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       {/* ── TODAY Requests List ── */}
       {!showArchive && (
       <div className="space-y-3">
-        {filtered.length === 0 ? (
+        {filteredWithLoading.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800/50 flex items-center justify-center mx-auto mb-4">
               <Users className="w-8 h-8 text-stone-400" />
             </div>
             <p className="text-stone-500 dark:text-stone-400 font-medium">
-              {isGateGuard ? 'لا توجد طلبات خروج معتمدة حالياً' : 'لا توجد طلبات خروج لليوم'}
+              {loadingExitFilter === 'loading_only'
+                ? 'لا توجد طلبات باحتساب وقت التحميل ضمن العرض الحالي'
+                : isGateGuard ? 'لا توجد طلبات خروج معتمدة حالياً' : 'لا توجد طلبات خروج لليوم'}
             </p>
           </div>
         ) : (
-          filtered.map((req, index) => (
+          filteredWithLoading.map((req, index) => (
             <motion.div
               key={req.id}
               initial={{ opacity: 0, y: 12 }}
@@ -1925,6 +2129,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
                         <DoorOpen className="w-3 h-3" />
                         دائم
+                      </span>
+                    )}
+                    {req.track_driver_loading_time && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/90 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border border-amber-300/60 dark:border-amber-700/60">
+                        <Package className="w-3 h-3 shrink-0" />
+                        احتساب تحميل
                       </span>
                     )}
                     <span className="text-xs text-stone-400">
@@ -2002,6 +2212,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                     </div>
                   )}
+
+                  <DriverLoadingDetails req={req} />
 
                   {/* ── Assistant Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
                   {req.status === 'exited' && req.exit_type === 'temporary' && (req.driver_id || req.assistant_ids.length > 0) && (

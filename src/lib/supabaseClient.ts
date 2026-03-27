@@ -56,6 +56,11 @@ export interface ExitRequest {
   exited_at: string | null;
   gate_guard_id: string | null;
   created_at: string;
+  /** Present when column exists (migration); treat missing as false */
+  track_driver_loading_time?: boolean;
+  loading_minutes_from_shift_start: number | null;
+  loading_delay_minutes: number | null;
+  loading_is_delay: boolean | null;
 }
 
 export interface UserProfile {
