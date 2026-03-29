@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
@@ -26,6 +26,11 @@ import type { ExitRequest, StaffMember, Violation } from '../lib/supabaseClient'
 import { useUserProfile } from '../hooks/useUserProfile';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
+import type { ColumnDef } from '../smart/components/DataTableEnhanced';
+
+const DataTableEnhanced = lazy(() =>
+  import('../smart/components/DataTableEnhanced').then((m) => ({ default: m.DataTableEnhanced }))
+);
 
 /* ── Types ── */
 interface ViolationRecord {
@@ -99,6 +104,7 @@ export default function Violations() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [deletingManualId, setDeletingManualId] = useState<number | null>(null);
+  const [tableView, setTableView] = useState(false);
 
   const fetchData = useCallback(async () => {
     const [reqRes, staffRes, violationsRes] = await Promise.all([
@@ -298,6 +304,47 @@ export default function Violations() {
 
     return list;
   }, [violationsMap, search, sortBy]);
+
+  const violationsTableColumns: ColumnDef<StaffViolations>[] = useMemo(
+    () => [
+      {
+        id: 'name',
+        header: 'الموظف',
+        sortable: true,
+        getSortValue: (v) => v.staffName,
+        accessor: (v) => v.staffName,
+      },
+      {
+        id: 'role',
+        header: 'الدور',
+        accessor: (v) => (v.staffRole === 'driver' ? 'سائق' : 'مساعد'),
+      },
+      {
+        id: 'violations',
+        header: 'المخالفات',
+        sortable: true,
+        getSortValue: (v) => v.totalViolations,
+        accessor: (v) => v.totalViolations,
+      },
+      {
+        id: 'delay',
+        header: 'التأخير',
+        sortable: true,
+        getSortValue: (v) => v.totalDelayMinutes,
+        accessor: (v) => formatDelay(v.totalDelayMinutes),
+      },
+      {
+        id: 'severity',
+        header: 'الخطورة',
+        accessor: (v) => (
+          <span className={cn('text-xs font-semibold', getSeverity(v.totalViolations).color)}>
+            {getSeverity(v.totalViolations).label}
+          </span>
+        ),
+      },
+    ],
+    []
+  );
 
   /* ── Stats ── */
   const stats = useMemo(() => {
@@ -569,6 +616,18 @@ export default function Violations() {
           >
             حسب مدة التأخير
           </button>
+          <button
+            type="button"
+            onClick={() => setTableView((v) => !v)}
+            className={cn(
+              'px-4 py-2.5 rounded-xl text-sm font-medium transition-colors border',
+              tableView
+                ? 'bg-stone-800 text-white border-stone-800 dark:bg-stone-200 dark:text-stone-900'
+                : 'bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-400 border-stone-300 dark:border-stone-600'
+            )}
+          >
+            {tableView ? 'عرض البطاقات' : 'جدول محسّن'}
+          </button>
         </div>
       </div>
 
@@ -581,6 +640,23 @@ export default function Violations() {
           <p className="text-lg font-semibold text-stone-700 dark:text-stone-300">لا توجد مخالفات</p>
           <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">جميع الموظفين ملتزمين بأوقات الخروج</p>
         </div>
+      ) : tableView ? (
+        <Suspense
+          fallback={
+            <div className="flex justify-center py-16">
+              <Loader2 className="w-8 h-8 animate-spin text-red-600" />
+            </div>
+          }
+        >
+          <DataTableEnhanced
+            rows={violationsList as unknown as Record<string, unknown>[]}
+            columns={violationsTableColumns as unknown as ColumnDef<unknown>[]}
+            getRowKey={(v) => (v as StaffViolations).staffId}
+            defaultPageSize={15}
+            pageSizeOptions={[10, 15, 25, 50]}
+            className="bg-white dark:bg-stone-900"
+          />
+        </Suspense>
       ) : (
         <div className="space-y-3">
           {violationsList.map((v, index) => {

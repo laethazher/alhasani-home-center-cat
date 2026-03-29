@@ -1,4 +1,6 @@
 {
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist"],
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,
@@ -15,6 +17,7 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "allowJs": true,
+    "strict": true,
     "jsx": "react-jsx",
     "paths": {
       "@/*": [

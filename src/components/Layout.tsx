@@ -5,7 +5,7 @@ import {
   LogOut, Menu, X, Moon, Sun, ChevronLeft, ChevronDown,
   ArrowRight, DoorOpen, Shield, Wrench,
   ClipboardList, Activity, History, Package, Bell,
-  Users, CalendarCheck, BarChart3,
+  Users, CalendarCheck, BarChart3, Sparkles,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -19,7 +19,7 @@ export type PageKey =
   | 'users' | 'settings' | 'maintenance' | 'maintenance-requests'
   | 'active-maintenance' | 'maintenance-history' | 'spare-parts'
   | 'notifications' | 'crew-attendance' | 'attendance-history'
-  | 'attendance-reports' | 'attendance-activity-log' | 'crew-staff';
+  | 'attendance-reports' | 'reports-hub' | 'attendance-activity-log' | 'crew-staff';
 
 interface NavItem   { key: PageKey; label: string; icon: React.ElementType; roles: UserRole[] | 'all' }
 interface ChildItem { key: PageKey; label: string; icon: React.ElementType; roles: UserRole[] }
@@ -50,6 +50,7 @@ const NAV_ITEMS: NavItem[] = [
   { key:'staff-exit', label:'إخراج الكادر',     icon:DoorOpen,        roles:['admin','driver','manager','warehouse','logistics','gate_guard'] },
   { key:'violations', label:'سجل المخالفات',    icon:Shield,          roles:['admin'] },
   { key:'reports',    label:'التقارير',         icon:FileText,        roles:['admin','driver','manager','warehouse','logistics'] },
+  { key:'reports-hub', label:'التقارير الذكية', icon:Sparkles,        roles:['admin','manager'] },
   { key:'users',      label:'إدارة المستخدمين', icon:UserCog,         roles:['admin'] },
   { key:'settings',   label:'الإعدادات',        icon:Settings,        roles:['admin'] },
 ];

@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Archive,
   Download,
-  Search,
   X,
   Check,
   Clock,
@@ -34,6 +33,17 @@ import type {
   Vehicle,
   ExitRequest,
 } from '../lib/supabaseClient';
+import {
+  SmartSearchBar,
+  HighlightText,
+  InsightsPanel,
+  ChartsPanel,
+  ExportMenu,
+  SavedViews,
+  useAutoRefresh,
+  rankItems,
+  insightsFromAttendanceRows,
+} from '../smart';
 import { WORK_TIMEZONE } from '../lib/loadingTime';
 
 const ATTENDANCE_TYPES: { value: AttendanceType; label: string }[] = [
@@ -106,6 +116,7 @@ export default function CrewAttendance({ profile }: Props) {
   const [addLoading, setAddLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortRelevance, setSortRelevance] = useState(false);
   const [driverLoadingModal, setDriverLoadingModal] = useState<{ staffId: number; name: string } | null>(null);
   const [driverExitRequests, setDriverExitRequests] = useState<ExitRequest[]>([]);
   const [driverExitLoading, setDriverExitLoading] = useState(false);
@@ -248,6 +259,36 @@ export default function CrewAttendance({ profile }: Props) {
     });
   }, [rows, searchQuery, staff, roleFilter]);
 
+  const visibleRowsDisplayed = useMemo(() => {
+    if (!sortRelevance || !searchQuery.trim()) return visibleRows;
+    return rankItems<RowState>(visibleRows, searchQuery, {
+      getSearchableText: (r) => {
+        const s = staff.find((x) => Number(x.id) === r.staff_id);
+        return [s?.full_name ?? '', r.notes ?? ''].join(' ');
+      },
+    });
+  }, [visibleRows, sortRelevance, searchQuery, staff]);
+
+  const attendanceInsights = useMemo(
+    () =>
+      insightsFromAttendanceRows(
+        visibleRowsDisplayed.map((r) => ({ attendance_type: r.attendance_type })),
+        staff.length
+      ),
+    [visibleRowsDisplayed, staff.length]
+  );
+
+  const attendanceNameSuggestions = useMemo(
+    () => staff.map((s) => s.full_name).slice(0, 40),
+    [staff]
+  );
+
+  const attendanceSmartRefetch = useCallback(() => {
+    void fetchData(true);
+  }, [fetchData]);
+
+  useAutoRefresh(30_000, attendanceSmartRefetch, true);
+
   const stats = useMemo(() => {
     let present = 0, late = 0, absent = 0, leave = 0;
     attendance.forEach((a) => {
@@ -272,7 +313,7 @@ export default function CrewAttendance({ profile }: Props) {
   };
 
   const toggleSelectAll = () => {
-    const visibleIds = visibleRows.map((r) => r.staff_id);
+    const visibleIds = visibleRowsDisplayed.map((r) => r.staff_id);
     const allVisibleSelected = visibleIds.every(id => selectedStaffIds.includes(id));
 
     if (allVisibleSelected) {
@@ -622,24 +663,26 @@ export default function CrewAttendance({ profile }: Props) {
       {/* Toolbar */}
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
-          {/* Search Field */}
-          <div className="relative flex-1 min-w-[240px] max-w-md">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="بحث باسم الموظف (كلمات مفتاحية)..."
-              className="w-full pr-10 pl-10 py-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute left-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-400 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
+          <div className="flex flex-col sm:flex-row gap-2 flex-1 min-w-[240px] max-w-2xl">
+            <div className="flex-1 min-w-[200px]">
+              <SmartSearchBar
+                pageKey="crew-attendance"
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="بحث باسم الموظف (كلمات مفتاحية)..."
+                dataSuggestions={attendanceNameSuggestions}
+                showPredictiveChips={false}
+              />
+            </div>
+            <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-xs cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={sortRelevance}
+                onChange={(e) => setSortRelevance(e.target.checked)}
+                className="rounded"
+              />
+              ترتيب التطابق
+            </label>
           </div>
 
           <select
@@ -727,6 +770,63 @@ export default function CrewAttendance({ profile }: Props) {
             <Download className="w-4 h-4" /> 
             PDF {isSelectionMode && selectedStaffIds.length > 0 ? `(${selectedStaffIds.length})` : 'الكل'}
           </button>
+          <ExportMenu
+            meta={{
+              title: `حضور الكادر ${todayStr}`,
+              filterDescription:
+                [
+                  searchQuery && `بحث: ${searchQuery}`,
+                  roleFilter !== 'all' && `الدور: ${roleFilter === 'driver' ? 'سائق' : 'مساعد'}`,
+                  sortRelevance && 'ترتيب حسب التطابق',
+                ]
+                  .filter(Boolean)
+                  .join(' | ') || '—',
+              rowCount: visibleRowsDisplayed.length,
+            }}
+            headerRow={[
+              'الموظف',
+              'الدور',
+              'نوع الحضور',
+              'الوقت / المدى',
+              'الملاحظات',
+              'طلبات إخراج باحتساب تحميل',
+              'مرات تأخير التحميل',
+              'مجموع دقائق تأخير التحميل',
+            ]}
+            dataRows={visibleRowsDisplayed.map((r) => {
+              const s = staff.find((x) => Number(x.id) === r.staff_id);
+              const roleLabel = s?.role === 'driver' ? 'سائق' : 'مساعد سائق';
+              const typeLabel = ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label ?? r.attendance_type;
+              let timeStr = '—';
+              if (r.attendance_type === 'present' || r.attendance_type === 'late') timeStr = r.check_in_time;
+              else if (r.attendance_type === 'time_leave') timeStr = `${r.check_in_time} → ${r.check_out_time}`;
+              const agg = s?.role === 'driver' ? driverExitAggMap[r.staff_id] : undefined;
+              return [
+                s?.full_name ?? '',
+                roleLabel,
+                typeLabel,
+                timeStr,
+                r.notes,
+                agg ? String(agg.tracked) : '—',
+                agg ? String(agg.delayEvents) : '—',
+                agg ? String(agg.totalDelayMin) : '—',
+              ];
+            })}
+            sheetName="حضور"
+          />
+          <SavedViews<Record<string, unknown>>
+            pageKey="crew-attendance"
+            getCurrentPayload={() => ({
+              searchQuery,
+              roleFilter,
+              sortRelevance,
+            })}
+            onApply={(p) => {
+              setSearchQuery(String(p.searchQuery ?? ''));
+              setRoleFilter((p.roleFilter as typeof roleFilter) ?? 'all');
+              setSortRelevance(Boolean(p.sortRelevance));
+            }}
+          />
         </div>
       </div>
 
@@ -745,6 +845,9 @@ export default function CrewAttendance({ profile }: Props) {
         ))}
       </div>
 
+      <InsightsPanel metrics={attendanceInsights.metrics} alerts={attendanceInsights.alerts} />
+      <ChartsPanel barData={attendanceInsights.bar} pieData={attendanceInsights.pie} />
+
       {/* Table */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -758,7 +861,7 @@ export default function CrewAttendance({ profile }: Props) {
                 {isSelectionMode && (
                   <th className="px-4 py-3 text-right text-sm font-semibold">
                     <button onClick={toggleSelectAll} className="text-blue-600 hover:underline">
-                      {selectedStaffIds.length === visibleRows.length && visibleRows.length > 0 ? 'إلغاء الكل' : 'تحديد الكل'}
+                      {selectedStaffIds.length === visibleRowsDisplayed.length && visibleRowsDisplayed.length > 0 ? 'إلغاء الكل' : 'تحديد الكل'}
                     </button>
                   </th>
                 )}
@@ -770,7 +873,7 @@ export default function CrewAttendance({ profile }: Props) {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((r, idx) => {
+              {visibleRowsDisplayed.map((r, idx) => {
                 const s = staff.find((x) => Number(x.id) === r.staff_id);
                 if (!s) return null;
                 const roleLabel = s.role === 'driver' ? 'سائق' : 'مساعد سائق';
@@ -807,10 +910,12 @@ export default function CrewAttendance({ profile }: Props) {
                             onClick={() => setDriverLoadingModal({ staffId: r.staff_id, name: s.full_name })}
                             className="font-medium text-left text-blue-700 dark:text-blue-300 hover:underline underline-offset-2"
                           >
-                            {s.full_name}
+                            <HighlightText text={s.full_name} query={searchQuery} />
                           </button>
                         ) : (
-                          <span className="font-medium">{s.full_name}</span>
+                          <span className="font-medium">
+                            <HighlightText text={s.full_name} query={searchQuery} />
+                          </span>
                         )}
                       </div>
                     </td>
@@ -869,7 +974,7 @@ export default function CrewAttendance({ profile }: Props) {
             </tbody>
           </table>
         </div>
-        {visibleRows.length === 0 && (
+        {visibleRowsDisplayed.length === 0 && (
           <div className="py-16 text-center text-stone-500 dark:text-stone-400">
             {searchQuery ? 'لا توجد نتائج تطابق بحثك' : 'لا يوجد موظفين لعرضهم. أضف سائقاً أو مساعد سائق.'}
           </div>

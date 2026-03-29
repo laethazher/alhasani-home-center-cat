@@ -46,6 +46,17 @@ import type {
   ExitType,
   Vehicle,
 } from '../lib/supabaseClient';
+import {
+  SmartSearchBar,
+  HighlightText,
+  InsightsPanel,
+  ChartsPanel,
+  ExportMenu,
+  SavedViews,
+  useAutoRefresh,
+  rankItems,
+  insightsFromExitRows,
+} from '../smart';
 
 /* ── Notification Sound ── */
 const playNotificationSound = () => {
@@ -604,6 +615,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [statusFilter, setStatusFilter] = useState<ExitRequestStatus | 'all'>('all');
   /** تصفية طلبات الإخراج: الكل أو التي فُعّل فيها احتساب وقت التحميل فقط */
   const [loadingExitFilter, setLoadingExitFilter] = useState<'all' | 'loading_only'>('all');
+  /** فلترة أرشيف اختيارية من الاقتراح الذكي (نطاق تواريخ) */
+  const [smartDateRange, setSmartDateRange] = useState<{ from: string; to: string } | null>(null);
+  const [sortRelevance, setSortRelevance] = useState(false);
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
@@ -1029,7 +1043,17 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     return map;
   }, [requests]);
 
-  const archiveRequests = requests.filter((r) => getDateKey(r.created_at) !== todayKey);
+  const archiveRequestsAll = useMemo(
+    () => requests.filter((r) => getDateKey(r.created_at) !== todayKey),
+    [requests, todayKey]
+  );
+  const archiveRequests = useMemo(() => {
+    if (!smartDateRange) return archiveRequestsAll;
+    return archiveRequestsAll.filter((r) => {
+      const k = getDateKey(r.created_at);
+      return k >= smartDateRange.from && k <= smartDateRange.to;
+    });
+  }, [archiveRequestsAll, smartDateRange]);
 
   const yesterdayKey = useMemo(() => addDaysToDateKey(todayKey, -1), [todayKey]);
   const dayBeforeYesterdayKey = useMemo(() => addDaysToDateKey(todayKey, -2), [todayKey]);
@@ -1091,10 +1115,62 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       .filter((g) => g.requests.length > 0);
   }, [archiveDisplayGroups, loadingExitFilter]);
 
-  const visibleExitRequestsFlat = useMemo(
-    () => (showArchive ? archiveDisplayGroupsFiltered.flatMap((g) => g.requests) : filteredWithLoading),
-    [showArchive, archiveDisplayGroupsFiltered, filteredWithLoading]
+  const rankExitList = useCallback(
+    (list: ExitRequest[]) => {
+      if (!sortRelevance || !searchTerm.trim()) return list;
+      return rankItems(list, searchTerm, {
+        getSearchableText: (r) =>
+          [
+            driverMap.get(String(r.driver_id)) || r.driver_name || '',
+            ...r.assistant_names,
+            r.notes || '',
+            r.vehicle_plate || '',
+          ].join(' '),
+        getDate: (r) => new Date(r.created_at),
+      });
+    },
+    [sortRelevance, searchTerm, driverMap]
   );
+
+  const filteredDisplayed = useMemo(
+    () => rankExitList(filteredWithLoading),
+    [filteredWithLoading, rankExitList]
+  );
+
+  const archiveDisplayGroupsDisplayed = useMemo(
+    () =>
+      archiveDisplayGroupsFiltered.map((g) => ({
+        ...g,
+        requests: rankExitList(g.requests),
+      })),
+    [archiveDisplayGroupsFiltered, rankExitList]
+  );
+
+  const visibleExitRequestsFlat = useMemo(
+    () =>
+      showArchive
+        ? archiveDisplayGroupsDisplayed.flatMap((g) => g.requests)
+        : filteredDisplayed,
+    [showArchive, archiveDisplayGroupsDisplayed, filteredDisplayed]
+  );
+
+  const exitInsightsBundle = useMemo(
+    () => insightsFromExitRows(visibleExitRequestsFlat),
+    [visibleExitRequestsFlat]
+  );
+
+  const staffNameSuggestions = useMemo(
+    () => [...drivers.map((d) => d.full_name), ...assistants.map((a) => a.full_name)].slice(0, 40),
+    [drivers, assistants]
+  );
+
+  const smartPeriodicRefetch = useCallback(() => {
+    void fetchRequests();
+    void fetchStaff();
+    void fetchVehicles();
+  }, [fetchRequests, fetchStaff, fetchVehicles]);
+
+  useAutoRefresh(30_000, smartPeriodicRefetch, !isGateGuard);
 
   const toggleSelectAll = useCallback(() => {
     const currentList = visibleExitRequestsFlat;
@@ -1193,6 +1269,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 setArchiveSelectedDateKey(preferred);
               } else {
                 setArchiveSelectedDateKey(null);
+                setSmartDateRange(null);
               }
             }}
             className={cn(
@@ -1205,7 +1282,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             {showArchive ? (
               <><ArrowRight className="w-5 h-5" /> العودة لإخراجات اليوم</>
             ) : (
-              <><History className="w-5 h-5" /> سجل إخراجات الكادر {archiveRequests.length > 0 && <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2 py-0.5 rounded-full text-xs">{archiveRequests.length}</span>}</>
+              <><History className="w-5 h-5" /> سجل إخراجات الكادر {archiveRequestsAll.length > 0 && <span className="bg-stone-200 dark:bg-stone-700 text-stone-600 dark:text-stone-300 px-2 py-0.5 rounded-full text-xs">{archiveRequestsAll.length}</span>}</>
             )}
           </motion.button>
 
@@ -1267,6 +1344,85 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 PDF {isSelectionMode && selectedRequestIds.length > 0 ? `(${selectedRequestIds.length})` : 'الكل'}
               </motion.button>
             </>
+          )}
+
+          {isAdmin && (
+            <ExportMenu
+              meta={{
+                title: showArchive ? 'سجل إخراجات الكادر' : `إخراجات اليوم ${todayKey}`,
+                filterDescription: [
+                  searchTerm && `بحث: ${searchTerm}`,
+                  statusFilter !== 'all' && `حالة: ${STATUS_CONFIG[statusFilter as ExitRequestStatus]?.label ?? statusFilter}`,
+                  loadingExitFilter === 'loading_only' && 'باحتساب تحميل فقط',
+                  smartDateRange && `من ${smartDateRange.from} إلى ${smartDateRange.to}`,
+                  sortRelevance && 'ترتيب حسب التطابق',
+                ]
+                  .filter(Boolean)
+                  .join(' | ') || 'لا فلاتر إضافية',
+                rowCount: visibleExitRequestsFlat.length,
+              }}
+              headerRow={[
+                'الحالة',
+                'نوع الخروج',
+                'السائق',
+                'المساعدين',
+                'سبب الخروج',
+                'المركبة',
+                'ملاحظات',
+                'تاريخ الإنشاء',
+                'تاريخ المغادرة',
+                'احتساب وقت التحميل',
+                'دقائق من 7:00',
+                'دقائق التأخير بعد 8:15',
+                'تأخير تحميل',
+              ]}
+              dataRows={visibleExitRequestsFlat.map((r) => [
+                STATUS_CONFIG[r.status].label,
+                r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
+                driverMap.get(String(r.driver_id)) || r.driver_name || '—',
+                r.assistant_names.join(' ، ') || 'لا يوجد',
+                r.exit_reason || '—',
+                r.vehicle_plate || '—',
+                r.notes || '—',
+                new Date(r.created_at).toLocaleString('ar-IQ'),
+                r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
+                r.track_driver_loading_time ? 'نعم' : 'لا',
+                r.loading_minutes_from_shift_start != null ? String(r.loading_minutes_from_shift_start) : '—',
+                r.loading_delay_minutes != null ? String(r.loading_delay_minutes) : '—',
+                r.loading_is_delay === true ? 'نعم' : r.loading_is_delay === false ? 'لا' : '—',
+              ])}
+              sheetName="إخراجات"
+            />
+          )}
+
+          {!isGateGuard && (
+            <SavedViews<Record<string, unknown>>
+              pageKey="staff-exit"
+              getCurrentPayload={() => ({
+                searchTerm,
+                statusFilter,
+                loadingExitFilter,
+                showArchive,
+                archiveSelectedDateKey,
+                smartDateRange,
+                sortRelevance,
+              })}
+              onApply={(p) => {
+                setSearchTerm(String(p.searchTerm ?? ''));
+                setStatusFilter((p.statusFilter as ExitRequestStatus | 'all') ?? 'all');
+                setLoadingExitFilter((p.loadingExitFilter as 'all' | 'loading_only') ?? 'all');
+                setShowArchive(Boolean(p.showArchive));
+                setArchiveSelectedDateKey(
+                  p.archiveSelectedDateKey != null ? String(p.archiveSelectedDateKey) : null
+                );
+                setSmartDateRange(
+                  p.smartDateRange && typeof p.smartDateRange === 'object'
+                    ? (p.smartDateRange as { from: string; to: string })
+                    : null
+                );
+                setSortRelevance(Boolean(p.sortRelevance));
+              }}
+            />
           )}
         </div>
       )}
@@ -1427,16 +1583,47 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       )}
 
       {/* ── Search & Filters ── */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1 relative">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={showArchive ? 'بحث في السجل (جميع التواريخ عند وجود نص)...' : 'بحث بالاسم أو الملاحظات...'}
-            className="w-full pr-10 pl-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 outline-none transition-all text-stone-900 dark:text-white placeholder:text-stone-400"
-          />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col lg:flex-row gap-3 lg:items-start">
+          <div className="flex-1 min-w-0">
+            <SmartSearchBar
+              pageKey="staff-exit"
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder={
+                showArchive
+                  ? 'بحث في السجل (جميع التواريخ عند وجود نص)...'
+                  : 'بحث بالاسم أو الملاحظات...'
+              }
+              dataSuggestions={staffNameSuggestions}
+              onApplyParsedFilters={({ searchText, dateRange }) => {
+                setSearchTerm(searchText);
+                if (dateRange) {
+                  setSmartDateRange(dateRange);
+                  setShowArchive(true);
+                  setArchiveSelectedDateKey(null);
+                }
+              }}
+            />
+            {smartDateRange && (
+              <button
+                type="button"
+                onClick={() => setSmartDateRange(null)}
+                className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                إلغاء فلترة التاريخ الذكية
+              </button>
+            )}
+          </div>
+          <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={sortRelevance}
+              onChange={(e) => setSortRelevance(e.target.checked)}
+              className="rounded border-stone-300"
+            />
+            <span className="text-stone-700 dark:text-stone-300">ترتيب حسب التطابق</span>
+          </label>
         </div>
 
         {isAdmin && (
@@ -1500,6 +1687,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
           </button>
         )}
       </div>
+
+      <InsightsPanel metrics={exitInsightsBundle.metrics} alerts={exitInsightsBundle.alerts} />
+      <ChartsPanel barData={exitInsightsBundle.bar} pieData={exitInsightsBundle.pie} />
 
       {/* ── Create New Request (Admin) ── */}
       {isAdmin && (
@@ -1616,7 +1806,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       if (idStr) {
                         const v = vehicles.find((vv) => {
                           if (vv.assigned_driver_id == null) return false;
-                          return String(vv.assigned_driver_id) === idStr || vv.assigned_driver_id === Number(idStr);
+                          return String(vv.assigned_driver_id) === idStr;
                         });
                         if (v) {
                           setFormVehicleId(String(v.id));
@@ -1917,7 +2107,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   <span className="font-bold">بحث نشط:</span> عرض الإخراجات المطابقة من <span className="font-bold">جميع التواريخ</span>، مجمّعة حسب اليوم.
                 </div>
               )}
-              {archiveDisplayGroupsFiltered.length === 0 ? (
+              {archiveDisplayGroupsDisplayed.length === 0 ? (
                 <div className="text-center py-16 rounded-2xl border border-dashed border-stone-300 dark:border-stone-600 bg-stone-50/50 dark:bg-stone-900/30">
                   <History className="w-10 h-10 text-stone-400 mx-auto mb-3" />
                   <p className="text-stone-600 dark:text-stone-400 font-medium">
@@ -1927,7 +2117,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   </p>
                 </div>
               ) : (
-            archiveDisplayGroupsFiltered.map((group) => (
+            archiveDisplayGroupsDisplayed.map((group) => (
               <div key={group.dateKey} className="space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
@@ -1987,12 +2177,23 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           {(driverMap.get(String(req.driver_id)) || req.driver_name) && (
                           <div>
                             <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
-                            <p className="font-semibold text-stone-900 dark:text-white">{driverMap.get(String(req.driver_id)) || req.driver_name}</p>
+                            <p className="font-semibold text-stone-900 dark:text-white">
+                              <HighlightText
+                                text={driverMap.get(String(req.driver_id)) || req.driver_name || ''}
+                                query={searchTerm}
+                              />
+                            </p>
                           </div>
                           )}
                           <div>
                             <span className="text-xs text-stone-500 dark:text-stone-400">المساعدين ({req.assistant_names.length})</span>
-                            <p className="text-sm text-stone-700 dark:text-stone-300">{req.assistant_names.length > 0 ? req.assistant_names.join(' ، ') : 'لا يوجد'}</p>
+                            <p className="text-sm text-stone-700 dark:text-stone-300">
+                              {req.assistant_names.length > 0 ? (
+                                <HighlightText text={req.assistant_names.join(' ، ')} query={searchTerm} />
+                              ) : (
+                                'لا يوجد'
+                              )}
+                            </p>
                           </div>
                         </div>
                         {(req.exit_reason || req.vehicle_plate) && (
@@ -2013,7 +2214,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         )}
                         {req.notes && (
                           <div className="text-sm text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 px-3 py-2 rounded-lg">
-                            <span className="text-xs font-medium text-stone-400">ملاحظات:</span> {req.notes}
+                            <span className="text-xs font-medium text-stone-400">ملاحظات:</span>{' '}
+                            <HighlightText text={req.notes} query={searchTerm} />
                           </div>
                         )}
                         {req.exited_at && (
@@ -2087,7 +2289,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       {/* ── TODAY Requests List ── */}
       {!showArchive && (
       <div className="space-y-3">
-        {filteredWithLoading.length === 0 ? (
+        {filteredDisplayed.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-16 h-16 rounded-2xl bg-stone-100 dark:bg-stone-800/50 flex items-center justify-center mx-auto mb-4">
               <Users className="w-8 h-8 text-stone-400" />
@@ -2099,7 +2301,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             </p>
           </div>
         ) : (
-          filteredWithLoading.map((req, index) => (
+          filteredDisplayed.map((req, index) => (
             <motion.div
               key={req.id}
               initial={{ opacity: 0, y: 12 }}
@@ -2169,7 +2371,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     {(driverMap.get(String(req.driver_id)) || req.driver_name) && (
                     <div>
                       <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
-                      <p className="font-semibold text-stone-900 dark:text-white">{driverMap.get(String(req.driver_id)) || req.driver_name}</p>
+                      <p className="font-semibold text-stone-900 dark:text-white">
+                        <HighlightText
+                          text={driverMap.get(String(req.driver_id)) || req.driver_name || ''}
+                          query={searchTerm}
+                        />
+                      </p>
                     </div>
                     )}
                     <div>
@@ -2177,7 +2384,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         المساعدين ({req.assistant_names.length})
                       </span>
                       <p className="text-sm text-stone-700 dark:text-stone-300">
-                        {req.assistant_names.length > 0 ? req.assistant_names.join(' ، ') : 'لا يوجد'}
+                        {req.assistant_names.length > 0 ? (
+                          <HighlightText text={req.assistant_names.join(' ، ')} query={searchTerm} />
+                        ) : (
+                          'لا يوجد'
+                        )}
                       </p>
                     </div>
                   </div>
@@ -2202,7 +2413,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
                   {req.notes && (
                     <div className="text-sm text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 px-3 py-2 rounded-lg">
-                      <span className="text-xs font-medium text-stone-400">ملاحظات:</span> {req.notes}
+                      <span className="text-xs font-medium text-stone-400">ملاحظات:</span>{' '}
+                      <HighlightText text={req.notes} query={searchTerm} />
                     </div>
                   )}
 

@@ -1,18 +1,7 @@
-  // دالة تقسيم رقم اللوحة
-  function splitPlateNumber(plate: string) {
-    const parts = plate.trim().split(' ');
-    if (parts.length === 3) {
-      return { vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: parts[2] };
-    } else if (parts.length === 2) {
-      return { vehicleNumber: parts[0], provinceNumber: '', plateLetter: parts[1] };
-    } else {
-      return { vehicleNumber: plate, provinceNumber: '', plateLetter: '' };
-    }
-  }
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Truck, Plus, Search, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
+  Truck, Plus, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
   Calendar, Fuel, Gauge, Shield, AlertTriangle, CheckCircle2, Clock,
   FileText, DollarSign, User, Save, Info, Palette, Activity, XCircle,
   History,
@@ -26,6 +15,28 @@ import { DRIVER_VEHICLE_PDF_ROWS } from '../data/driverVehiclePdfData';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { Download, Loader2 as Loader2Icon, Printer, FileSpreadsheet } from 'lucide-react';
+import {
+  SmartSearchBar,
+  HighlightText,
+  InsightsPanel,
+  ChartsPanel,
+  ExportMenu,
+  SavedViews,
+  useAutoRefresh,
+  insightsFromVehicles,
+} from '../smart';
+
+// دالة تقسيم رقم اللوحة
+function splitPlateNumber(plate: string) {
+  const parts = plate.trim().split(' ');
+  if (parts.length === 3) {
+    return { vehicleNumber: parts[0], provinceNumber: parts[1], plateLetter: parts[2] };
+  }
+  if (parts.length === 2) {
+    return { vehicleNumber: parts[0], provinceNumber: '', plateLetter: parts[1] };
+  }
+  return { vehicleNumber: plate, provinceNumber: '', plateLetter: '' };
+}
 
 /* ── Constants ── */
 const VEHICLE_TYPES = ['كانتر', 'كيا'];
@@ -137,6 +148,22 @@ export default function Vehicles({ profile }: VehiclesProps) {
     }
     return list;
   }, [vehicles, statusFilter, search, driverMap]);
+
+  const vehicleInsights = useMemo(
+    () => insightsFromVehicles(filtered.map((v) => ({ status: v.status }))),
+    [filtered]
+  );
+
+  const vehicleDataSuggestions = useMemo(
+    () =>
+      [
+        ...vehicles.map((v) => v.plate_number),
+        ...staff.map((s) => s.full_name),
+      ].slice(0, 50),
+    [vehicles, staff]
+  );
+
+  useAutoRefresh(30_000, fetchData, true);
 
   const stats = useMemo(() => ({
     total: vehicles.length,
@@ -632,12 +659,16 @@ export default function Vehicles({ profile }: VehiclesProps) {
       </div>
 
       {/* Search & Filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-          <input type="text" placeholder="بحث بالرقم، السائق، النوع، الشاسي..."
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
+      <div className="flex flex-wrap gap-3 items-start">
+        <div className="flex-1 min-w-[200px] max-w-xl">
+          <SmartSearchBar
+            pageKey="vehicles"
+            value={search}
+            onChange={setSearch}
+            placeholder="بحث بالرقم، السائق، النوع، الشاسي..."
+            dataSuggestions={vehicleDataSuggestions}
+            showPredictiveChips={false}
+          />
         </div>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as VehicleStatus | 'all' | 'reserve')}
           className="px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm cursor-pointer">
@@ -692,7 +723,44 @@ export default function Vehicles({ profile }: VehiclesProps) {
             </>
           )}
         </div>
+        <ExportMenu
+          meta={{
+            title: 'المركبات — عرض مفلتر',
+            filterDescription:
+              [search && `بحث: ${search}`, statusFilter !== 'all' && `حالة: ${statusFilter}`]
+                .filter(Boolean)
+                .join(' | ') || '—',
+            rowCount: filtered.length,
+          }}
+          headerRow={[
+            'رقم اللوحة',
+            'النوع',
+            'الحالة',
+            'السائق',
+            'الشاسي',
+          ]}
+          dataRows={filtered.map((v) => [
+            v.plate_number,
+            v.vehicle_type ?? '—',
+            STATUS_CONFIG[v.status]?.label ?? v.status,
+            driverMap.get(String(v.assigned_driver_id)) ?? '—',
+            v.chassis_number ?? '—',
+          ])}
+          sheetName="مركبات"
+        />
+        <SavedViews<Record<string, unknown>>
+          pageKey="vehicles"
+          getCurrentPayload={() => ({ search, statusFilter })}
+          onApply={(p) => {
+            if (typeof p.search === 'string') setSearch(p.search);
+            const sf = p.statusFilter as VehicleStatus | 'all' | 'reserve' | undefined;
+            if (sf !== undefined) setStatusFilter(sf);
+          }}
+        />
       </div>
+
+      <InsightsPanel metrics={vehicleInsights.metrics} alerts={vehicleInsights.alerts} />
+      <ChartsPanel barData={vehicleInsights.bar} pieData={vehicleInsights.pie} />
 
       {/* ── Add/Edit Form ── */}
       <AnimatePresence>
@@ -977,9 +1045,15 @@ export default function Vehicles({ profile }: VehiclesProps) {
                         {(() => {
                           const plate = splitPlateNumber(v.plate_number);
                           return <>
-                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-stone-900 dark:text-white border border-stone-200 dark:border-stone-600">{plate.vehicleNumber}</span>
-                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-blue-700 dark:text-blue-300 border border-stone-200 dark:border-stone-600">{plate.provinceNumber}</span>
-                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-purple-700 dark:text-purple-300 border border-stone-200 dark:border-stone-600">{plate.plateLetter}</span>
+                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-stone-900 dark:text-white border border-stone-200 dark:border-stone-600">
+                              <HighlightText text={plate.vehicleNumber} query={search} />
+                            </span>
+                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-blue-700 dark:text-blue-300 border border-stone-200 dark:border-stone-600">
+                              <HighlightText text={plate.provinceNumber} query={search} />
+                            </span>
+                            <span className="px-2 py-1 rounded bg-stone-100 dark:bg-stone-700 text-lg font-bold text-purple-700 dark:text-purple-300 border border-stone-200 dark:border-stone-600">
+                              <HighlightText text={plate.plateLetter} query={search} />
+                            </span>
                           </>;
                         })()}
                       </div>
@@ -988,7 +1062,11 @@ export default function Vehicles({ profile }: VehiclesProps) {
                         <div className="min-w-0">
                           <div className="text-[11px] font-semibold text-stone-500 dark:text-stone-400">السائق المسؤول</div>
                           <div className="truncate text-sm font-bold text-stone-900 dark:text-white">
-                            {assignedDriverName || 'غير معين'}
+                            {assignedDriverName ? (
+                              <HighlightText text={assignedDriverName} query={search} />
+                            ) : (
+                              'غير معين'
+                            )}
                           </div>
                         </div>
                       </div>

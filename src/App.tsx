@@ -22,7 +22,9 @@ import CrewAttendance from './pages/CrewAttendance';
 import CrewStaff from './pages/CrewStaff';
 import AttendanceHistory from './pages/AttendanceHistory';
 import AttendanceReports from './pages/AttendanceReports';
+import ReportsHub from './pages/ReportsHub';
 import AttendanceActivityLog from './pages/AttendanceActivityLog';
+import { SmartPageProvider } from './smart';
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
@@ -100,26 +102,31 @@ export default function App() {
   const maintenancePages: PageKey[] = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'];
   const maintenanceManagerPages: PageKey[] = ['maintenance-requests', 'active-maintenance', 'maintenance-history', 'notifications'];
   const attendancePages: PageKey[] = ['crew-attendance', 'crew-staff', 'attendance-history', 'attendance-reports', 'attendance-activity-log'];
+  const smartHubPages: PageKey[] = ['reports-hub'];
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
     if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
+    if (smartHubPages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
     if (attendancePages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
     if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
     if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard') return 'maintenance-requests';
     return activePage;
   })();
 
+  const authUser = user!;
+  const authProfile = profile!;
+
   function renderPage() {
     switch (guardedPage) {
       case 'dashboard':
-        return <Dashboard profile={profile} onNavigate={setActivePage} />;
+        return <Dashboard profile={authProfile} onNavigate={setActivePage} />;
       case 'reports':
-        return <Reports userId={user.id} />;
+        return <Reports userId={authUser.id} />;
       case 'vehicles':
-        return <Vehicles profile={profile} />;
+        return <Vehicles profile={authProfile} />;
       case 'staff-exit':
-        return <StaffExit profile={profile} userId={user.id} />;
+        return <StaffExit profile={authProfile} userId={authUser.id} />;
       case 'violations':
         return <Violations />;
       case 'users':
@@ -127,29 +134,31 @@ export default function App() {
       case 'maintenance':
         return <MaintenanceDashboard onNavigate={setActivePage} />;
       case 'maintenance-requests':
-        return <MaintenanceRequests profile={profile} onNavigate={setActivePage} />;
+        return <MaintenanceRequests profile={authProfile} onNavigate={setActivePage} />;
       case 'active-maintenance':
-        return <ActiveMaintenance profile={profile} onNavigate={setActivePage} />;
+        return <ActiveMaintenance profile={authProfile} onNavigate={setActivePage} />;
       case 'maintenance-history':
-        return <MaintenanceHistory profile={profile} />;
+        return <MaintenanceHistory profile={authProfile} />;
       case 'spare-parts':
         return <SpareParts />;
       case 'notifications':
         return <MaintenanceNotifications />;
       case 'crew-attendance':
-        return <CrewAttendance profile={profile} />;
+        return <CrewAttendance profile={authProfile} />;
       case 'crew-staff':
-        return <CrewStaff profile={profile} />;
+        return <CrewStaff profile={authProfile} />;
       case 'attendance-history':
-        return <AttendanceHistory profile={profile} />;
+        return <AttendanceHistory profile={authProfile} />;
       case 'attendance-reports':
-        return <AttendanceReports profile={profile} />;
+        return <AttendanceReports profile={authProfile} />;
+      case 'reports-hub':
+        return <ReportsHub profile={authProfile} />;
       case 'attendance-activity-log':
-        return <AttendanceActivityLog profile={profile} />;
+        return <AttendanceActivityLog profile={authProfile} />;
       case 'settings':
         return <div className="text-center py-20 text-stone-500">الإعدادات — قيد التطوير</div>;
       default:
-        return <Dashboard profile={profile} onNavigate={setActivePage} />;
+        return <Dashboard profile={authProfile} onNavigate={setActivePage} />;
     }
   }
 
@@ -161,9 +170,9 @@ export default function App() {
       onSignOut={signOut}
       signingOut={signingOut}
       isDarkMode={isDarkMode}
-      onToggleDark={() => setIsDarkMode((p) => !p)}
+      onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
     >
-      {renderPage()}
+      <SmartPageProvider pageKey={guardedPage}>{renderPage()}</SmartPageProvider>
     </Layout>
   );
 }

@@ -20,6 +20,16 @@ import type {
   StaffMember,
   AttendanceArchive,
 } from '../lib/supabaseClient';
+import {
+  SmartSearchBar,
+  HighlightText,
+  InsightsPanel,
+  ChartsPanel,
+  ExportMenu,
+  SavedViews,
+  useAutoRefresh,
+  insightsFromAttendanceRows,
+} from '../smart';
 
 interface StaffStats {
   staff_id: number;
@@ -69,14 +79,7 @@ export default function AttendanceReports({ profile }: Props) {
   const [exporting, setExporting] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
-
-  const toggleSelectAll = () => {
-    if (selectedStaffIds.length === staffStats.length) {
-      setSelectedStaffIds([]);
-    } else {
-      setSelectedStaffIds(staffStats.map((s) => s.staff_id));
-    }
-  };
+  const [tableSearch, setTableSearch] = useState('');
 
   const toggleStaffSelection = (id: number) => {
     setSelectedStaffIds((prev) =>
@@ -84,8 +87,8 @@ export default function AttendanceReports({ profile }: Props) {
     );
   };
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const [archRes, staffRes, exitRes] = await Promise.all([
       supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
       supabase.from('staff_members').select('*').eq('is_active', true),
@@ -97,7 +100,7 @@ export default function AttendanceReports({ profile }: Props) {
     if (archRes.data) setArchive(archRes.data);
     if (staffRes.data) setStaff(staffRes.data);
     if (exitRes.data) setExitLoadingRows(exitRes.data as ExitLoadingRow[]);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -172,6 +175,34 @@ export default function AttendanceReports({ profile }: Props) {
     return list.sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [archive, staff, dateFrom, dateTo, reportMode, exitLoadingRows]);
 
+  const filteredStaffStats = useMemo(() => {
+    const q = tableSearch.trim().toLowerCase();
+    if (!q) return staffStats;
+    return staffStats.filter((s) => s.full_name.toLowerCase().includes(q));
+  }, [staffStats, tableSearch]);
+
+  const toggleSelectAll = () => {
+    if (selectedStaffIds.length === filteredStaffStats.length && filteredStaffStats.length > 0) {
+      setSelectedStaffIds([]);
+    } else {
+      setSelectedStaffIds(filteredStaffStats.map((s) => s.staff_id));
+    }
+  };
+
+  const reportTableInsights = useMemo(() => {
+    const rows = filteredStaffStats.map((s) => ({ attendance_type: getDominantType(s) }));
+    return insightsFromAttendanceRows(rows, staff.length);
+  }, [filteredStaffStats, staff.length]);
+
+  const reportNameSuggestions = useMemo(
+    () => staffStats.map((s) => s.full_name).slice(0, 40),
+    [staffStats]
+  );
+
+  useAutoRefresh(30_000, () => {
+    void fetchData(true);
+  }, true);
+
   const driversSummary = useMemo(() => {
     const drivers = staffStats.filter((s) => s.role === 'driver');
     return {
@@ -200,8 +231,8 @@ export default function AttendanceReports({ profile }: Props) {
 
   const handleExport = async (format: 'pdf' | 'excel') => {
     const toExport = isSelectionMode && selectedStaffIds.length > 0
-      ? staffStats.filter((s) => selectedStaffIds.includes(s.staff_id))
-      : staffStats;
+      ? filteredStaffStats.filter((s) => selectedStaffIds.includes(s.staff_id))
+      : filteredStaffStats;
 
     if (toExport.length === 0) {
       alert('لا توجد بيانات للتصدير');
@@ -334,6 +365,58 @@ export default function AttendanceReports({ profile }: Props) {
               {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
               PDF {isSelectionMode && selectedStaffIds.length > 0 ? `(${selectedStaffIds.length})` : 'الكل'}
             </button>
+            <ExportMenu
+              meta={{
+                title: `تقرير حضور ${dateFrom} — ${dateTo}`,
+                filterDescription:
+                  [
+                    `الوضع: ${reportMode}`,
+                    tableSearch && `بحث جدول: ${tableSearch}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' | ') || '—',
+                rowCount: filteredStaffStats.length,
+              }}
+              headerRow={[
+                'الموظف',
+                'الدور',
+                'حاضر',
+                'متأخر',
+                'غائب',
+                'إجازة كاملة',
+                'إجازة زمنية',
+                'مرات تأخير التحميل',
+                'مجموع دقائق تأخير التحميل',
+              ]}
+              dataRows={filteredStaffStats.map((s) => [
+                s.full_name,
+                s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+                s.present,
+                s.late,
+                s.absent,
+                s.full_leave,
+                s.time_leave,
+                s.role === 'driver' ? s.loading_delay_events : '—',
+                s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
+              ])}
+              sheetName="تقرير"
+            />
+            <SavedViews<Record<string, unknown>>
+              pageKey="attendance-reports"
+              getCurrentPayload={() => ({
+                dateFrom,
+                dateTo,
+                reportMode,
+                tableSearch,
+              })}
+              onApply={(p) => {
+                if (typeof p.dateFrom === 'string') setDateFrom(p.dateFrom);
+                if (typeof p.dateTo === 'string') setDateTo(p.dateTo);
+                const rm = p.reportMode as typeof reportMode | undefined;
+                if (rm === 'individual' || rm === 'drivers' || rm === 'assistants') setReportMode(rm);
+                if (typeof p.tableSearch === 'string') setTableSearch(p.tableSearch);
+              }}
+            />
           </div>
         </div>
       </motion.div>
@@ -432,9 +515,23 @@ export default function AttendanceReports({ profile }: Props) {
         animate={{ opacity: 1 }}
         className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 shadow-sm overflow-hidden"
       >
-        <div className="px-4 py-3 border-b border-stone-200 dark:border-stone-700 flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-stone-500" />
-          <h3 className="font-semibold">التقرير الفردي</h3>
+        <div className="px-4 py-3 border-b border-stone-200 dark:border-stone-700 space-y-3">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-stone-500" />
+            <h3 className="font-semibold">التقرير الفردي</h3>
+          </div>
+          <div className="max-w-md">
+            <SmartSearchBar
+              pageKey="attendance-reports"
+              value={tableSearch}
+              onChange={setTableSearch}
+              placeholder="بحث باسم الموظف في الجدول..."
+              dataSuggestions={reportNameSuggestions}
+              showPredictiveChips={false}
+            />
+          </div>
+          <InsightsPanel metrics={reportTableInsights.metrics} alerts={reportTableInsights.alerts} />
+          <ChartsPanel barData={reportTableInsights.bar} pieData={reportTableInsights.pie} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px]">
@@ -446,7 +543,7 @@ export default function AttendanceReports({ profile }: Props) {
                       onClick={toggleSelectAll} 
                       className="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400"
                     >
-                      {selectedStaffIds.length === staffStats.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                      {selectedStaffIds.length === filteredStaffStats.length && filteredStaffStats.length > 0 ? 'إلغاء الكل' : 'تحديد الكل'}
                     </button>
                   </th>
                 )}
@@ -462,7 +559,7 @@ export default function AttendanceReports({ profile }: Props) {
               </tr>
             </thead>
             <tbody>
-              {staffStats.map((s, idx) => (
+              {filteredStaffStats.map((s, idx) => (
                 <tr
                   key={s.staff_id}
                   className={cn(
@@ -489,7 +586,9 @@ export default function AttendanceReports({ profile }: Props) {
                           ATTENDANCE_TYPE_COLORS[getDominantType(s)]?.dot ?? 'bg-stone-300'
                         )}
                       />
-                      <span className="font-medium">{s.full_name}</span>
+                      <span className="font-medium">
+                        <HighlightText text={s.full_name} query={tableSearch} />
+                      </span>
                     </div>
                   </td>
                   <td className="px-4 py-2">{s.role === 'driver' ? 'سائق' : 'مساعد سائق'}</td>
@@ -509,8 +608,10 @@ export default function AttendanceReports({ profile }: Props) {
             </tbody>
           </table>
         </div>
-        {staffStats.length === 0 && (
-          <div className="py-16 text-center text-stone-500">لا توجد بيانات في الفترة المحددة</div>
+        {filteredStaffStats.length === 0 && (
+          <div className="py-16 text-center text-stone-500">
+            {staffStats.length === 0 ? 'لا توجد بيانات في الفترة المحددة' : 'لا توجد نتائج تطابق البحث'}
+          </div>
         )}
       </motion.div>
     </div>

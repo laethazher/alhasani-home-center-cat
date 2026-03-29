@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Truck, FileText, DoorOpen, UserCog, Settings,
-  Wrench, ClipboardList, Activity, History, Package, Bell, Shield,
+  Wrench, ClipboardList, Activity, History, Package, Bell, Shield, Sparkles,
 } from 'lucide-react';
 import DashboardCard from '../components/DashboardCard';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
@@ -33,6 +33,7 @@ const CARDS: CardDef[] = [
   { key:'staff-exit',           title:'إخراج الكادر',        description:'تسجيل ومتابعة عمليات خروج الكوادر',              icon:DoorOpen,      gradient:'from-emerald-500 to-teal-600',  roles:'all' },
   { key:'violations',           title:'سجل المخالفات',       description:'تسجيل ومتابعة مخالفات الموظفين',                 icon:Shield,        gradient:'from-red-500 to-rose-600',      roles:['admin'] },
   { key:'reports',              title:'التقارير',            description:'عرض وتصدير التقارير اليومية والأسبوعية',         icon:FileText,      gradient:'from-amber-500 to-orange-600',  roles:['admin','driver','manager','warehouse','logistics'] },
+  { key:'reports-hub',          title:'التقارير الذكية',     description:'بحث وفلترة وتصدير موحّد للحضور والمركبات والمخالفات', icon:Sparkles,   gradient:'from-fuchsia-500 to-violet-600', roles:['admin','manager'] },
   { key:'users',                title:'إدارة المستخدمين',    description:'إضافة وإدارة حسابات المستخدمين والصلاحيات',     icon:UserCog,       gradient:'from-violet-500 to-purple-600', roles:['admin'] },
   { key:'settings',             title:'الإعدادات',           description:'ضبط إعدادات النظام والتفضيلات العامة',           icon:Settings,      gradient:'from-rose-500 to-pink-600',     roles:['admin'] },
 ];

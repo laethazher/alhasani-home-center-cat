@@ -54,6 +54,8 @@ export interface ExitRequest {
   approved_at: string | null;
   approved_by: string | null;
   exited_at: string | null;
+  /** قد تُضاف من قاعدة البيانات لاحقاً */
+  returned_at?: string | null;
   gate_guard_id: string | null;
   created_at: string;
   /** Present when column exists (migration); treat missing as false */

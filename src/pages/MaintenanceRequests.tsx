@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus, X, Search, Filter, ChevronDown, Check, XCircle, Eye,
+  Plus, X, Filter, ChevronDown, Check, XCircle, Eye,
   Camera, Upload, Wrench, AlertTriangle, Clock, Truck, User,
   MessageSquare, Image as ImageIcon, FileWarning, Download, Printer, Loader2,
 } from 'lucide-react';
@@ -14,6 +14,16 @@ import type {
 import type { PageKey } from '../components/Layout';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
+import {
+  SmartSearchBar,
+  HighlightText,
+  InsightsPanel,
+  ChartsPanel,
+  ExportMenu,
+  SavedViews,
+  useAutoRefresh,
+  insightsFromMaintenanceRequests,
+} from '../smart';
 
 const MAINTENANCE_TYPES = [
   'صيانة عامة', 'تغيير زيت', 'فلتر زيت', 'فلتر هواء', 'فحص الفرامل',
@@ -77,8 +87,8 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   const isAdmin = profile?.role === 'admin';
   const isManager = profile?.role === 'maintenance_manager';
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const [reqRes, vehRes, drvRes, issRes, recRes] = await Promise.all([
       supabase.from('maintenance_requests').select('*').order('created_at', { ascending: false }),
       supabase.from('vehicles').select('*'),
@@ -91,7 +101,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     if (drvRes.data) setDrivers(drvRes.data);
     if (issRes.data) setDriverIssues(issRes.data);
     if (recRes.data) setPastRecords(recRes.data);
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -210,6 +220,23 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     return list;
   }, [requests, filterStatus, searchQuery, vehicles]);
 
+  const maintInsights = useMemo(
+    () =>
+      insightsFromMaintenanceRequests(
+        filteredRequests.map((r) => ({ status: r.status, priority: r.priority }))
+      ),
+    [filteredRequests]
+  );
+
+  const maintSearchSuggestions = useMemo(
+    () => [...vehicles.map((v) => v.plate_number), ...MAINTENANCE_TYPES].slice(0, 40),
+    [vehicles]
+  );
+
+  useAutoRefresh(30_000, () => {
+    void fetchData(true);
+  }, tab === 'requests');
+
   async function uploadImage(file: File): Promise<string | null> {
     const ext = file.name.split('.').pop();
     const path = `requests/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
@@ -288,7 +315,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   }
 
   async function convertIssueToRequest(issue: DriverIssueReport) {
-    const driver = drivers.find(d => d.id === Number(issue.driver_id));
+    const driver = drivers.find((d) => String(d.id) === String(issue.driver_id ?? ''));
     const vehicle = vehicles.find(v => v.id === issue.vehicle_id);
     if (!vehicle) return;
 
@@ -342,14 +369,15 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
         <>
           {/* Toolbar */}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <div className="flex flex-1 gap-3 w-full sm:w-auto">
-              <div className="relative flex-1 sm:max-w-xs">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                <input
+            <div className="flex flex-1 gap-3 w-full sm:w-auto flex-wrap">
+              <div className="flex-1 min-w-[200px] sm:max-w-md">
+                <SmartSearchBar
+                  pageKey="maintenance-requests"
                   value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="بحث..."
-                  className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  onChange={setSearchQuery}
+                  placeholder="بحث بالمركبة، نوع الصيانة، الوصف..."
+                  dataSuggestions={maintSearchSuggestions}
+                  showPredictiveChips={false}
                 />
               </div>
               <select
@@ -383,6 +411,37 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                     {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                     PDF {isSelectionMode && selectedIds.length > 0 ? `(${selectedIds.length})` : 'الكل'}
                   </button>
+                  <ExportMenu
+                    meta={{
+                      title: 'طلبات الصيانة',
+                      filterDescription:
+                        [searchQuery && `بحث: ${searchQuery}`, filterStatus !== 'all' && `حالة: ${filterStatus}`]
+                          .filter(Boolean)
+                          .join(' | ') || '—',
+                      rowCount: filteredRequests.length,
+                    }}
+                    headerRow={['التاريخ', 'المركبة', 'نوع الصيانة', 'الأولوية', 'الحالة', 'وصف المشكلة']}
+                    dataRows={filteredRequests.map((r) => {
+                      const v = vehicles.find((veh) => veh.id === r.vehicle_id);
+                      return [
+                        new Date(r.created_at).toLocaleDateString('ar-IQ'),
+                        v?.plate_number || `ID: ${r.vehicle_id}`,
+                        r.maintenance_type,
+                        PRIORITY_CONFIG[r.priority]?.label || r.priority,
+                        STATUS_CONFIG[r.status]?.label || r.status,
+                        r.description || '—',
+                      ];
+                    })}
+                    sheetName="الطلبات"
+                  />
+                  <SavedViews<Record<string, unknown>>
+                    pageKey="maintenance-requests"
+                    getCurrentPayload={() => ({ searchQuery, filterStatus })}
+                    onApply={(p) => {
+                      if (typeof p.searchQuery === 'string') setSearchQuery(p.searchQuery);
+                      if (typeof p.filterStatus === 'string') setFilterStatus(p.filterStatus);
+                    }}
+                  />
                   {selectedIds.length > 0 && (
                     <motion.button
                       initial={{ opacity: 0, scale: 0.9 }}
@@ -425,6 +484,9 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
             </div>
           </div>
 
+          <InsightsPanel metrics={maintInsights.metrics} alerts={maintInsights.alerts} />
+          <ChartsPanel barData={maintInsights.bar} pieData={maintInsights.pie} />
+
           {/* Active maintenance warning */}
           {hasActiveRequest && (isManager || isAdmin) && (
             <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
@@ -445,7 +507,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
             )}
             {filteredRequests.map((req, i) => {
               const vehicle = vehicles.find(v => v.id === req.vehicle_id);
-              const driver = drivers.find(d => d.id === Number(req.driver_id));
+              const driver = drivers.find((d) => String(d.id) === String(req.driver_id ?? ''));
               const sc = STATUS_CONFIG[req.status];
               const pc = PRIORITY_CONFIG[req.priority];
               const isSelected = selectedIds.includes(req.id);
@@ -479,17 +541,26 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-stone-900 dark:text-white">{vehicle?.plate_number ?? `#${req.vehicle_id}`}</p>
+                          <p className="font-semibold text-stone-900 dark:text-white">
+                            <HighlightText
+                              text={vehicle?.plate_number ?? `#${req.vehicle_id}`}
+                              query={searchQuery}
+                            />
+                          </p>
                           {vehicle?.model && <span className="text-xs text-stone-500">({vehicle.model})</span>}
                         </div>
-                        <p className="text-sm text-stone-600 dark:text-stone-400 mt-0.5">{req.maintenance_type}</p>
+                        <p className="text-sm text-stone-600 dark:text-stone-400 mt-0.5">
+                          <HighlightText text={req.maintenance_type} query={searchQuery} />
+                        </p>
                         {driver && (
                           <p className="text-xs text-stone-500 dark:text-stone-500 mt-0.5 flex items-center gap-1">
                             <User className="w-3 h-3" /> {driver.full_name}
                           </p>
                         )}
                         {req.description && (
-                          <p className="text-xs text-stone-400 mt-1 line-clamp-1">{req.description}</p>
+                          <p className="text-xs text-stone-400 mt-1 line-clamp-1">
+                            <HighlightText text={req.description} query={searchQuery} />
+                          </p>
                         )}
                       </div>
                     </div>
@@ -515,7 +586,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
           )}
           {driverIssues.map((issue, i) => {
             const vehicle = vehicles.find(v => v.id === issue.vehicle_id);
-            const driver = drivers.find(d => d.id === Number(issue.driver_id));
+            const driver = drivers.find((d) => String(d.id) === String(issue.driver_id ?? ''));
             const isConverted = issue.status === 'converted';
             return (
               <motion.div
@@ -756,7 +827,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
               {(() => {
                 const req = showDetail;
                 const vehicle = vehicles.find(v => v.id === req.vehicle_id);
-                const driver = drivers.find(d => d.id === Number(req.driver_id));
+                const driver = drivers.find((d) => String(d.id) === String(req.driver_id ?? ''));
                 const sc = STATUS_CONFIG[req.status];
                 const pc = PRIORITY_CONFIG[req.priority];
                 const vehicleHistory = pastRecords.filter(r => r.vehicle_id === req.vehicle_id);

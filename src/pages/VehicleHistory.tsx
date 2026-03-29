@@ -221,6 +221,8 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       next_maintenance_km: m.next_maintenance_km ?? undefined,
       notes: m.notes || undefined,
       images: [] as { url: string; type: string }[],
+      parts_replaced: undefined as string | undefined,
+      duration_minutes: undefined as number | undefined,
     }));
     const recItems = maintenanceRecords.map((r) => ({
       id: `mrec-${r.id}`,
@@ -234,6 +236,9 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
       odometer_at: r.odometer_at ?? undefined,
       notes: r.notes || undefined,
       images: (r.maintenance_images || []).map((img) => ({ url: img.image_url, type: img.image_type })),
+      parts_replaced: undefined as string | undefined,
+      next_maintenance_date: undefined as string | undefined,
+      next_maintenance_km: undefined as number | undefined,
     }));
     return [...vmItems, ...recItems].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [maintenanceList, maintenanceRecords]);
