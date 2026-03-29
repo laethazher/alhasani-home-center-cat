@@ -124,6 +124,11 @@ function defaultDateRangeSeed() {
   return { dateFrom: fromStr, dateTo: toStr };
 }
 
+function pickRowsByKeySet<T>(rows: T[], keys: Set<string>, getKey: (row: T) => string): T[] {
+  if (keys.size === 0) return rows;
+  return rows.filter((r) => keys.has(getKey(r)));
+}
+
 interface Props {
   profile: UserProfile | null;
 }
@@ -151,8 +156,17 @@ export default function ReportsHub({ profile }: Props) {
   const [vehSortDir, setVehSortDir] = useState<'asc' | 'desc'>('asc');
   const [violSortKey, setViolSortKey] = useState<ViolationSortKey>('violations');
   const [violSortDir, setViolSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selectedAttendanceKeys, setSelectedAttendanceKeys] = useState<Set<string>>(() => new Set());
+  const [selectedVehicleKeys, setSelectedVehicleKeys] = useState<Set<string>>(() => new Set());
+  const [selectedViolationKeys, setSelectedViolationKeys] = useState<Set<string>>(() => new Set());
 
   const showViolationsTab = profile?.role === 'admin';
+
+  useEffect(() => {
+    setSelectedAttendanceKeys(new Set());
+    setSelectedVehicleKeys(new Set());
+    setSelectedViolationKeys(new Set());
+  }, [activeDomain]);
   const tableSearch =
     activeDomain === 'all'
       ? hubSearch.all
@@ -860,6 +874,27 @@ export default function ReportsHub({ profile }: Props) {
     const dt = dateTo || '—';
     const titleBase = 'التقارير الذكية';
 
+    const staffForExport = pickRowsByKeySet(filteredStaffStats, selectedAttendanceKeys, (s) => String(s.staff_id));
+    const vehicleForExport = pickRowsByKeySet(filteredVehicleRows, selectedVehicleKeys, (v) => String(v.id));
+    const violForExport = pickRowsByKeySet(filteredViolationRows, selectedViolationKeys, (v) => String(v.staffId));
+
+    let selectionNoteHtml = '';
+    if (activeDomain === 'all') {
+      const parts: string[] = [];
+      if (selectedAttendanceKeys.size > 0) parts.push(`حضور: ${staffForExport.length} صف محدد`);
+      if (selectedVehicleKeys.size > 0) parts.push(`مركبات: ${vehicleForExport.length} صف محدد`);
+      if (showViolationsTab && selectedViolationKeys.size > 0) parts.push(`مخالفات: ${violForExport.length} صف محدد`);
+      if (parts.length > 0) {
+        selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">${parts.join(' · ')}</p>`;
+      }
+    } else if (activeDomain === 'attendance' && selectedAttendanceKeys.size > 0) {
+      selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">تصدير ${staffForExport.length} صف محدد من أصل ${filteredStaffStats.length}</p>`;
+    } else if (activeDomain === 'vehicles' && selectedVehicleKeys.size > 0) {
+      selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">تصدير ${vehicleForExport.length} صف محدد من أصل ${filteredVehicleRows.length}</p>`;
+    } else if (activeDomain === 'violations' && selectedViolationKeys.size > 0) {
+      selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">تصدير ${violForExport.length} صف محدد من أصل ${filteredViolationRows.length}</p>`;
+    }
+
     const ins = panelInsights;
     const lineForExport = activeDomain === 'attendance' || activeDomain === 'all' ? lineData : [];
 
@@ -928,7 +963,7 @@ export default function ReportsHub({ profile }: Props) {
       'مرات تأخير التحميل',
       'مجموع دقائق تأخير التحميل',
     ];
-    const attendanceRows = filteredStaffStats.map((s) => [
+    const attendanceRows = staffForExport.map((s) => [
       s.full_name,
       s.role === 'driver' ? 'سائق' : 'مساعد سائق',
       s.present,
@@ -940,7 +975,7 @@ export default function ReportsHub({ profile }: Props) {
       s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
     ]);
     const vehicleHeaders = ['اللوحة', 'الحالة', 'النوع', 'الموديل', 'السائق', 'العداد (كم)', 'ملاحظات'];
-    const vehicleRows = filteredVehicleRows.map((v) => [
+    const vehicleRows = vehicleForExport.map((v) => [
       v.plate_number,
       v.statusLabel,
       v.vehicle_type ?? '—',
@@ -950,7 +985,7 @@ export default function ReportsHub({ profile }: Props) {
       v.notes || '—',
     ]);
     const violHeaders = ['الموظف', 'الدور', 'عدد المخالفات', 'مجموع دقائق التأخير'];
-    const violRows = filteredViolationRows.map((v) => [
+    const violRows = violForExport.map((v) => [
       v.staffName,
       v.staffRole === 'driver' ? 'سائق' : 'مساعد',
       v.totalViolations,
@@ -963,11 +998,9 @@ export default function ReportsHub({ profile }: Props) {
 
     if (activeDomain === 'all') {
       const any =
-        filteredStaffStats.length +
-        filteredVehicleRows.length +
-        (showViolationsTab ? filteredViolationRows.length : 0);
+        staffForExport.length + vehicleForExport.length + (showViolationsTab ? violForExport.length : 0);
       if (any === 0) {
-        alert('لا توجد بيانات للتصدير');
+        alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
         return;
       }
       fileSlug = `الكل_${df}_${dt}`;
@@ -980,30 +1013,30 @@ export default function ReportsHub({ profile }: Props) {
         });
         if (format === 'excel') {
           const sheets: { name: string; data: unknown[][] }[] = [];
-          if (filteredStaffStats.length)
+          if (staffForExport.length)
             sheets.push({ name: 'الحضور', data: [attendanceHeaders, ...attendanceRows] });
-          if (filteredVehicleRows.length)
+          if (vehicleForExport.length)
             sheets.push({ name: 'المركبات', data: [vehicleHeaders, ...vehicleRows] });
-          if (showViolationsTab && filteredViolationRows.length)
+          if (showViolationsTab && violForExport.length)
             sheets.push({ name: 'المخالفات', data: [violHeaders, ...violRows] });
           sheets.push({ name: 'الرسوم', data: chartRowsForExcel() });
           await exportSheetsToExcelWithOptionalChartImage(sheets, `${fileSlug}.xlsx`, chartPng);
         } else {
           const blocks: string[] = [];
           blocks.push(
-            `<h1 style="text-align:center;font-size:22px;margin-bottom:8px">${titleBase} — عرض الكل</h1><p style="text-align:center;color:#666;margin-bottom:20px">من ${df} إلى ${dt}</p>`
+            `<h1 style="text-align:center;font-size:22px;margin-bottom:8px">${titleBase} — عرض الكل</h1><p style="text-align:center;color:#666;margin-bottom:20px">من ${df} إلى ${dt}</p>${selectionNoteHtml}`
           );
-          if (filteredStaffStats.length) {
+          if (staffForExport.length) {
             blocks.push(
               `<h2 style="font-size:16px;margin:20px 0 10px;color:#0f172a">الكادر والحضور</h2><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#2563eb;color:#fff">${attendanceHeaders.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}</tr></thead><tbody>${attendanceRows.map((row, i) => `<tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">${row.map((c) => `<td style="padding:6px 8px;border:1px solid #ddd">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
             );
           }
-          if (filteredVehicleRows.length) {
+          if (vehicleForExport.length) {
             blocks.push(
               `<h2 style="font-size:16px;margin:20px 0 10px;color:#0f172a">المركبات</h2><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#0d9488;color:#fff">${vehicleHeaders.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}</tr></thead><tbody>${vehicleRows.map((row, i) => `<tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">${row.map((c) => `<td style="padding:6px 8px;border:1px solid #ddd">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
             );
           }
-          if (showViolationsTab && filteredViolationRows.length) {
+          if (showViolationsTab && violForExport.length) {
             blocks.push(
               `<h2 style="font-size:16px;margin:20px 0 10px;color:#0f172a">المخالفات</h2><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:#b91c1c;color:#fff">${violHeaders.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}</tr></thead><tbody>${violRows.map((row, i) => `<tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">${row.map((c) => `<td style="padding:6px 8px;border:1px solid #ddd">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
             );
@@ -1022,24 +1055,24 @@ export default function ReportsHub({ profile }: Props) {
     }
 
     if (activeDomain === 'attendance') {
-      if (filteredStaffStats.length === 0) {
-        alert('لا توجد بيانات للتصدير');
+      if (staffForExport.length === 0) {
+        alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
         return;
       }
       fileSlug = `حضور_${df}_${dt}`;
       headers = attendanceHeaders;
       rows = attendanceRows;
     } else if (activeDomain === 'vehicles') {
-      if (filteredVehicleRows.length === 0) {
-        alert('لا توجد بيانات للتصدير');
+      if (vehicleForExport.length === 0) {
+        alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
         return;
       }
       fileSlug = `مركبات_${df}_${dt}`;
       headers = vehicleHeaders;
       rows = vehicleRows;
     } else if (activeDomain === 'violations') {
-      if (filteredViolationRows.length === 0) {
-        alert('لا توجد بيانات للتصدير');
+      if (violForExport.length === 0) {
+        alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
         return;
       }
       fileSlug = `مخالفات_${df}_${dt}`;
@@ -1069,6 +1102,7 @@ export default function ReportsHub({ profile }: Props) {
         const tableHtml = `
           <h1 style="text-align:center;font-size:22px;margin-bottom:16px">${titleBase} — ${activeDomain}</h1>
           <p style="text-align:center;color:#666;margin-bottom:20px">من ${df} إلى ${dt}</p>
+          ${selectionNoteHtml}
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:#3b82f6;color:#fff">
               ${headers.map((h) => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
@@ -1484,6 +1518,9 @@ export default function ReportsHub({ profile }: Props) {
                   pageSizeOptions={[10, 15, 25, 50]}
                   emptyLabel="لا توجد صفوف حضور تطابق البحث"
                   className="bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-600 rounded-xl"
+                  selectionEnabled
+                  selectedKeys={selectedAttendanceKeys}
+                  onSelectedKeysChange={setSelectedAttendanceKeys}
                 />
               </section>
               <section className="space-y-2">
@@ -1496,6 +1533,9 @@ export default function ReportsHub({ profile }: Props) {
                   pageSizeOptions={[10, 15, 25, 50]}
                   emptyLabel="لا توجد مركبات تطابق البحث"
                   className="bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-600 rounded-xl"
+                  selectionEnabled
+                  selectedKeys={selectedVehicleKeys}
+                  onSelectedKeysChange={setSelectedVehicleKeys}
                 />
               </section>
               {showViolationsTab ? (
@@ -1509,6 +1549,9 @@ export default function ReportsHub({ profile }: Props) {
                     pageSizeOptions={[10, 15, 25, 50]}
                     emptyLabel="لا توجد مخالفات تطابق البحث"
                     className="bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-600 rounded-xl"
+                    selectionEnabled
+                    selectedKeys={selectedViolationKeys}
+                    onSelectedKeysChange={setSelectedViolationKeys}
                   />
                 </section>
               ) : null}
@@ -1522,6 +1565,9 @@ export default function ReportsHub({ profile }: Props) {
               pageSizeOptions={[10, 25, 50, 100]}
               emptyLabel="لا توجد مركبات تطابق الفلاتر الحالية"
               className="bg-white dark:bg-stone-800 border-0 rounded-none"
+              selectionEnabled
+              selectedKeys={selectedVehicleKeys}
+              onSelectedKeysChange={setSelectedVehicleKeys}
             />
           ) : activeDomain === 'violations' ? (
             <DataTableEnhanced
@@ -1532,6 +1578,9 @@ export default function ReportsHub({ profile }: Props) {
               pageSizeOptions={[10, 25, 50, 100]}
               emptyLabel="لا توجد مخالفات في العرض الحالي"
               className="bg-white dark:bg-stone-800 border-0 rounded-none"
+              selectionEnabled
+              selectedKeys={selectedViolationKeys}
+              onSelectedKeysChange={setSelectedViolationKeys}
             />
           ) : (
             <DataTableEnhanced
@@ -1542,6 +1591,9 @@ export default function ReportsHub({ profile }: Props) {
               pageSizeOptions={[10, 25, 50, 100]}
               emptyLabel="لا توجد صفوف تطابق الفلاتر الحالية"
               className="bg-white dark:bg-stone-800 border-0 rounded-none"
+              selectionEnabled
+              selectedKeys={selectedAttendanceKeys}
+              onSelectedKeysChange={setSelectedAttendanceKeys}
             />
           )}
         </Suspense>

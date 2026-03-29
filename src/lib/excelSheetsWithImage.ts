@@ -1,34 +1,55 @@
 /**
  * تصدير عدة أوراق XLSX مع ورقة صورة اختيارية (exceljs).
- * لا يستبدل exportSheetsToExcel العام — يُستخدم من التقارير الذكية فقط عند الحاجة.
- * استيراد ديناميكي لـ exceljs حتى لا تُحمّل المكتبة إلا عند التصدير.
+ * عند فشل exceljs يُستخدم تلقائياً exportSheetsToExcel (xlsx).
  */
-function downloadXlsxBuffer(buffer: ArrayBuffer | Uint8Array | BlobPart, filename: string): void {
-  const blob = new Blob([buffer], {
+import { exportSheetsToExcel } from './excelExport';
+
+function downloadXlsxBytes(bytes: Uint8Array, filename: string): void {
+  const blob = new Blob([bytes], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename.endsWith('.xlsx') ? filename : `${filename.replace(/\.xlsx$/i, '')}.xlsx`;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-/**
- * نفس فكرة exportSheetsToExcel مع إضافة ورقة «رسم_بصري» عند تمرير صورة PNG (data URL).
- */
-export async function exportSheetsToExcelWithOptionalChartImage(
+function safeSheetName(name: string): string {
+  const s = name.replace(/[:\\/?*[\]]/g, '_').trim().slice(0, 31);
+  return s || 'Sheet';
+}
+
+function toUint8Array(buf: unknown): Uint8Array | null {
+  if (buf instanceof Uint8Array) return buf;
+  if (buf instanceof ArrayBuffer) return new Uint8Array(buf);
+  if (buf && typeof buf === 'object' && 'buffer' in buf && (buf as ArrayBufferView).byteLength != null) {
+    const v = buf as ArrayBufferView;
+    return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  }
+  return null;
+}
+
+async function runExcelJsExport(
   sheets: { name: string; data: unknown[][] }[],
   filename: string,
   chartPngDataUrl: string | null
-): Promise<void> {
-  const { default: ExcelJS } = await import('exceljs');
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'Alhasani Reports Hub';
+): Promise<boolean> {
+  const exceljsMod = (await import('exceljs')) as unknown as {
+    Workbook?: new () => import('exceljs').Workbook;
+    default?: { Workbook?: new () => import('exceljs').Workbook };
+  };
+  const WorkbookCtor = exceljsMod.Workbook ?? exceljsMod.default?.Workbook;
+  if (typeof WorkbookCtor !== 'function') throw new Error('exceljs Workbook not available');
+  const wb = new WorkbookCtor();
+  wb.creator = 'Reports Hub';
 
   for (const { name, data } of sheets) {
-    const ws = wb.addWorksheet(name.slice(0, 31), { views: [{ rightToLeft: true }] });
+    const ws = wb.addWorksheet(safeSheetName(name), { views: [{ rightToLeft: true }] });
     data.forEach((row, ri) => {
       row.forEach((cell, ci) => {
         const c = ws.getCell(ri + 1, ci + 1);
@@ -43,12 +64,31 @@ export async function exportSheetsToExcelWithOptionalChartImage(
   if (chartPngDataUrl) {
     const m = chartPngDataUrl.match(/^data:image\/png;base64,(.+)$/);
     const b64 = m ? m[1] : chartPngDataUrl.replace(/^data:image\/\w+;base64,/, '');
-    const imageId = wb.addImage({ base64: b64, extension: 'png' });
-    const imgWs = wb.addWorksheet('رسم_بصري', { views: [{ rightToLeft: true }] });
-    imgWs.getCell(1, 1).value = 'معاينة الرسوم (صورة)';
-    imgWs.addImage(imageId, { tl: { col: 0, row: 2 }, ext: { width: 720, height: 400 } });
+    if (b64.length > 0) {
+      const imageId = wb.addImage({ base64: b64, extension: 'png' });
+      const imgWs = wb.addWorksheet(safeSheetName('رسم_بصري'), { views: [{ rightToLeft: true }] });
+      imgWs.getCell(1, 1).value = 'معاينة الرسوم';
+      imgWs.addImage(imageId, { tl: { col: 0, row: 2 }, ext: { width: 700, height: 380 } });
+    }
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  downloadXlsxBuffer(buf, filename);
+  const bytes = toUint8Array(buf);
+  if (!bytes) return false;
+  downloadXlsxBytes(bytes, filename);
+  return true;
+}
+
+export async function exportSheetsToExcelWithOptionalChartImage(
+  sheets: { name: string; data: unknown[][] }[],
+  filename: string,
+  chartPngDataUrl: string | null
+): Promise<void> {
+  try {
+    const ok = await runExcelJsExport(sheets, filename, chartPngDataUrl);
+    if (ok) return;
+  } catch (e) {
+    console.warn('[exceljs] export failed, using xlsx fallback', e);
+  }
+  exportSheetsToExcel(sheets, filename);
 }

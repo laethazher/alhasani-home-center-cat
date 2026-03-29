@@ -70,7 +70,7 @@ export async function buildHubChartsPreviewPng(input: {
   const root = document.createElement('div');
   root.setAttribute('dir', 'rtl');
   root.style.cssText =
-    'position:fixed;left:-12000px;top:0;width:780px;padding:20px 24px;background:#ffffff;color:#0f172a;font-family:Segoe UI,Tahoma,Arial,sans-serif;box-sizing:border-box';
+    'position:fixed;left:-12000px;top:0;width:780px;padding:20px 24px;background:#ffffff;color:#0f172a;font-family:Segoe UI,Tahoma,Arial,sans-serif;box-sizing:border-box;opacity:1;visibility:hidden;z-index:-1;pointer-events:none;overflow:hidden';
 
   root.innerHTML = `
     <h2 style="margin:0 0 16px;font-size:18px;font-weight:800;border-bottom:2px solid #2563eb;padding-bottom:8px">معاينة الرسوم</h2>

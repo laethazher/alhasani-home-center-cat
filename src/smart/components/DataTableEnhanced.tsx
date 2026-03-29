@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Columns3, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -20,6 +20,10 @@ export interface DataTableEnhancedProps<T> {
   loading?: boolean;
   emptyLabel?: string;
   className?: string;
+  /** تحديد صفوف للتصدير — المفاتيح من getRowKey */
+  selectionEnabled?: boolean;
+  selectedKeys?: ReadonlySet<string>;
+  onSelectedKeysChange?: (next: Set<string>) => void;
 }
 
 export function DataTableEnhanced<T>({
@@ -31,6 +35,9 @@ export function DataTableEnhanced<T>({
   loading,
   emptyLabel = 'لا توجد بيانات',
   className,
+  selectionEnabled,
+  selectedKeys,
+  onSelectedKeysChange,
 }: DataTableEnhancedProps<T>) {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -77,6 +84,52 @@ export function DataTableEnhanced<T>({
     const start = safePage * pageSize;
     return sorted.slice(start, start + pageSize);
   }, [sorted, safePage, pageSize]);
+
+  const sel = selectedKeys ?? new Set<string>();
+  const toggleKey = (key: string) => {
+    if (!onSelectedKeysChange) return;
+    const next = new Set(sel);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onSelectedKeysChange(next);
+  };
+
+  const pageKeys = useMemo(() => pageRows.map((r) => getRowKey(r)), [pageRows, getRowKey]);
+  const allSortedKeys = useMemo(() => sorted.map((r) => getRowKey(r)), [sorted, getRowKey]);
+
+  const allPageSelected =
+    pageKeys.length > 0 && pageKeys.every((k) => sel.has(k));
+  const somePageSelected = pageKeys.some((k) => sel.has(k)) && !allPageSelected;
+
+  const togglePageSelection = () => {
+    if (!onSelectedKeysChange) return;
+    const next = new Set(sel);
+    if (allPageSelected) pageKeys.forEach((k) => next.delete(k));
+    else pageKeys.forEach((k) => next.add(k));
+    onSelectedKeysChange(next);
+  };
+
+  const selectAllResults = () => {
+    if (!onSelectedKeysChange) return;
+    onSelectedKeysChange(new Set(allSortedKeys));
+  };
+
+  const clearSelection = () => {
+    if (!onSelectedKeysChange) return;
+    onSelectedKeysChange(new Set());
+  };
+
+  const selectPageOnly = () => {
+    if (!onSelectedKeysChange) return;
+    onSelectedKeysChange(new Set(pageKeys));
+  };
+
+  const canSelect = !!(selectionEnabled && onSelectedKeysChange);
+  const headerSelectRef = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    const el = headerSelectRef.current;
+    if (el) el.indeterminate = somePageSelected;
+  }, [somePageSelected, allPageSelected, safePage]);
 
   const toggleSort = (id: string) => {
     const col = columns.find((c) => c.id === id);
@@ -154,6 +207,33 @@ export function DataTableEnhanced<T>({
             </>
           ) : null}
         </div>
+        {canSelect ? (
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+            <span className="text-stone-500 px-1">محدد: {sel.size}</span>
+            <button
+              type="button"
+              onClick={selectPageOnly}
+              className="px-2 py-1 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 hover:bg-stone-100 dark:hover:bg-stone-800"
+            >
+              تحديد الصفحة
+            </button>
+            <button
+              type="button"
+              onClick={selectAllResults}
+              className="px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-200"
+            >
+              تحديد الكل ({allSortedKeys.length})
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              disabled={sel.size === 0}
+              className="px-2 py-1 rounded-lg border border-stone-200 dark:border-stone-600 disabled:opacity-40"
+            >
+              مسح
+            </button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2 text-xs">
           <span className="text-stone-500">حجم الصفحة</span>
           <select
@@ -177,6 +257,18 @@ export function DataTableEnhanced<T>({
         <table className="w-full min-w-[480px] text-sm">
           <thead>
             <tr className="bg-stone-100 dark:bg-stone-700/50">
+              {canSelect ? (
+                <th className="w-10 px-2 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    className="rounded border-stone-300"
+                    checked={allPageSelected}
+                    ref={headerSelectRef}
+                    onChange={togglePageSelection}
+                    aria-label="تحديد الصفحة"
+                  />
+                </th>
+              ) : null}
               {activeCols.map((c) => (
                 <th key={c.id} className="px-3 py-2 text-right font-semibold text-stone-700 dark:text-stone-200">
                   {c.sortable ? (
@@ -207,6 +299,17 @@ export function DataTableEnhanced<T>({
                 key={getRowKey(row)}
                 className="border-t border-stone-100 dark:border-stone-700/60 odd:bg-stone-50/40 dark:odd:bg-stone-800/20"
               >
+                {canSelect ? (
+                  <td className="w-10 px-2 py-2 text-center align-middle">
+                    <input
+                      type="checkbox"
+                      className="rounded border-stone-300"
+                      checked={sel.has(getRowKey(row))}
+                      onChange={() => toggleKey(getRowKey(row))}
+                      aria-label="تحديد الصف"
+                    />
+                  </td>
+                ) : null}
                 {activeCols.map((c) => (
                   <td key={c.id} className="px-3 py-2 text-stone-800 dark:text-stone-100">
                     {c.accessor(row)}
