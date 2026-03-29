@@ -11,6 +11,7 @@ import {
   Truck,
   Shield,
   LayoutGrid,
+  Package,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -79,6 +80,25 @@ type ExitLoadingRow = {
   loading_delay_minutes: number | null;
 };
 
+type ExitClampReportRow = {
+  id: string;
+  created_at: string;
+  loading_verified: boolean | null;
+  loading_issue_reason: string | null;
+  status: string;
+  driver_name: string | null;
+  vehicle_plate: string | null;
+};
+
+const EXIT_STATUS_AR: Record<string, string> = {
+  pending: 'قيد الانتظار',
+  approved: 'تمت الموافقة',
+  rejected: 'مرفوض',
+  exited: 'غادر',
+  pending_issue: 'مشكلة تحميل',
+  approved_override: 'تجاوز إداري',
+};
+
 type SortKey = 'name' | 'late' | 'absent' | 'present' | 'loading_delay';
 type VehicleSortKey = 'plate' | 'status' | 'odometer';
 type ViolationSortKey = 'name' | 'violations' | 'delay';
@@ -137,6 +157,8 @@ export default function ReportsHub({ profile }: Props) {
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
+  const [exitClampRows, setExitClampRows] = useState<ExitClampReportRow[]>([]);
+  const [clampReportVerifiedFalseOnly, setClampReportVerifiedFalseOnly] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [violExitRequests, setViolExitRequests] = useState<ExitRequest[]>([]);
   const [manualViolations, setManualViolations] = useState<Violation[]>([]);
@@ -231,6 +253,7 @@ export default function ReportsHub({ profile }: Props) {
       archRes,
       staffRes,
       exitRes,
+      exitClampRes,
       vehRes,
       exitViolRes,
       violRes,
@@ -241,6 +264,10 @@ export default function ReportsHub({ profile }: Props) {
         .from('exit_requests')
         .select('driver_id, created_at, loading_is_delay, loading_delay_minutes')
         .eq('track_driver_loading_time', true),
+      supabase
+        .from('exit_requests')
+        .select('id, created_at, loading_verified, loading_issue_reason, status, driver_name, vehicle_plate')
+        .order('created_at', { ascending: false }),
       supabase.from('vehicles').select('*').order('plate_number'),
       supabase
         .from('exit_requests')
@@ -253,6 +280,7 @@ export default function ReportsHub({ profile }: Props) {
     if (archRes.data) setArchive(archRes.data);
     if (staffRes.data) setStaff(staffRes.data);
     if (exitRes.data) setExitLoadingRows(exitRes.data as ExitLoadingRow[]);
+    if (exitClampRes.data) setExitClampRows(exitClampRes.data as ExitClampReportRow[]);
     if (vehRes.data) setVehicles(vehRes.data);
     if (exitViolRes.data) setViolExitRequests(exitViolRes.data);
     if (violRes.data) setManualViolations(violRes.data);
@@ -336,6 +364,35 @@ export default function ReportsHub({ profile }: Props) {
     else if (filterState.role === 'assistant') list = list.filter((s) => s.role === 'assistant');
     return list.sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [archive, staff, effFrom, effTo, exitLoadingRows, filterState.role]);
+
+  const exitClampRowsInRange = useMemo(() => {
+    return exitClampRows.filter((r) => {
+      const dk = getBaghdadDateKey(r.created_at);
+      if (effFrom && dk < effFrom) return false;
+      if (effTo && dk > effTo) return false;
+      return true;
+    });
+  }, [exitClampRows, effFrom, effTo]);
+
+  const exitClampMetrics = useMemo(() => {
+    const withoutClamps = exitClampRowsInRange.filter((r) => r.loading_verified === false).length;
+    const withDecision = exitClampRowsInRange.filter(
+      (r) => r.loading_verified !== null && r.loading_verified !== undefined
+    );
+    const verifiedTrue = withDecision.filter((r) => r.loading_verified === true).length;
+    const totalDecided = withDecision.length;
+    const compliancePct =
+      totalDecided === 0 ? null : Math.round((verifiedTrue / totalDecided) * 1000) / 10;
+    return { withoutClamps, compliancePct, totalDecided, verifiedTrue };
+  }, [exitClampRowsInRange]);
+
+  const exitClampTableRows = useMemo(() => {
+    const base = exitClampRowsInRange.filter(
+      (r) => r.loading_verified !== null && r.loading_verified !== undefined
+    );
+    if (clampReportVerifiedFalseOnly) return base.filter((r) => r.loading_verified === false);
+    return base;
+  }, [exitClampRowsInRange, clampReportVerifiedFalseOnly]);
 
   const filteredStaffStats = useMemo(() => {
     let rows = staffStats;
@@ -1473,6 +1530,101 @@ export default function ReportsHub({ profile }: Props) {
           </div>
         ))}
       </div>
+
+      {(activeDomain === 'attendance' || activeDomain === 'all') && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-teal-200 dark:border-teal-900/50 bg-teal-50/40 dark:bg-teal-950/25 p-4 shadow-sm space-y-4"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <Package className="w-5 h-5 text-teal-700 dark:text-teal-300 shrink-0" />
+            <h3 className="font-bold text-stone-900 dark:text-white">إخراج الكادر — التحقق من القواطع</h3>
+            <span className="text-xs text-stone-500 dark:text-stone-400">
+              (حسب تاريخ إنشاء الطلب وفلترة التواريخ أعلاه — توقيت بغداد)
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4">
+              <p className="text-xs text-stone-500 dark:text-stone-400 mb-1">حالات بدون قواطع</p>
+              <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">
+                {exitClampMetrics.withoutClamps}
+              </p>
+              <p className="text-[11px] text-stone-500 mt-1">طلبات سُجّل فيها تحميل بدون قواطع ضمن النطاق</p>
+            </div>
+            <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4">
+              <p className="text-xs text-stone-500 dark:text-stone-400 mb-1">نسبة الالتزام بالقواطع</p>
+              <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                {exitClampMetrics.compliancePct == null ? '—' : `${exitClampMetrics.compliancePct}%`}
+              </p>
+              <p className="text-[11px] text-stone-500 mt-1">
+                من أصل {exitClampMetrics.totalDecided} طلباً تم فيها تسجيل قرار (نعم/لا)
+              </p>
+            </div>
+            <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 flex flex-col justify-center">
+              <label className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-stone-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="rounded border-stone-300 text-teal-600 focus:ring-teal-500"
+                  checked={clampReportVerifiedFalseOnly}
+                  onChange={(e) => setClampReportVerifiedFalseOnly(e.target.checked)}
+                />
+                عرض حالات <span className="font-mono text-xs">loading_verified = false</span> فقط
+              </label>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900">
+            <table className="w-full text-sm text-right min-w-[640px]">
+              <thead>
+                <tr className="border-b border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/80">
+                  <th className="p-3 font-semibold">التاريخ</th>
+                  <th className="p-3 font-semibold">السائق</th>
+                  <th className="p-3 font-semibold">المركبة</th>
+                  <th className="p-3 font-semibold">حالة الطلب</th>
+                  <th className="p-3 font-semibold">القواطع</th>
+                  <th className="p-3 font-semibold">السبب</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exitClampTableRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-stone-500 dark:text-stone-400">
+                      لا توجد صفوف تطابق الفلتر ضمن نطاق التواريخ (أو لم يُسجَّل أي قرار تحقق بعد).
+                    </td>
+                  </tr>
+                ) : (
+                  exitClampTableRows.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="border-b border-stone-100 dark:border-stone-800 hover:bg-stone-50/80 dark:hover:bg-stone-800/40"
+                    >
+                      <td className="p-3 whitespace-nowrap text-stone-600 dark:text-stone-300">
+                        {new Date(r.created_at).toLocaleString('ar-IQ', {
+                          dateStyle: 'medium',
+                          timeStyle: 'short',
+                        })}
+                      </td>
+                      <td className="p-3">{r.driver_name || '—'}</td>
+                      <td className="p-3">{r.vehicle_plate || '—'}</td>
+                      <td className="p-3">{EXIT_STATUS_AR[r.status] ?? r.status}</td>
+                      <td className="p-3">
+                        {r.loading_verified === true ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-medium">نعم</span>
+                        ) : (
+                          <span className="text-red-600 dark:text-red-400 font-medium">لا</span>
+                        )}
+                      </td>
+                      <td className="p-3 max-w-xs text-stone-600 dark:text-stone-400 break-words">
+                        {r.loading_issue_reason || '—'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
+      )}
 
       <Suspense fallback={suspenseFallback}>
         <ChartsPanel

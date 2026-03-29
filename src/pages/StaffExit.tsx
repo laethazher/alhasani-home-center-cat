@@ -26,6 +26,7 @@ import {
   FileText,
   Download,
   Package,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -292,6 +293,18 @@ const STATUS_CONFIG: Record<ExitRequestStatus, { label: string; color: string; b
   approved: { label: 'تمت الموافقة', color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',  icon: CheckCircle2 },
   exited:   { label: 'غادر',         color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30', icon: DoorOpen },
   rejected: { label: 'مرفوض',        color: 'text-stone-500 dark:text-stone-400',    bgColor: 'bg-stone-100 dark:bg-stone-800/30',    icon: XCircle },
+  pending_issue: {
+    label: 'مشكلة تحميل',
+    color: 'text-orange-700 dark:text-orange-300',
+    bgColor: 'bg-orange-100 dark:bg-orange-900/30',
+    icon: AlertTriangle,
+  },
+  approved_override: {
+    label: 'مسموح بالخروج (تجاوز)',
+    color: 'text-sky-700 dark:text-sky-300',
+    bgColor: 'bg-sky-100 dark:bg-sky-900/30',
+    icon: ShieldCheck,
+  },
 };
 
 /* ── Live Clock ── */
@@ -634,8 +647,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [formExitType, setFormExitType] = useState<ExitType>('permanent');
   const [formDurationMinutes, setFormDurationMinutes] = useState<number>(30);
   const [formTrackLoadingTime, setFormTrackLoadingTime] = useState(false);
+  const [formVehicleCbm, setFormVehicleCbm] = useState('');
   const [formPreviewNow, setFormPreviewNow] = useState(() => new Date());
   const [submitting, setSubmitting] = useState(false);
+
+  const [clampExitId, setClampExitId] = useState<string | null>(null);
+  const [clampStep, setClampStep] = useState<'question' | 'reason'>('question');
+  const [clampReason, setClampReason] = useState('');
+  const [clampSubmitting, setClampSubmitting] = useState(false);
 
   /* Archive view */
   const [showArchive, setShowArchive] = useState(false);
@@ -700,7 +719,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     if (data) {
       // Check for new approved requests (gate guard notification)
       if (isGateGuard) {
-        const approvedCount = data.filter((r: ExitRequest) => r.status === 'approved').length;
+        const approvedCount = data.filter(
+          (r: ExitRequest) => r.status === 'approved' || r.status === 'approved_override'
+        ).length;
         if (approvedCount > prevApprovedCount.current && prevApprovedCount.current > 0) {
           setFlashNotification(true);
           if (soundEnabled) playNotificationSound();
@@ -774,6 +795,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   /* ── Actions ── */
   const handleCreate = async () => {
     if (!formDriverId && formAssistantIds.length === 0) return;
+    const cbmRaw = formVehicleCbm.trim();
+    const cbmNum = Number(cbmRaw.replace(',', '.'));
+    if (cbmRaw === '' || Number.isNaN(cbmNum) || cbmNum < 0) {
+      alert('يرجى إدخال حجم المركبة (CBM) رقماً صحيحاً أكبر أو يساوي صفر.');
+      return;
+    }
     setSubmitting(true);
     const assistantNames = assistants
       .filter((a) => formAssistantIds.includes(a.id))
@@ -795,6 +822,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       exit_duration_minutes: formExitType === 'temporary' ? formDurationMinutes : null,
       vehicle_id: formVehicleId ? Number(formVehicleId) : null,
       vehicle_plate: formVehiclePlate || null,
+      vehicle_cbm: cbmNum,
       created_by: userId,
       status: 'pending',
     }).select().single();
@@ -866,6 +894,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       setFormExitType('permanent');
       setFormDurationMinutes(30);
       setFormTrackLoadingTime(false);
+      setFormVehicleCbm('');
       await fetchRequests();
     }
     setSubmitting(false);
@@ -887,11 +916,85 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     await fetchRequests();
   };
 
-  const handleConfirmExit = async (id: string) => {
-    await supabase
+  const openClampModal = (id: string) => {
+    setClampExitId(id);
+    setClampStep('question');
+    setClampReason('');
+  };
+
+  const resetClampModal = () => {
+    setClampExitId(null);
+    setClampStep('question');
+    setClampReason('');
+  };
+
+  const closeClampModal = () => {
+    if (clampSubmitting) return;
+    resetClampModal();
+  };
+
+  const submitClampVerifiedYes = async () => {
+    if (!clampExitId) return;
+    setClampSubmitting(true);
+    const { error } = await supabase
       .from('exit_requests')
-      .update({ status: 'exited', gate_guard_id: userId, exited_at: new Date().toISOString() })
+      .update({
+        loading_verified: true,
+        status: 'exited',
+        gate_guard_id: userId,
+        exited_at: new Date().toISOString(),
+      })
+      .eq('id', clampExitId);
+    setClampSubmitting(false);
+    if (error) {
+      console.error(error);
+      alert('تعذر تأكيد المغادرة: ' + (error.message || 'خطأ غير معروف'));
+      return;
+    }
+    resetClampModal();
+    await fetchRequests();
+  };
+
+  const submitClampIssueReason = async () => {
+    if (!clampExitId) return;
+    const reason = clampReason.trim();
+    if (!reason) {
+      alert('يرجى كتابة السبب.');
+      return;
+    }
+    setClampSubmitting(true);
+    const { error } = await supabase
+      .from('exit_requests')
+      .update({
+        loading_verified: false,
+        loading_issue_reason: reason,
+        status: 'pending_issue',
+      })
+      .eq('id', clampExitId);
+    setClampSubmitting(false);
+    if (error) {
+      console.error(error);
+      alert('تعذر حفظ البلاغ: ' + (error.message || 'خطأ غير معروف'));
+      return;
+    }
+    resetClampModal();
+    await fetchRequests();
+  };
+
+  const handleApproveOverride = async (id: string) => {
+    const { error } = await supabase
+      .from('exit_requests')
+      .update({
+        status: 'approved_override',
+        approved_by: userId,
+        approved_at: new Date().toISOString(),
+      })
       .eq('id', id);
+    if (error) {
+      console.error(error);
+      alert('تعذر السماح بالخروج: ' + (error.message || 'خطأ غير معروف'));
+      return;
+    }
     await fetchRequests();
   };
 
@@ -913,6 +1016,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   };
 
   /* ── Export Functions ── */
+  const formatLoadingVerified = (r: ExitRequest) =>
+    r.loading_verified === true ? 'نعم' : r.loading_verified === false ? 'لا' : '—';
+
   const getExportData = (reqs: ExitRequest[]) => reqs.map((r) => ({
     'الحالة': STATUS_CONFIG[r.status].label,
     'نوع الخروج': r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
@@ -920,6 +1026,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     'المساعدين': r.assistant_names.join(' ، ') || 'لا يوجد',
     'سبب الخروج': r.exit_reason || '—',
     'المركبة': r.vehicle_plate || '—',
+    'حجم المركبة CBM': r.vehicle_cbm != null ? String(r.vehicle_cbm) : '—',
+    'تحقق القواطع': formatLoadingVerified(r),
+    'سبب مشكلة التحميل': r.loading_issue_reason || '—',
     'ملاحظات': r.notes || '—',
     'تاريخ الإنشاء': new Date(r.created_at).toLocaleString('ar-IQ'),
     'تاريخ المغادرة': r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
@@ -930,7 +1039,24 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   }));
 
   const exportExcel = (reqs: ExitRequest[], filename: string) => {
-    const headers = ['الحالة', 'نوع الخروج', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'ملاحظات', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'احتساب وقت التحميل', 'دقائق من 7:00', 'دقائق التأخير بعد 8:15', 'تأخير تحميل'];
+    const headers = [
+      'الحالة',
+      'نوع الخروج',
+      'السائق',
+      'المساعدين',
+      'سبب الخروج',
+      'المركبة',
+      'CBM',
+      'القواطع',
+      'سبب مشكلة التحميل',
+      'ملاحظات',
+      'تاريخ الإنشاء',
+      'تاريخ المغادرة',
+      'احتساب وقت التحميل',
+      'دقائق من 7:00',
+      'دقائق التأخير بعد 8:15',
+      'تأخير تحميل',
+    ];
     const rows = reqs.map((r) => [
       STATUS_CONFIG[r.status].label,
       r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
@@ -938,6 +1064,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       r.assistant_names.join(' ، ') || 'لا يوجد',
       r.exit_reason || '—',
       r.vehicle_plate || '—',
+      r.vehicle_cbm != null ? String(r.vehicle_cbm) : '—',
+      formatLoadingVerified(r),
+      r.loading_issue_reason || '—',
       r.notes || '—',
       new Date(r.created_at).toLocaleString('ar-IQ'),
       r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
@@ -950,7 +1079,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   };
 
   const exportPDF = async (reqs: ExitRequest[], filename: string) => {
-    const headers = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'تحميل', 'من7:00', 'تأخيرد', 'تأخير؟'];
+    const headers = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'CBM', 'قواطع', 'سببمشكلة', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'تحميل', 'من7:00', 'تأخيرد', 'تأخير؟'];
     let html = `<h1 style="text-align:center;font-size:20px;margin-bottom:16px">إخراجات الكادر</h1>
       <table style="width:100%;border-collapse:collapse;font-size:10px">
         <thead><tr style="background:#10b981;color:#fff">
@@ -965,6 +1094,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         <td style="padding:6px 4px;border:1px solid #ddd">${r.assistant_names.join(' ، ') || 'لا يوجد'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.exit_reason || '—'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.vehicle_plate || '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.vehicle_cbm != null ? r.vehicle_cbm : '—'}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${formatLoadingVerified(r)}</td>
+        <td style="padding:6px 4px;border:1px solid #ddd">${r.loading_issue_reason || '—'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${new Date(r.created_at).toLocaleString('ar-IQ')}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.track_driver_loading_time ? 'نعم' : 'لا'}</td>
@@ -1073,10 +1205,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* ── Filtered requests (today only) ── */
   const filtered = todayRequests.filter((r) => {
-    // Gate guard sees approved + exited (with unconfirmed returns)
+    // Gate guard sees approved / override / pending_issue + exited (temporary returns)
     if (isGateGuard) {
-      if (r.status === 'approved') { /* show */ }
-      else if (r.status === 'exited') {
+      if (r.status === 'approved' || r.status === 'approved_override' || r.status === 'pending_issue') {
+        /* show */
+      } else if (r.status === 'exited') {
         if (r.exit_type !== 'temporary') return false;
         const returns = r.assistant_returns || {};
         const allAssistantsReturned = r.assistant_ids.length === 0 || r.assistant_ids.every((id) => String(id) in returns);
@@ -1187,7 +1320,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     approved: todayRequests.filter((r) => r.status === 'approved').length,
     exited: todayRequests.filter((r) => r.status === 'exited').length,
     rejected: todayRequests.filter((r) => r.status === 'rejected').length,
+    pending_issue: todayRequests.filter((r) => r.status === 'pending_issue').length,
+    approved_override: todayRequests.filter((r) => r.status === 'approved_override').length,
   };
+
+  const pendingIssueTodayCount = stats.pending_issue;
 
   /* ── Remaining staff (not exited today) ── */
   const remainingDrivers = useMemo(() => {
@@ -1245,6 +1382,24 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
         <LiveClock />
       </div>
+
+      {isAdmin && pendingIssueTodayCount > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-2xl border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/40 px-4 py-3"
+          role="alert"
+        >
+          <span className="inline-flex items-center justify-center min-w-[2rem] h-8 px-2 rounded-full bg-orange-600 text-white text-sm font-bold">
+            {pendingIssueTodayCount}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-orange-900 dark:text-orange-100">تنبيه: طلبات بمشكلة تحميل (بدون قواطع)</p>
+            <p className="text-sm text-orange-800 dark:text-orange-200/90 mt-0.5">
+              يوجد {pendingIssueTodayCount} طلباً بحالة «مشكلة تحميل» يتطلب مراجعة و«السماح بالخروج» عند الاقتضاء.
+            </p>
+          </div>
+          <AlertTriangle className="w-8 h-8 text-orange-600 dark:text-orange-400 shrink-0" />
+        </div>
+      )}
 
       {/* ── Archive Toggle & Export Buttons ── */}
       {!isGateGuard && (
@@ -1368,6 +1523,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 'المساعدين',
                 'سبب الخروج',
                 'المركبة',
+                'CBM',
+                'القواطع',
+                'سبب مشكلة التحميل',
                 'ملاحظات',
                 'تاريخ الإنشاء',
                 'تاريخ المغادرة',
@@ -1383,6 +1541,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 r.assistant_names.join(' ، ') || 'لا يوجد',
                 r.exit_reason || '—',
                 r.vehicle_plate || '—',
+                r.vehicle_cbm != null ? String(r.vehicle_cbm) : '—',
+                formatLoadingVerified(r),
+                r.loading_issue_reason || '—',
                 r.notes || '—',
                 new Date(r.created_at).toLocaleString('ar-IQ'),
                 r.exited_at ? new Date(r.exited_at).toLocaleString('ar-IQ') : '—',
@@ -1444,12 +1605,14 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
       {/* ── Stats Cards ── */}
       {isAdmin && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
             { label: 'قيد الانتظار', value: stats.pending,  color: 'from-red-500 to-rose-600' },
             { label: 'تمت الموافقة', value: stats.approved, color: 'from-yellow-500 to-amber-600' },
             { label: 'غادر',         value: stats.exited,   color: 'from-emerald-500 to-teal-600' },
             { label: 'مرفوض',        value: stats.rejected, color: 'from-stone-400 to-stone-500' },
+            { label: 'مشكلة تحميل', value: stats.pending_issue, color: 'from-orange-500 to-amber-600' },
+            { label: 'تجاوز إداري', value: stats.approved_override, color: 'from-sky-500 to-blue-600' },
           ].map((s) => (
             <motion.div
               key={s.label}
@@ -1628,7 +1791,15 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
         {isAdmin && (
           <div className="flex gap-2 flex-wrap">
-            {(['all', 'pending', 'approved', 'exited', 'rejected'] as const).map((s) => (
+            {([
+              'all',
+              'pending',
+              'approved',
+              'exited',
+              'rejected',
+              'pending_issue',
+              'approved_override',
+            ] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
@@ -1988,6 +2159,23 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               </div>
 
               <div className="mt-4">
+                <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
+                  حجم المركبة (CBM) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  value={formVehicleCbm}
+                  onChange={(e) => setFormVehicleCbm(e.target.value)}
+                  placeholder="مثال: 12.5"
+                  className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white placeholder:text-stone-400"
+                />
+                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">إلزامي — قيمة رقمية أكبر أو تساوي 0</p>
+              </div>
+
+              <div className="mt-4">
                 <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">ملاحظات (اختياري)</label>
                 <textarea
                   value={formNotes}
@@ -2138,6 +2326,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       req.status === 'approved' && 'border-yellow-200 dark:border-yellow-900/50',
                       req.status === 'exited' && 'border-emerald-200 dark:border-emerald-900/50',
                       req.status === 'rejected' && 'border-stone-200 dark:border-stone-800',
+                      req.status === 'pending_issue' && 'border-orange-300 dark:border-orange-800/60',
+                      req.status === 'approved_override' && 'border-sky-300 dark:border-sky-800/60',
                     )}
                   >
                     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -2196,7 +2386,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             </p>
                           </div>
                         </div>
-                        {(req.exit_reason || req.vehicle_plate) && (
+                        {(req.exit_reason || req.vehicle_plate || req.vehicle_cbm != null) && (
                           <div className="flex flex-wrap gap-2">
                             {req.exit_reason && (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">
@@ -2210,6 +2400,23 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                                 {req.vehicle_plate}
                               </span>
                             )}
+                            {req.vehicle_cbm != null && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-800 dark:text-teal-200">
+                                CBM: {req.vehicle_cbm}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {req.loading_issue_reason && (
+                          <div className="text-sm text-orange-800 dark:text-orange-200 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 px-3 py-2 rounded-lg">
+                            <span className="text-xs font-bold text-orange-700 dark:text-orange-300">سبب عدم استخدام القواطع:</span>{' '}
+                            <HighlightText text={req.loading_issue_reason} query={searchTerm} />
+                          </div>
+                        )}
+                        {isGateGuard && req.status === 'pending_issue' && (
+                          <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/50 text-sm text-orange-900 dark:text-orange-100">
+                            <AlertTriangle className="w-5 h-5 shrink-0" />
+                            في انتظار موافقة الإدارة — لا يمكن تأكيد المغادرة حتى يتم «السماح بالخروج».
                           </div>
                         )}
                         {req.notes && (
@@ -2265,15 +2472,28 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         )}
                       </div>
                       {isAdmin && (
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleDelete(req.id)}
-                          className="p-2 rounded-xl text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                          title="حذف"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </motion.button>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          {req.status === 'pending_issue' && (
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleApproveOverride(req.id)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-white text-xs font-bold shadow-md"
+                            >
+                              <ShieldCheck className="w-4 h-4" />
+                              السماح بالخروج
+                            </motion.button>
+                          )}
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleDelete(req.id)}
+                            className="p-2 rounded-xl text-stone-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </motion.button>
+                        </div>
                       )}
                     </div>
                   </motion.div>
@@ -2313,7 +2533,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 req.status === 'approved' && 'border-yellow-200 dark:border-yellow-900/50',
                 req.status === 'exited' && !getOverdueInfo(req, now)?.isOverdue && 'border-emerald-200 dark:border-emerald-900/50',
                 req.status === 'rejected' && 'border-stone-200 dark:border-stone-800',
-                isGateGuard && req.status === 'approved' && 'ring-2 ring-yellow-400/50 dark:ring-yellow-500/30',
+                req.status === 'pending_issue' && 'border-orange-300 dark:border-orange-800/60',
+                req.status === 'approved_override' && 'border-sky-300 dark:border-sky-800/60',
+                isGateGuard &&
+                  (req.status === 'approved' || req.status === 'approved_override') &&
+                  'ring-2 ring-yellow-400/50 dark:ring-yellow-500/30',
                 getOverdueInfo(req, now)?.isOverdue && 'border-red-400 dark:border-red-700 ring-2 ring-red-300/50 dark:ring-red-800/50 bg-red-50/30 dark:bg-red-950/20',
               )}
             >
@@ -2394,7 +2618,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   </div>
 
                   {/* Exit Reason & Vehicle */}
-                  {(req.exit_reason || req.vehicle_plate) && (
+                  {(req.exit_reason || req.vehicle_plate || req.vehicle_cbm != null) && (
                     <div className="flex flex-wrap gap-3">
                       {req.exit_reason && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">
@@ -2408,6 +2632,25 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                           {req.vehicle_plate}
                         </span>
                       )}
+                      {req.vehicle_cbm != null && (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-800 dark:text-teal-200">
+                          CBM: {req.vehicle_cbm}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {req.loading_issue_reason && (
+                    <div className="text-sm text-orange-800 dark:text-orange-200 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 px-3 py-2 rounded-lg">
+                      <span className="text-xs font-bold text-orange-700 dark:text-orange-300">سبب عدم استخدام القواطع:</span>{' '}
+                      <HighlightText text={req.loading_issue_reason} query={searchTerm} />
+                    </div>
+                  )}
+
+                  {isGateGuard && req.status === 'pending_issue' && (
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/50 text-sm text-orange-900 dark:text-orange-100">
+                      <AlertTriangle className="w-5 h-5 shrink-0" />
+                      في انتظار موافقة الإدارة — لا يمكن تأكيد المغادرة حتى يتم «السماح بالخروج».
                     </div>
                   )}
 
@@ -2604,12 +2847,24 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     </>
                   )}
 
-                  {/* Gate Guard: Confirm Exit */}
-                  {isGateGuard && req.status === 'approved' && (
+                  {isAdmin && req.status === 'pending_issue' && (
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => handleConfirmExit(req.id)}
+                      onClick={() => handleApproveOverride(req.id)}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-white text-sm font-bold shadow-md"
+                    >
+                      <ShieldCheck className="w-5 h-5" />
+                      السماح بالخروج
+                    </motion.button>
+                  )}
+
+                  {/* Gate Guard: Confirm Exit (بعد تحقق القواطع في المودال) */}
+                  {isGateGuard && (req.status === 'approved' || req.status === 'approved_override') && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => openClampModal(req.id)}
                       className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold shadow-lg shadow-blue-600/30 text-base"
                     >
                       <LogOutIcon className="w-5 h-5" />
@@ -2636,6 +2891,112 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         )}
       </div>
       )}
+
+      <AnimatePresence>
+        {clampExitId && (
+          <motion.div
+            key="clamp-exit-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="clamp-modal-title"
+            className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[2px]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !clampSubmitting) closeClampModal();
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0, y: 8 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.96, opacity: 0, y: 8 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+              className="w-full max-w-md rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 shadow-2xl p-6 text-right space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {clampStep === 'question' ? (
+                <>
+                  <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
+                      <Package className="w-6 h-6 text-blue-600 dark:text-blue-300" />
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <h3 id="clamp-modal-title" className="text-lg font-bold text-stone-900 dark:text-white">
+                        هل تم التحميل باستخدام القواطع؟
+                      </h3>
+                      <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+                        لا يمكن الخروج بدون تحميل بالقواطع. يُرجى التأكد قبل المتابعة.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 sm:flex-row-reverse pt-1">
+                    <button
+                      type="button"
+                      disabled={clampSubmitting}
+                      onClick={() => void submitClampVerifiedYes()}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold shadow-lg disabled:opacity-50"
+                    >
+                      {clampSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                      نعم
+                    </button>
+                    <button
+                      type="button"
+                      disabled={clampSubmitting}
+                      onClick={() => setClampStep('reason')}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 text-white font-bold shadow-lg disabled:opacity-50"
+                    >
+                      <X className="w-5 h-5" />
+                      لا
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={clampSubmitting}
+                    onClick={closeClampModal}
+                    className="w-full text-sm text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 py-2"
+                  >
+                    إلغاء
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-bold text-stone-900 dark:text-white">اكتب السبب</h3>
+                  <p className="text-sm text-stone-600 dark:text-stone-400">
+                    لن يُسمح بالخروج حتى تتدخل الإدارة. السبب إلزامي.
+                  </p>
+                  <textarea
+                    value={clampReason}
+                    onChange={(e) => setClampReason(e.target.value)}
+                    rows={4}
+                    placeholder="سبب عدم التحميل بالقواطع..."
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm text-stone-900 dark:text-white outline-none focus:ring-2 focus:ring-orange-500/30 resize-none"
+                  />
+                  <div className="flex flex-col sm:flex-row gap-2 sm:flex-row-reverse">
+                    <button
+                      type="button"
+                      disabled={clampSubmitting}
+                      onClick={() => void submitClampIssueReason()}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-orange-600 text-white font-bold disabled:opacity-50"
+                    >
+                      {clampSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                      إرسال البلاغ ومنع الخروج
+                    </button>
+                    <button
+                      type="button"
+                      disabled={clampSubmitting}
+                      onClick={() => setClampStep('question')}
+                      className="flex-1 px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 text-stone-700 dark:text-stone-300 font-medium"
+                    >
+                      رجوع
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

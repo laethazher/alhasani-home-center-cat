@@ -12,6 +12,8 @@ const STATUS_LABELS: Record<string, string> = {
   approved: 'معتمد',
   exited: 'خرج',
   rejected: 'مرفوض',
+  pending_issue: 'مشكلة تحميل',
+  approved_override: 'تجاوز إداري',
 };
 
 export function insightsFromExitRows(

@@ -38,6 +38,25 @@ function splitPlateNumber(plate: string) {
   return { vehicleNumber: plate, provinceNumber: '', plateLetter: '' };
 }
 
+function exitRequestStatusLabelAr(status: string): string {
+  if (status === 'exited') return 'خرج';
+  if (status === 'approved') return 'مُوافق';
+  if (status === 'rejected') return 'مرفوض';
+  if (status === 'pending_issue') return 'مشكلة تحميل';
+  if (status === 'approved_override') return 'مسموح (تجاوز)';
+  if (status === 'pending') return 'بانتظار';
+  return status || 'بانتظار';
+}
+
+function exitRequestStatusTextClass(status: string): string {
+  if (status === 'exited') return 'text-emerald-600';
+  if (status === 'approved') return 'text-blue-600';
+  if (status === 'rejected') return 'text-red-600';
+  if (status === 'pending_issue') return 'text-orange-600';
+  if (status === 'approved_override') return 'text-sky-600';
+  return 'text-amber-600';
+}
+
 /* ── Constants ── */
 const VEHICLE_TYPES = ['كانتر', 'كيا'];
 const FUEL_TYPES = ['ديزل', 'بنزين', 'كهربائي', 'هجين'];
@@ -1240,12 +1259,8 @@ export default function Vehicles({ profile }: VehiclesProps) {
                                     <div className="flex flex-wrap gap-2 mt-1 text-stone-400">
                                       {r.exit_reason && <span>{r.exit_reason}</span>}
                                       <span>{r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || '—'} د)` : 'دائم'}</span>
-                                      <span className={cn(
-                                        r.status === 'exited' ? 'text-emerald-600' :
-                                        r.status === 'approved' ? 'text-blue-600' :
-                                        r.status === 'rejected' ? 'text-red-600' : 'text-amber-600'
-                                      )}>
-                                        {r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار'}
+                                      <span className={exitRequestStatusTextClass(r.status)}>
+                                        {exitRequestStatusLabelAr(r.status)}
                                       </span>
                                     </div>
                                   </div>

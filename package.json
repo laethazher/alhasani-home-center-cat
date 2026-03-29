@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "db:apply-exit-loading": "node scripts/apply-exit-loading-migration.mjs"
+    "db:apply-exit-loading": "node scripts/apply-exit-loading-migration.mjs",
+    "db:apply-exit-clamps": "node scripts/apply-exit-clamps-migration.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

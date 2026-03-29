@@ -31,6 +31,25 @@ const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgCol
   reserved:    { label: 'محجوزة', color: 'text-blue-700 dark:text-blue-300',       bgColor: 'bg-blue-100 dark:bg-blue-900/30',       icon: Shield },
 };
 
+function exitRequestStatusLabelAr(status: string): string {
+  if (status === 'exited') return 'خرج';
+  if (status === 'approved') return 'مُوافق';
+  if (status === 'rejected') return 'مرفوض';
+  if (status === 'pending_issue') return 'مشكلة تحميل';
+  if (status === 'approved_override') return 'مسموح (تجاوز)';
+  if (status === 'pending') return 'بانتظار';
+  return status || 'بانتظار';
+}
+
+function exitRequestStatusBadgeClass(status: string): string {
+  if (status === 'exited') return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
+  if (status === 'approved') return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+  if (status === 'rejected') return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300';
+  if (status === 'pending_issue') return 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200';
+  if (status === 'approved_override') return 'bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-200';
+  return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+}
+
 const EVENT_CONFIG: Record<string, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
   driver_assigned:   { label: 'تعيين سائق',      color: 'text-blue-600 dark:text-blue-400',    bgColor: 'bg-blue-100 dark:bg-blue-900/30',    icon: User },
   driver_removed:    { label: 'إزالة سائق',      color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/30', icon: User },
@@ -168,7 +187,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
           ...(assistantNames ? { 'المساعدين': assistantNames } : {}),
           ...(r.exit_reason ? { 'السبب': r.exit_reason } : {}),
           ...(r.exit_duration_minutes ? { 'المدة': `${r.exit_duration_minutes} دقيقة` } : {}),
-          'الحالة': r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار',
+          'الحالة': exitRequestStatusLabelAr(r.status),
         },
       });
     }
@@ -344,7 +363,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
             r.exit_reason || '—',
             r.exit_type === 'temporary' ? 'مؤقت' : 'دائم',
             r.exit_duration_minutes || '—',
-            r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار',
+            exitRequestStatusLabelAr(r.status),
             r.approved_by || '—',
             r.approved_at ? fmtDateTime(r.approved_at) : '—',
             r.exited_at ? fmtDateTime(r.exited_at) : '—',
@@ -493,7 +512,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                 <td style="padding:5px; border:1px solid #cbd5e1; color:#64748b;">${(r.assistant_names || []).join('، ') || '—'}</td>
                 <td style="padding:5px; border:1px solid #cbd5e1;">${r.exit_reason || '—'}</td>
                 <td style="padding:5px; border:1px solid #cbd5e1;">${r.exit_type === 'temporary' ? 'مؤقت' : 'دائم'}</td>
-                <td style="padding:5px; border:1px solid #cbd5e1;">${r.status === 'exited' ? 'خرج' : 'تمت الموافقة'}</td>
+                <td style="padding:5px; border:1px solid #cbd5e1;">${exitRequestStatusLabelAr(r.status)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -840,12 +859,8 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                           <p className="text-[10px] text-stone-400">{fmtDateTime(r.created_at)}</p>
                         </div>
                       </div>
-                      <span className={cn('px-2.5 py-1 rounded-lg text-xs font-medium',
-                        r.status === 'exited' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' :
-                        r.status === 'approved' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' :
-                        r.status === 'rejected' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' :
-                        'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300')}>
-                        {r.status === 'exited' ? 'خرج' : r.status === 'approved' ? 'مُوافق' : r.status === 'rejected' ? 'مرفوض' : 'بانتظار'}
+                      <span className={cn('px-2.5 py-1 rounded-lg text-xs font-medium', exitRequestStatusBadgeClass(r.status))}>
+                        {exitRequestStatusLabelAr(r.status)}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-3 text-xs text-stone-500 dark:text-stone-400 mr-10">

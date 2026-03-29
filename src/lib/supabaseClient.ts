@@ -32,7 +32,13 @@ export interface StaffMember {
   created_at: string;
 }
 
-export type ExitRequestStatus = 'pending' | 'approved' | 'rejected' | 'exited';
+export type ExitRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'exited'
+  | 'pending_issue'
+  | 'approved_override';
 
 export type ExitType = 'permanent' | 'temporary';
 
@@ -49,6 +55,11 @@ export interface ExitRequest {
   exit_duration_minutes: number | null;
   vehicle_id: number | null;
   vehicle_plate: string | null;
+  /** حجم المركبة (م³) */
+  vehicle_cbm?: number | null;
+  /** تحقق القواطع عند البوابة؛ null/undefined = لم يُسجَّل بعد */
+  loading_verified?: boolean | null;
+  loading_issue_reason?: string | null;
   assistant_returns: Record<string, string> | null;
   created_by: string;
   approved_at: string | null;
