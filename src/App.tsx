@@ -23,6 +23,7 @@ import CrewStaff from './pages/CrewStaff';
 import AttendanceHistory from './pages/AttendanceHistory';
 import AttendanceReports from './pages/AttendanceReports';
 import ReportsHub from './pages/ReportsHub';
+import Bubbles from './pages/Bubbles';
 import AttendanceActivityLog from './pages/AttendanceActivityLog';
 import { SmartPageProvider } from './smart';
 
@@ -106,10 +107,21 @@ export default function App() {
   const guardedPage = (() => {
     if (activePage === 'users' && role !== 'admin') return 'dashboard';
     if (activePage === 'settings' && role !== 'admin') return 'dashboard';
+    if (
+      activePage === 'bubbles' &&
+      role !== 'admin' &&
+      role !== 'manager' &&
+      role !== 'logistics' &&
+      role !== 'gate_guard'
+    ) {
+      return 'dashboard';
+    }
     if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
     if (smartHubPages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
     if (attendancePages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
-    if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit') return 'staff-exit';
+    if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit' && activePage !== 'bubbles') {
+      return 'staff-exit';
+    }
     if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard') return 'maintenance-requests';
     return activePage;
   })();
@@ -151,6 +163,8 @@ export default function App() {
         return <AttendanceHistory profile={authProfile} />;
       case 'attendance-reports':
         return <AttendanceReports profile={authProfile} />;
+      case 'bubbles':
+        return <Bubbles profile={authProfile} userId={authUser.id} />;
       case 'reports-hub':
         return <ReportsHub profile={authProfile} />;
       case 'attendance-activity-log':

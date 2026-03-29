@@ -76,6 +76,25 @@ export interface ExitRequest {
   loading_is_delay: boolean | null;
 }
 
+/* ── Bubbles Tracking ── */
+
+export type BubblesRecordStatus = 'pending' | 'completed' | 'delayed' | 'issue';
+
+export interface BubblesRecord {
+  id: string;
+  driver_name: string;
+  customer_name: string;
+  product_type: string | null;
+  quantity: number;
+  invoice_number: string | null;
+  location: string | null;
+  cbm: number | null;
+  status: BubblesRecordStatus;
+  reason: string | null;
+  created_at: string;
+  return_time: string | null;
+}
+
 export interface UserProfile {
   id: string;
   full_name: string;

@@ -5,7 +5,7 @@ import {
   LogOut, Menu, X, Moon, Sun, ChevronLeft, ChevronDown,
   ArrowRight, DoorOpen, Shield, Wrench,
   ClipboardList, Activity, History, Package, Bell,
-  Users, CalendarCheck, BarChart3, Sparkles,
+  Users, CalendarCheck, BarChart3, Sparkles, CircleDot,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -15,7 +15,7 @@ import type { UserProfile, UserRole } from '../lib/supabaseClient';
    TYPES
 ═══════════════════════════════════════════════════════════ */
 export type PageKey =
-  | 'dashboard' | 'vehicles' | 'reports' | 'staff-exit' | 'violations'
+  | 'dashboard' | 'vehicles' | 'reports' | 'bubbles' | 'staff-exit' | 'violations'
   | 'users' | 'settings' | 'maintenance' | 'maintenance-requests'
   | 'active-maintenance' | 'maintenance-history' | 'spare-parts'
   | 'notifications' | 'crew-attendance' | 'attendance-history'
@@ -50,6 +50,7 @@ const NAV_ITEMS: NavItem[] = [
   { key:'staff-exit', label:'إخراج الكادر',     icon:DoorOpen,        roles:['admin','driver','manager','warehouse','logistics','gate_guard'] },
   { key:'violations', label:'سجل المخالفات',    icon:Shield,          roles:['admin'] },
   { key:'reports',    label:'التقارير',         icon:FileText,        roles:['admin','driver','manager','warehouse','logistics'] },
+  { key:'bubbles',    label:'Bubbles',         icon:CircleDot,       roles:['admin','manager','logistics','gate_guard'] },
   { key:'reports-hub', label:'التقارير الذكية', icon:Sparkles,        roles:['admin','manager'] },
   { key:'users',      label:'إدارة المستخدمين', icon:UserCog,         roles:['admin'] },
   { key:'settings',   label:'الإعدادات',        icon:Settings,        roles:['admin'] },

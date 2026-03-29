@@ -12,6 +12,7 @@ import {
   Shield,
   LayoutGrid,
   Package,
+  CircleDot,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -27,6 +28,8 @@ import type {
   Vehicle,
   ExitRequest,
   Violation,
+  BubblesRecord,
+  BubblesRecordStatus,
 } from '../lib/supabaseClient';
 import {
   SmartSearchBar,
@@ -99,6 +102,50 @@ const EXIT_STATUS_AR: Record<string, string> = {
   approved_override: 'تجاوز إداري',
 };
 
+const BUBBLE_STATUS_AR: Record<BubblesRecordStatus, string> = {
+  pending: 'معلق',
+  completed: 'مكتمل',
+  delayed: 'متأخر',
+  issue: 'مشكلة',
+};
+
+function mapBubblesRecordRow(row: Record<string, unknown>): BubblesRecord {
+  const st = String(row.status ?? 'pending');
+  const status: BubblesRecordStatus =
+    st === 'completed' || st === 'delayed' || st === 'issue' || st === 'pending' ? st : 'pending';
+  const cbmRaw = row.cbm;
+  return {
+    id: String(row.id ?? ''),
+    driver_name: String(row.driver_name ?? ''),
+    customer_name: String(row.customer_name ?? ''),
+    product_type: row.product_type != null && row.product_type !== '' ? String(row.product_type) : null,
+    quantity: Number(row.quantity ?? 0) || 0,
+    invoice_number:
+      row.invoice_number != null && row.invoice_number !== '' ? String(row.invoice_number) : null,
+    location: row.location != null && row.location !== '' ? String(row.location) : null,
+    cbm: cbmRaw != null && cbmRaw !== '' ? Number(cbmRaw) : null,
+    status,
+    reason: row.reason != null && row.reason !== '' ? String(row.reason) : null,
+    created_at: String(row.created_at ?? ''),
+    return_time:
+      row.return_time != null && row.return_time !== '' ? String(row.return_time) : null,
+  };
+}
+
+function bubbleRowSearchBlob(r: BubblesRecord): string {
+  return [
+    r.driver_name,
+    r.customer_name,
+    r.product_type,
+    r.invoice_number,
+    r.location,
+    BUBBLE_STATUS_AR[r.status],
+    r.reason,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 type SortKey = 'name' | 'late' | 'absent' | 'present' | 'loading_delay';
 type VehicleSortKey = 'plate' | 'status' | 'odometer';
 type ViolationSortKey = 'name' | 'violations' | 'delay';
@@ -162,6 +209,10 @@ export default function ReportsHub({ profile }: Props) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [violExitRequests, setViolExitRequests] = useState<ExitRequest[]>([]);
   const [manualViolations, setManualViolations] = useState<Violation[]>([]);
+  const [bubblesRecords, setBubblesRecords] = useState<BubblesRecord[]>([]);
+  const [bubbleOnlyOpenDrivers, setBubbleOnlyOpenDrivers] = useState(false);
+  const [bubbleStatusFilter, setBubbleStatusFilter] = useState<'all' | BubblesRecordStatus>('all');
+  const [bubbleDelayHoursMin, setBubbleDelayHoursMin] = useState('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [activeDomain, setActiveDomain] = useState<ReportsHubDomain>('attendance');
@@ -170,6 +221,7 @@ export default function ReportsHub({ profile }: Props) {
     attendance: '',
     vehicles: '',
     violations: '',
+    bubbles: '',
   });
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -183,6 +235,7 @@ export default function ReportsHub({ profile }: Props) {
   const [selectedViolationKeys, setSelectedViolationKeys] = useState<Set<string>>(() => new Set());
 
   const showViolationsTab = profile?.role === 'admin';
+  const showBubblesTab = profile?.role === 'admin' || profile?.role === 'manager';
 
   useEffect(() => {
     setSelectedAttendanceKeys(new Set());
@@ -196,13 +249,16 @@ export default function ReportsHub({ profile }: Props) {
         ? hubSearch.vehicles
         : activeDomain === 'violations'
           ? hubSearch.violations
-          : hubSearch.attendance;
+          : activeDomain === 'bubbles'
+            ? hubSearch.bubbles
+            : hubSearch.attendance;
   const setTableSearch = useCallback(
     (v: string) => {
       setHubSearch((prev) => {
         if (activeDomain === 'all') return { ...prev, all: v };
         if (activeDomain === 'vehicles') return { ...prev, vehicles: v };
         if (activeDomain === 'violations') return { ...prev, violations: v };
+        if (activeDomain === 'bubbles') return { ...prev, bubbles: v };
         return { ...prev, attendance: v };
       });
     },
@@ -214,6 +270,12 @@ export default function ReportsHub({ profile }: Props) {
       setActiveDomain('attendance');
     }
   }, [activeDomain, showViolationsTab]);
+
+  useEffect(() => {
+    if (activeDomain === 'bubbles' && !showBubblesTab) {
+      setActiveDomain('attendance');
+    }
+  }, [activeDomain, showBubblesTab]);
 
   const rangeSeed = useMemo(() => defaultDateRangeSeed(), []);
   const {
@@ -229,10 +291,12 @@ export default function ReportsHub({ profile }: Props) {
   const debouncedVehiclesSearch = useDebouncedValue(hubSearch.vehicles, 250);
   const debouncedViolationsSearch = useDebouncedValue(hubSearch.violations, 250);
   const debouncedAllSearch = useDebouncedValue(hubSearch.all, 250);
+  const debouncedBubblesSearch = useDebouncedValue(hubSearch.bubbles, 250);
   const nlAttendance = useMemo(() => parseSearchQuery(debouncedAttendanceSearch), [debouncedAttendanceSearch]);
   const nlVehicles = useMemo(() => parseSearchQuery(debouncedVehiclesSearch), [debouncedVehiclesSearch]);
   const nlViolations = useMemo(() => parseSearchQuery(debouncedViolationsSearch), [debouncedViolationsSearch]);
   const nlAll = useMemo(() => parseSearchQuery(debouncedAllSearch), [debouncedAllSearch]);
+  const nlBubbles = useMemo(() => parseSearchQuery(debouncedBubblesSearch), [debouncedBubblesSearch]);
 
   const nlVeh = useMemo(
     () => (activeDomain === 'all' ? nlAll : nlVehicles),
@@ -257,6 +321,7 @@ export default function ReportsHub({ profile }: Props) {
       vehRes,
       exitViolRes,
       violRes,
+      bubbleRes,
     ] = await Promise.all([
       supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
       supabase.from('staff_members').select('*').eq('is_active', true),
@@ -276,6 +341,7 @@ export default function ReportsHub({ profile }: Props) {
         .in('status', ['exited'])
         .order('created_at', { ascending: false }),
       supabase.from('violations').select('*').order('violation_date', { ascending: false }),
+      supabase.from('bubbles_records').select('*').order('created_at', { ascending: false }),
     ]);
     if (archRes.data) setArchive(archRes.data);
     if (staffRes.data) setStaff(staffRes.data);
@@ -284,6 +350,11 @@ export default function ReportsHub({ profile }: Props) {
     if (vehRes.data) setVehicles(vehRes.data);
     if (exitViolRes.data) setViolExitRequests(exitViolRes.data);
     if (violRes.data) setManualViolations(violRes.data);
+    if (bubbleRes.data) {
+      setBubblesRecords(
+        (bubbleRes.data as Record<string, unknown>[]).map((row) => mapBubblesRecordRow(row))
+      );
+    }
     if (!silent) setLoading(false);
   }, []);
 
@@ -309,6 +380,60 @@ export default function ReportsHub({ profile }: Props) {
       nt && pt ? (pt < nt ? pt : nt) : nt || pt || '';
     return { effFrom: effF, effTo: effT };
   }, [dateFrom, dateTo, nlForAttendance.dateFrom, nlForAttendance.dateTo]);
+
+  const { effBubblesFrom, effBubblesTo } = useMemo(() => {
+    const nf = nlBubbles.dateFrom;
+    const nt = nlBubbles.dateTo;
+    const pf = dateFrom || '';
+    const pt = dateTo || '';
+    const effF = nf && pf ? (pf > nf ? pf : nf) : nf || pf || '';
+    const effT = nt && pt ? (pt < nt ? pt : nt) : nt || pt || '';
+    return { effBubblesFrom: effF, effBubblesTo: effT };
+  }, [dateFrom, dateTo, nlBubbles.dateFrom, nlBubbles.dateTo]);
+
+  const bubblesDateFiltered = useMemo(() => {
+    return bubblesRecords.filter((r) => {
+      if (!r.created_at) return false;
+      const dk = getBaghdadDateKey(r.created_at);
+      if (effBubblesFrom && dk < effBubblesFrom) return false;
+      if (effBubblesTo && dk > effBubblesTo) return false;
+      return true;
+    });
+  }, [bubblesRecords, effBubblesFrom, effBubblesTo]);
+
+  const filteredBubbleRows = useMemo(() => {
+    let rows = bubblesDateFiltered.filter((r) =>
+      rowMatchesHubQuery(bubbleRowSearchBlob(r), debouncedBubblesSearch)
+    );
+    if (bubbleStatusFilter !== 'all') {
+      rows = rows.filter((r) => r.status === bubbleStatusFilter);
+    }
+    if (bubbleOnlyOpenDrivers) {
+      const driversWithOpen = new Set(
+        bubblesDateFiltered.filter((r) => r.status !== 'completed').map((r) => r.driver_name)
+      );
+      rows = rows.filter((r) => driversWithOpen.has(r.driver_name));
+    }
+    const dh = bubbleDelayHoursMin.trim();
+    if (dh !== '' && !Number.isNaN(Number(dh)) && Number(dh) > 0) {
+      const ms = Number(dh) * 3600000;
+      const now = Date.now();
+      rows = rows.filter(
+        (r) =>
+          (r.status === 'pending' || r.status === 'delayed') &&
+          now - new Date(r.created_at).getTime() >= ms
+      );
+    }
+    return [...rows].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [
+    bubblesDateFiltered,
+    debouncedBubblesSearch,
+    bubbleStatusFilter,
+    bubbleOnlyOpenDrivers,
+    bubbleDelayHoursMin,
+  ]);
 
   const staffStats = useMemo(() => {
     const filtered = archive.filter((a) => {
@@ -701,6 +826,16 @@ export default function ReportsHub({ profile }: Props) {
     [violationStaffRows]
   );
 
+  const bubbleNameSuggestions = useMemo(
+    () =>
+      [
+        ...new Set(
+          bubblesRecords.flatMap((r) => [r.driver_name, r.customer_name].filter((x) => Boolean(x && String(x).trim())))
+        ),
+      ].slice(0, 50),
+    [bubblesRecords]
+  );
+
   const dataSuggestionsForDomain = useMemo(() => {
     if (activeDomain === 'all') {
       return [
@@ -708,17 +843,20 @@ export default function ReportsHub({ profile }: Props) {
           ...reportNameSuggestions,
           ...vehicleNameSuggestions,
           ...violationNameSuggestions,
+          ...bubbleNameSuggestions.slice(0, 15),
         ]),
       ].slice(0, 60);
     }
     if (activeDomain === 'vehicles') return vehicleNameSuggestions;
     if (activeDomain === 'violations') return violationNameSuggestions;
+    if (activeDomain === 'bubbles') return bubbleNameSuggestions;
     return reportNameSuggestions;
   }, [
     activeDomain,
     reportNameSuggestions,
     vehicleNameSuggestions,
     violationNameSuggestions,
+    bubbleNameSuggestions,
   ]);
 
   const kpis = useMemo(() => {
@@ -818,6 +956,43 @@ export default function ReportsHub({ profile }: Props) {
     [hubSearch.violations, hubSearch.all, activeDomain]
   );
 
+  const bubbleHubColumns: ColumnDef<BubblesRecord>[] = useMemo(
+    () => [
+      {
+        id: 'created',
+        header: 'التاريخ',
+        accessor: (r) =>
+          new Date(r.created_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' }),
+      },
+      {
+        id: 'driver',
+        header: 'السائق',
+        accessor: (r) => <HighlightText text={r.driver_name} query={hubSearch.bubbles} />,
+      },
+      {
+        id: 'customer',
+        header: 'العميل',
+        accessor: (r) => <HighlightText text={r.customer_name} query={hubSearch.bubbles} />,
+      },
+      { id: 'product', header: 'النوع', accessor: (r) => r.product_type ?? '—' },
+      { id: 'qty', header: 'الكمية', accessor: (r) => r.quantity },
+      { id: 'inv', header: 'الفاتورة', accessor: (r) => r.invoice_number ?? '—' },
+      { id: 'loc', header: 'الموقع', accessor: (r) => r.location ?? '—' },
+      { id: 'cbm', header: 'CBM', accessor: (r) => (r.cbm != null ? r.cbm : '—') },
+      { id: 'status', header: 'الحالة', accessor: (r) => BUBBLE_STATUS_AR[r.status] },
+      { id: 'reason', header: 'السبب', accessor: (r) => r.reason ?? '—' },
+      {
+        id: 'ret',
+        header: 'وقت الإرجاع',
+        accessor: (r) =>
+          r.return_time
+            ? new Date(r.return_time).toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' })
+            : '—',
+      },
+    ],
+    [hubSearch.bubbles]
+  );
+
   const kpisVehicles = useMemo(() => {
     const list = filteredVehicleRows;
     return {
@@ -837,6 +1012,60 @@ export default function ReportsHub({ profile }: Props) {
       maxDelay: list.length ? Math.max(...list.map((r) => r.totalDelayMinutes)) : 0,
     };
   }, [filteredViolationRows]);
+
+  const bubbleKpis = useMemo(() => {
+    const rows = filteredBubbleRows;
+    const uniqueDrivers = new Set(rows.map((r) => r.driver_name)).size;
+    const completed = rows.filter((r) => r.status === 'completed').length;
+    const delayed = rows.filter((r) => r.status === 'delayed').length;
+    const issues = rows.filter((r) => r.status === 'issue').length;
+    const pending = rows.filter((r) => r.status === 'pending').length;
+    const total = rows.length;
+    const compliancePct = total ? Math.round((completed / total) * 100) : 0;
+    return { uniqueDrivers, completed, delayed, issues, pending, total, compliancePct };
+  }, [filteredBubbleRows]);
+
+  const bubbleInsights = useMemo(() => {
+    const rows = filteredBubbleRows;
+    const byDriver = new Map<string, number>();
+    for (const r of rows) {
+      byDriver.set(r.driver_name, (byDriver.get(r.driver_name) ?? 0) + 1);
+    }
+    const bar = [...byDriver.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([name, value]) => ({ name, value }));
+    const sc: Record<BubblesRecordStatus, number> = {
+      pending: 0,
+      delayed: 0,
+      issue: 0,
+      completed: 0,
+    };
+    for (const r of rows) sc[r.status]++;
+    const pie = (['pending', 'delayed', 'issue', 'completed'] as const)
+      .filter((k) => sc[k] > 0)
+      .map((k) => ({ name: BUBBLE_STATUS_AR[k], value: sc[k] }));
+    const delayedReturns = rows.filter((r) => r.status === 'delayed').length;
+    const openIssues = rows.filter((r) => r.status === 'issue').length;
+    return {
+      metrics: [
+        { label: 'سجلات في العرض', value: rows.length },
+        { label: 'سائقون (فريدون)', value: new Set(rows.map((r) => r.driver_name)).size },
+        { label: 'إرجاعات متأخرة', value: delayedReturns },
+        { label: 'مشاكل', value: openIssues },
+        { label: 'مكتمل في العرض', value: sc.completed },
+        { label: 'معلق', value: sc.pending },
+      ] as { label: string; value: string | number }[],
+      alerts:
+        openIssues > 0
+          ? [`${openIssues} سجل بحالة مشكلة في العرض الحالي.`]
+          : delayedReturns > 5
+            ? ['عدد مرتفع من السجلات المتأخرة في العرض الحالي.']
+            : ([] as string[]),
+      bar: bar.length ? bar : [{ name: 'لا توجد بيانات', value: 0 }],
+      pie: pie.length ? pie : [{ name: 'لا توجد بيانات', value: 0 }],
+    };
+  }, [filteredBubbleRows]);
 
   const panelInsights = useMemo(() => {
     if (activeDomain === 'all') {
@@ -859,6 +1088,7 @@ export default function ReportsHub({ profile }: Props) {
         pie: pie.length ? pie : [{ name: 'لا توجد بيانات', value: 0 }],
       };
     }
+    if (activeDomain === 'bubbles') return bubbleInsights;
     if (activeDomain === 'vehicles') return vehicleInsights;
     if (activeDomain === 'violations') return violationInsights;
     return reportTableInsights;
@@ -868,6 +1098,7 @@ export default function ReportsHub({ profile }: Props) {
     filteredVehicleRows.length,
     filteredViolationRows.length,
     showViolationsTab,
+    bubbleInsights,
     vehicleInsights,
     violationInsights,
     reportTableInsights,
@@ -909,6 +1140,16 @@ export default function ReportsHub({ profile }: Props) {
         { label: 'أقصى تأخير (دقيقة)', value: kpisViolations.maxDelay, icon: ArrowUpDown },
       ] as const;
     }
+    if (activeDomain === 'bubbles') {
+      return [
+        { label: 'سائقون (فريدون)', value: bubbleKpis.uniqueDrivers, icon: Users },
+        { label: 'سجلات معروضة', value: bubbleKpis.total, icon: LayoutGrid },
+        { label: 'مكتمل', value: bubbleKpis.completed, icon: Truck },
+        { label: 'متأخر', value: bubbleKpis.delayed, icon: ArrowUpDown },
+        { label: 'مشاكل / معلّق', value: `${bubbleKpis.issues} / ${bubbleKpis.pending}`, icon: Shield },
+        { label: 'نسبة مكتمل (%)', value: bubbleKpis.compliancePct, icon: BarChart3 },
+      ] as const;
+    }
     return [
       { label: 'موظفون (بعد الفلتر)', value: kpis.staffCount, icon: Users },
       { label: 'مجموع أيام حاضر', value: kpis.presentSum, icon: BarChart3 },
@@ -920,6 +1161,7 @@ export default function ReportsHub({ profile }: Props) {
     kpis,
     kpisVehicles,
     kpisViolations,
+    bubbleKpis,
     filteredStaffStats.length,
     filteredVehicleRows.length,
     filteredViolationRows.length,
@@ -1135,6 +1377,38 @@ export default function ReportsHub({ profile }: Props) {
       fileSlug = `مخالفات_${df}_${dt}`;
       headers = violHeaders;
       rows = violRows;
+    } else if (activeDomain === 'bubbles') {
+      if (filteredBubbleRows.length === 0) {
+        alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
+        return;
+      }
+      fileSlug = `bubbles_${df}_${dt}`;
+      headers = [
+        'التاريخ',
+        'السائق',
+        'العميل',
+        'النوع',
+        'الكمية',
+        'الفاتورة',
+        'الموقع',
+        'CBM',
+        'الحالة',
+        'السبب',
+        'وقت الإرجاع',
+      ];
+      rows = filteredBubbleRows.map((r) => [
+        new Date(r.created_at).toLocaleString('ar-IQ'),
+        r.driver_name,
+        r.customer_name,
+        r.product_type ?? '—',
+        r.quantity,
+        r.invoice_number ?? '—',
+        r.location ?? '—',
+        r.cbm ?? '—',
+        BUBBLE_STATUS_AR[r.status],
+        r.reason ?? '—',
+        r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
+      ]);
     } else {
       return;
     }
@@ -1175,8 +1449,13 @@ export default function ReportsHub({ profile }: Props) {
         `;
         await exportHtmlToPdf(`<div dir="rtl">${tableHtml}${chartSectionPdf(chartPng)}</div>`, `${fileSlug}.pdf`);
       }
-      if (activeDomain === 'attendance') {
-        await logAttendanceActivity('export', { type: 'reports_hub', dateFrom: df, dateTo: dt });
+      if (activeDomain === 'attendance' || activeDomain === 'bubbles') {
+        await logAttendanceActivity('export', {
+          type: 'reports_hub',
+          dateFrom: df,
+          dateTo: dt,
+          scope: activeDomain,
+        });
       }
     } catch (e) {
       console.error(e);
@@ -1202,12 +1481,14 @@ export default function ReportsHub({ profile }: Props) {
 
   const searchPlaceholder =
     activeDomain === 'all'
-      ? 'بحث موحّد: أسماء، أرقام لوحات، حالات، تواريخ، أرقام… (يطبق على الحضور والمركبات والمخالفات)'
+      ? 'بحث موحّد: أسماء، أرقام لوحات، حالات، تواريخ، أرقام… (يطبق على الحضور والمركبات والمخالفات وBubbles)'
       : activeDomain === 'vehicles'
         ? 'بحث باللوحة أو السائق أو الحالة أو العداد أو «متاح»…'
         : activeDomain === 'violations'
           ? 'بحث باسم الموظف أو عدد مخالفات أو دقائق تأخير…'
-          : 'بحث بالاسم أو الأرقام أو عبارات مثل «متأخر هذا الأسبوع»…';
+          : activeDomain === 'bubbles'
+            ? 'بحث بالسائق أو العميل أو الحالة أو الفاتورة أو الموقع…'
+            : 'بحث بالاسم أو الأرقام أو عبارات مثل «متأخر هذا الأسبوع»…';
 
   const exportRowCount =
     activeDomain === 'all'
@@ -1218,7 +1499,9 @@ export default function ReportsHub({ profile }: Props) {
         ? filteredVehicleRows.length
         : activeDomain === 'violations'
           ? filteredViolationRows.length
-          : filteredStaffStats.length;
+          : activeDomain === 'bubbles'
+            ? filteredBubbleRows.length
+            : filteredStaffStats.length;
 
   return (
     <div className="space-y-6">
@@ -1226,7 +1509,8 @@ export default function ReportsHub({ profile }: Props) {
         <h1 className="text-2xl font-bold text-stone-900 dark:text-white">التقارير الذكية</h1>
         <p className="text-sm text-stone-600 dark:text-stone-400 max-w-3xl">
           مركز موحّد للبحث والفلترة والتصدير عبر الحضور والمركبات
-          {showViolationsTab ? ' والمخالفات' : ''}. البيانات تُجلب كما في الصفحات التفصيلية دون تغيير صلاحيات
+          {showViolationsTab ? ' والمخالفات' : ''}
+          {showBubblesTab ? ' وBubbles' : ''}. البيانات تُجلب كما في الصفحات التفصيلية دون تغيير صلاحيات
           الخادم.
         </p>
         {profile?.full_name ? (
@@ -1240,6 +1524,7 @@ export default function ReportsHub({ profile }: Props) {
             ['all', 'الكل', LayoutGrid],
             ['attendance', 'الكادر والحضور', Users],
             ['vehicles', 'المركبات', Truck],
+            ...(showBubblesTab ? ([['bubbles', 'Bubbles', CircleDot]] as const) : []),
             ...(showViolationsTab ? ([['violations', 'المخالفات', Shield]] as const) : []),
           ] as const
         ).map(([key, label, Icon]) => (
@@ -1340,6 +1625,10 @@ export default function ReportsHub({ profile }: Props) {
                     {vehSortDir === 'asc' ? 'تصاعدي' : 'تنازلي'}
                   </button>
                 </>
+              ) : activeDomain === 'bubbles' ? (
+                <span className="text-xs text-stone-500 dark:text-stone-400 px-1">
+                  ترتيب: الأحدث أولاً — استخدم البحث والفلاتر أعلاه
+                </span>
               ) : (
                 <>
                   <select
@@ -1386,6 +1675,9 @@ export default function ReportsHub({ profile }: Props) {
               statuses: filterState.statuses,
               delayMin: filterState.delayMin,
               delayMax: filterState.delayMax,
+              bubbleOnlyOpenDrivers,
+              bubbleStatusFilter,
+              bubbleDelayHoursMin,
             })}
             onApply={(p) => {
               const dom = p.activeDomain;
@@ -1393,7 +1685,8 @@ export default function ReportsHub({ profile }: Props) {
                 dom === 'attendance' ||
                 dom === 'vehicles' ||
                 dom === 'violations' ||
-                dom === 'all'
+                dom === 'all' ||
+                dom === 'bubbles'
               ) {
                 setActiveDomain(dom);
               }
@@ -1405,6 +1698,7 @@ export default function ReportsHub({ profile }: Props) {
                   attendance: typeof o.attendance === 'string' ? o.attendance : hubSearch.attendance,
                   vehicles: typeof o.vehicles === 'string' ? o.vehicles : hubSearch.vehicles,
                   violations: typeof o.violations === 'string' ? o.violations : hubSearch.violations,
+                  bubbles: typeof o.bubbles === 'string' ? o.bubbles : hubSearch.bubbles,
                 });
               } else if (typeof p.tableSearch === 'string') {
                 setHubSearch((prev) => ({ ...prev, attendance: p.tableSearch as string }));
@@ -1423,6 +1717,18 @@ export default function ReportsHub({ profile }: Props) {
               if (Array.isArray(p.statuses)) setField('statuses', p.statuses as typeof filterState.statuses);
               if (typeof p.delayMin === 'string') setField('delayMin', p.delayMin);
               if (typeof p.delayMax === 'string') setField('delayMax', p.delayMax);
+              if (typeof p.bubbleOnlyOpenDrivers === 'boolean')
+                setBubbleOnlyOpenDrivers(p.bubbleOnlyOpenDrivers);
+              if (
+                p.bubbleStatusFilter === 'all' ||
+                p.bubbleStatusFilter === 'pending' ||
+                p.bubbleStatusFilter === 'completed' ||
+                p.bubbleStatusFilter === 'delayed' ||
+                p.bubbleStatusFilter === 'issue'
+              ) {
+                setBubbleStatusFilter(p.bubbleStatusFilter);
+              }
+              if (typeof p.bubbleDelayHoursMin === 'string') setBubbleDelayHoursMin(p.bubbleDelayHoursMin);
             }}
           />
           <span
@@ -1448,51 +1754,79 @@ export default function ReportsHub({ profile }: Props) {
                 rowCount: exportRowCount,
               }}
               headerRow={
-                activeDomain === 'vehicles'
-                  ? ['اللوحة', 'الحالة', 'النوع', 'الموديل', 'السائق', 'العداد (كم)', 'ملاحظات']
-                  : activeDomain === 'violations'
-                    ? ['الموظف', 'الدور', 'عدد المخالفات', 'مجموع دقائق التأخير']
-                    : [
-                        'الموظف',
-                        'الدور',
-                        'حاضر',
-                        'متأخر',
-                        'غائب',
-                        'إجازة كاملة',
-                        'إجازة زمنية',
-                        'مرات تأخير التحميل',
-                        'مجموع دقائق تأخير التحميل',
-                      ]
+                activeDomain === 'bubbles'
+                  ? [
+                      'التاريخ',
+                      'السائق',
+                      'العميل',
+                      'النوع',
+                      'الكمية',
+                      'الفاتورة',
+                      'الموقع',
+                      'CBM',
+                      'الحالة',
+                      'السبب',
+                      'وقت الإرجاع',
+                    ]
+                  : activeDomain === 'vehicles'
+                    ? ['اللوحة', 'الحالة', 'النوع', 'الموديل', 'السائق', 'العداد (كم)', 'ملاحظات']
+                    : activeDomain === 'violations'
+                      ? ['الموظف', 'الدور', 'عدد المخالفات', 'مجموع دقائق التأخير']
+                      : [
+                          'الموظف',
+                          'الدور',
+                          'حاضر',
+                          'متأخر',
+                          'غائب',
+                          'إجازة كاملة',
+                          'إجازة زمنية',
+                          'مرات تأخير التحميل',
+                          'مجموع دقائق تأخير التحميل',
+                        ]
               }
               dataRows={
-                activeDomain === 'vehicles'
-                  ? filteredVehicleRows.map((v) => [
-                      v.plate_number,
-                      v.statusLabel,
-                      v.vehicle_type ?? '—',
-                      v.model ?? '—',
-                      v.driver_name,
-                      v.odometer_km,
-                      v.notes || '—',
+                activeDomain === 'bubbles'
+                  ? filteredBubbleRows.map((r) => [
+                      new Date(r.created_at).toLocaleString('ar-IQ'),
+                      r.driver_name,
+                      r.customer_name,
+                      r.product_type ?? '—',
+                      r.quantity,
+                      r.invoice_number ?? '—',
+                      r.location ?? '—',
+                      r.cbm ?? '—',
+                      BUBBLE_STATUS_AR[r.status],
+                      r.reason ?? '—',
+                      r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
                     ])
-                  : activeDomain === 'violations'
-                    ? filteredViolationRows.map((v) => [
-                        v.staffName,
-                        v.staffRole === 'driver' ? 'سائق' : 'مساعد',
-                        v.totalViolations,
-                        v.totalDelayMinutes,
+                  : activeDomain === 'vehicles'
+                    ? filteredVehicleRows.map((v) => [
+                        v.plate_number,
+                        v.statusLabel,
+                        v.vehicle_type ?? '—',
+                        v.model ?? '—',
+                        v.driver_name,
+                        v.odometer_km,
+                        v.notes || '—',
                       ])
-                    : filteredStaffStats.map((s) => [
-                        s.full_name,
-                        s.role === 'driver' ? 'سائق' : 'مساعد سائق',
-                        s.present,
-                        s.late,
-                        s.absent,
-                        s.full_leave,
-                        s.time_leave,
-                        s.role === 'driver' ? s.loading_delay_events : '—',
-                        s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
-                      ])
+                    : activeDomain === 'violations'
+                      ? filteredViolationRows.map((v) => [
+                          v.staffName,
+                          v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+                          v.totalViolations,
+                          v.totalDelayMinutes,
+                        ])
+                      : filteredStaffStats.map((s) => [
+                          s.full_name,
+                          s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+                          s.present,
+                          s.late,
+                          s.absent,
+                          s.full_leave,
+                          s.time_leave,
+                          s.role === 'driver' ? s.loading_delay_events : '—',
+                          s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
+                        ])
               }
               sheetName="تقارير"
             />
@@ -1530,6 +1864,54 @@ export default function ReportsHub({ profile }: Props) {
           </div>
         ))}
       </div>
+
+      {activeDomain === 'bubbles' && showBubblesTab ? (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-violet-200 dark:border-violet-900/50 bg-violet-50/40 dark:bg-violet-950/20 p-4 shadow-sm flex flex-wrap gap-4 items-end"
+        >
+          <label className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-stone-200 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-stone-300 text-violet-600 focus:ring-violet-500"
+              checked={bubbleOnlyOpenDrivers}
+              onChange={(e) => setBubbleOnlyOpenDrivers(e.target.checked)}
+            />
+            سائقون لديهم سجلات غير مكتملة ضمن النطاق الزمني
+          </label>
+          <div className="flex flex-col gap-1 min-w-[140px]">
+            <span className="text-xs text-stone-500 dark:text-stone-400">حالة السجل</span>
+            <select
+              value={bubbleStatusFilter}
+              onChange={(e) =>
+                setBubbleStatusFilter(e.target.value as 'all' | BubblesRecordStatus)
+              }
+              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+            >
+              <option value="all">الكل</option>
+              <option value="pending">معلق</option>
+              <option value="delayed">متأخر</option>
+              <option value="issue">مشكلة</option>
+              <option value="completed">مكتمل</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1 min-w-[180px]">
+            <span className="text-xs text-stone-500 dark:text-stone-400">
+              تأخير منذ الإنشاء (ساعات) — معلّق أو متأخر فقط
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              placeholder="مثال: 24"
+              value={bubbleDelayHoursMin}
+              onChange={(e) => setBubbleDelayHoursMin(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+            />
+          </div>
+        </motion.div>
+      ) : null}
 
       {(activeDomain === 'attendance' || activeDomain === 'all') && (
         <motion.div
@@ -1650,7 +2032,9 @@ export default function ReportsHub({ profile }: Props) {
                   ? 'جدول المركبات (بعد الفلاتر)'
                   : activeDomain === 'violations'
                     ? 'جدول المخالفات المجمّع (بعد الفلاتر)'
-                    : 'جدول مجمّع — الكادر والحضور'}
+                    : activeDomain === 'bubbles'
+                      ? 'جدول Bubbles (بعد الفلاتر)'
+                      : 'جدول مجمّع — الكادر والحضور'}
             </h3>
           </div>
           <InsightsPanel metrics={panelInsights.metrics} alerts={panelInsights.alerts} />
@@ -1720,6 +2104,16 @@ export default function ReportsHub({ profile }: Props) {
               selectionEnabled
               selectedKeys={selectedVehicleKeys}
               onSelectedKeysChange={setSelectedVehicleKeys}
+            />
+          ) : activeDomain === 'bubbles' ? (
+            <DataTableEnhanced
+              rows={filteredBubbleRows as unknown as Record<string, unknown>[]}
+              columns={bubbleHubColumns as unknown as ColumnDef<unknown>[]}
+              getRowKey={(r) => String((r as BubblesRecord).id)}
+              defaultPageSize={25}
+              pageSizeOptions={[10, 25, 50, 100]}
+              emptyLabel="لا توجد سجلات Bubbles تطابق الفلاتر الحالية"
+              className="bg-white dark:bg-stone-800 border-0 rounded-none"
             />
           ) : activeDomain === 'violations' ? (
             <DataTableEnhanced

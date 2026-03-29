@@ -53,15 +53,18 @@ const VIOLATIONS_HUB: CatalogItem[] = [
 ];
 
 /** نطاقات مركز التقارير الذكية — اقتراحات حسب التبويب */
-export type ReportsHubDomain = 'all' | 'attendance' | 'vehicles' | 'violations';
+export type ReportsHubDomain = 'all' | 'attendance' | 'vehicles' | 'violations' | 'bubbles';
 
 export function getCatalogForReportsHubDomain(domain: ReportsHubDomain): CatalogItem[] {
   switch (domain) {
+    case 'bubbles':
+      return [...BUBBLES, ...DEFAULT_GENERAL];
     case 'all':
       return [
         ...ATTENDANCE_REPORTS,
         ...VEHICLES,
         ...VIOLATIONS_HUB.slice(0, 6),
+        ...BUBBLES.slice(0, 4),
         ...DEFAULT_GENERAL,
       ];
     case 'attendance':
@@ -81,8 +84,18 @@ const MAINTENANCE: CatalogItem[] = [
   { label: 'قيد التنفيذ', insertText: 'قيد' },
 ];
 
+const BUBBLES: CatalogItem[] = [
+  { label: 'معلّق', insertText: 'معلق' },
+  { label: 'متأخر', insertText: 'متأخر' },
+  { label: 'مشكلة', insertText: 'مشكلة' },
+  { label: 'مكتمل', insertText: 'مكتمل' },
+  { label: 'هذا الأسبوع', insertText: 'هذا الأسبوع' },
+];
+
 function groupForPage(pageKey: PageKey): CatalogItem[] {
   switch (pageKey) {
+    case 'bubbles':
+      return [...BUBBLES, ...DEFAULT_GENERAL];
     case 'staff-exit':
       return STAFF_EXIT;
     case 'crew-attendance':
