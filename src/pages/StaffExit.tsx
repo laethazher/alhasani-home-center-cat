@@ -689,6 +689,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const prevOverdueIdsRef = useRef<Set<string>>(new Set());
   const isInitialMountRef = useRef(true);
   useEffect(() => {
+    // Wait until the initial data load finishes; otherwise first fetched rows
+    // look like "newly overdue" on every page re-entry.
+    if (loadingData) return;
     const currentOverdue = new Set<string>();
     for (const req of requests) {
       const info = getOverdueInfo(req, now);
@@ -708,7 +711,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       }
     }
     prevOverdueIdsRef.current = currentOverdue;
-  }, [requests, now, soundEnabled]);
+  }, [requests, now, soundEnabled, loadingData]);
 
   /* ── Fetch data ── */
   const fetchRequests = useCallback(async () => {
