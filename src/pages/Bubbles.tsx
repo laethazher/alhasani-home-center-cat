@@ -13,7 +13,13 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
-import type { UserProfile, BubblesRecord, BubblesRecordStatus } from '../lib/supabaseClient';
+import type {
+  UserProfile,
+  BubblesRecord,
+  BubblesRecordStatus,
+  BubblesArchiveRecord,
+  BubblesDailySnapshot,
+} from '../lib/supabaseClient';
 import { parseBubblesExcelBuffer } from '../lib/bubblesExcelParse';
 import { groupByDriverThenCustomer } from '../lib/bubblesGrouping';
 import {
@@ -65,12 +71,21 @@ function statusBadgeClass(s: BubblesRecordStatus): string {
 }
 
 type TabKey = 'active' | 'delayed' | 'issues' | 'completed';
+type SourceTab = 'live' | 'archive';
+type ArchiveTabKey = 'all' | 'completed' | 'delayed' | 'issues';
 
 const TAB_LABEL_AR: Record<TabKey, string> = {
   active: 'نشط',
   delayed: 'متأخر',
   issues: 'مشاكل',
   completed: 'مكتمل',
+};
+
+const ARCHIVE_TAB_LABEL_AR: Record<ArchiveTabKey, string> = {
+  all: 'كل الأرشيف',
+  completed: 'مكتمل',
+  delayed: 'متأخر',
+  issues: 'مشاكل',
 };
 
 /** أسباب عدم الإرجاع (قائمة الحارس / الإدارة) */
@@ -133,9 +148,22 @@ function bubblesRecordReturnHours(r: BubblesRecord): number | null {
 interface Props {
   profile: UserProfile;
   userId: string;
+  onOpenReportsHub?: () => void;
 }
 
-export default function Bubbles({ profile, userId: _userId }: Props) {
+function mapArchiveRow(r: Record<string, unknown>): BubblesArchiveRecord {
+  const base = mapRow(r);
+  return {
+    ...base,
+    id: `arc-${String(r.archive_id ?? base.id)}`,
+    source_id: r.source_id != null ? String(r.source_id) : null,
+    archived_at: String(r.archived_at ?? r.created_at ?? ''),
+    archived_day: String(r.archived_day ?? ''),
+    archived_reason: String(r.archived_reason ?? 'daily_9am'),
+  };
+}
+
+export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: Props) {
   const role = profile.role;
   const isAdmin = role === 'admin';
   const isGate = role === 'gate_guard';
@@ -143,8 +171,12 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
   const gateMinimalUi = role === 'gate_guard';
 
   const [records, setRecords] = useState<BubblesRecord[]>([]);
+  const [archiveRecords, setArchiveRecords] = useState<BubblesArchiveRecord[]>([]);
+  const [dailySnapshots, setDailySnapshots] = useState<BubblesDailySnapshot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sourceTab, setSourceTab] = useState<SourceTab>('live');
   const [tab, setTab] = useState<TabKey>('active');
+  const [archiveTab, setArchiveTab] = useState<ArchiveTabKey>('all');
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -168,6 +200,23 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     setRecords((data ?? []).map((r) => mapRow(r as Record<string, unknown>)));
   }, []);
 
+  const fetchArchiveData = useCallback(async () => {
+    const [arcRes, snapRes] = await Promise.all([
+      supabase.from('bubbles_records_archive').select('*').order('archived_at', { ascending: false }),
+      supabase.from('bubbles_daily_snapshots').select('*').order('day', { ascending: false }),
+    ]);
+    if (arcRes.error) {
+      console.error(arcRes.error);
+    } else {
+      setArchiveRecords((arcRes.data ?? []).map((r) => mapArchiveRow(r as Record<string, unknown>)));
+    }
+    if (snapRes.error) {
+      console.error(snapRes.error);
+    } else {
+      setDailySnapshots((snapRes.data ?? []) as BubblesDailySnapshot[]);
+    }
+  }, []);
+
   const applyPendingToDelayed = useCallback(async () => {
     if (!isAdmin) return;
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -182,9 +231,9 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     await applyPendingToDelayed();
-    await fetchRecords();
+    await Promise.all([fetchRecords(), fetchArchiveData()]);
     setLoading(false);
-  }, [applyPendingToDelayed, fetchRecords]);
+  }, [applyPendingToDelayed, fetchRecords, fetchArchiveData]);
 
   useEffect(() => {
     void load();
@@ -205,7 +254,14 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
   useAutoRefresh(60_000, () => {
     void applyPendingToDelayed();
     void fetchRecords();
+    void fetchArchiveData();
   }, true);
+
+  useEffect(() => {
+    if (gateMinimalUi && sourceTab === 'archive') {
+      setSourceTab('live');
+    }
+  }, [gateMinimalUi, sourceTab]);
 
   useEffect(() => {
     if (gateMinimalUi && tab === 'delayed') {
@@ -221,6 +277,12 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [detailModal]);
+
+  useEffect(() => {
+    if (sourceTab !== 'live') {
+      setDetailModal(null);
+    }
+  }, [sourceTab]);
 
   const filteredByTab = useMemo(() => {
     return records.filter((r) => {
@@ -279,6 +341,49 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     );
   }, [filteredByDate, debouncedSearch]);
 
+  const archiveFilteredByTab = useMemo(() => {
+    return archiveRecords.filter((r) => {
+      if (archiveTab === 'completed') return r.status === 'completed';
+      if (archiveTab === 'delayed') return r.status === 'delayed';
+      if (archiveTab === 'issues') return r.status === 'issue';
+      return true;
+    });
+  }, [archiveRecords, archiveTab]);
+
+  const archiveFilteredByDate = useMemo(() => {
+    return archiveFilteredByTab.filter((r) => {
+      const d = r.archived_day || getBaghdadDateKey(r.archived_at || r.created_at);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
+  }, [archiveFilteredByTab, dateFrom, dateTo]);
+
+  const archiveFilteredDisplay = useMemo(() => {
+    const q = debouncedSearch.trim();
+    if (!q) return archiveFilteredByDate;
+    return archiveFilteredByDate.filter((r) =>
+      rowMatchesHubQuery(
+        [
+          r.driver_name,
+          r.customer_name,
+          r.product_type ?? '',
+          r.invoice_number ?? '',
+          r.location ?? '',
+          STATUS_AR[r.status],
+          r.archived_reason,
+          r.archived_day,
+        ].join(' '),
+        q
+      )
+    );
+  }, [archiveFilteredByDate, debouncedSearch]);
+
+  const archiveGrouped = useMemo(
+    () => groupByDriverThenCustomer(archiveFilteredDisplay as BubblesRecord[]),
+    [archiveFilteredDisplay]
+  );
+
   const grouped = useMemo(() => groupByDriverThenCustomer(filteredDisplay), [filteredDisplay]);
 
   const kpis = useMemo(() => {
@@ -310,6 +415,34 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     };
   }, [records]);
 
+  const archiveKpis = useMemo(() => {
+    const list = archiveFilteredDisplay;
+    const drivers = new Set(list.map((r) => r.driver_name.trim()).filter(Boolean));
+    const total = list.length;
+    const comp = list.filter((r) => r.status === 'completed').length;
+    const del = list.filter((r) => r.status === 'delayed').length;
+    const iss = list.filter((r) => r.status === 'issue').length;
+    const completedPct = total ? Math.round((comp / total) * 1000) / 10 : 0;
+    const delayedPct = total ? Math.round((del / total) * 1000) / 10 : 0;
+    let sumH = 0;
+    let nH = 0;
+    for (const r of list) {
+      const h = bubblesRecordReturnHours(r);
+      if (h == null) continue;
+      sumH += h;
+      nH += 1;
+    }
+    const avgReturnH = nH ? Math.round((sumH / nH) * 10) / 10 : null;
+    return {
+      driverCount: drivers.size,
+      completedPct,
+      delayedPct,
+      issuesCount: iss,
+      avgReturnH,
+      total,
+    };
+  }, [archiveFilteredDisplay]);
+
   const pieData = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of filteredDisplay) {
@@ -317,6 +450,14 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     }
     return [...m.entries()].map(([name, value]) => ({ name, value }));
   }, [filteredDisplay]);
+
+  const archivePieData = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of archiveFilteredDisplay) {
+      m.set(STATUS_AR[r.status], (m.get(STATUS_AR[r.status]) ?? 0) + 1);
+    }
+    return [...m.entries()].map(([name, value]) => ({ name, value }));
+  }, [archiveFilteredDisplay]);
 
   const barData = useMemo(() => {
     const m = new Map<string, number>();
@@ -328,6 +469,17 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     arr.sort((a, b) => b.value - a.value);
     return arr.slice(0, 12);
   }, [filteredDisplay]);
+
+  const archiveBarData = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of archiveFilteredDisplay) {
+      const d = r.driver_name.trim() || '—';
+      m.set(d, (m.get(d) ?? 0) + 1);
+    }
+    const arr = [...m.entries()].map(([name, value]) => ({ name, value }));
+    arr.sort((a, b) => b.value - a.value);
+    return arr.slice(0, 12);
+  }, [archiveFilteredDisplay]);
 
   const lineData = useMemo(() => {
     const days = 14;
@@ -350,6 +502,14 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
       value: counts.get(k) ?? 0,
     }));
   }, [records]);
+
+  const archiveLineData = useMemo(() => {
+    const list = [...dailySnapshots]
+      .sort((a, b) => a.day.localeCompare(b.day))
+      .slice(-14)
+      .map((s) => ({ name: s.day.slice(5), value: s.total_records }));
+    return list;
+  }, [dailySnapshots]);
 
   const driverScores = useMemo(() => {
     const m = new Map<string, { completed: number; bad: number }>();
@@ -413,6 +573,60 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     }
   }, [detailModal, records, avgReturnDetailRecords]);
 
+  const detailModalExport = useMemo(() => {
+    if (!detailModal || sourceTab !== 'live') return null;
+    if (detailModal.kind === 'kpi' && detailModal.kpi === 'drivers') {
+      return {
+        title: 'تفاصيل السائقين',
+        sheetName: 'Bubbles_Drivers',
+        headers: ['السائق', 'الإجمالي', 'معلّق', 'متأخر', 'مشكلة', 'مكتمل'],
+        rows: driverKpiSummaries.map((r) => [
+          r.name,
+          r.total,
+          r.pending,
+          r.delayed,
+          r.issue,
+          r.completed,
+        ]),
+      };
+    }
+    const rows = detailModal.kind === 'followUp' ? followUpDetailRecords : detailKpiRows;
+    return {
+      title: detailModal.kind === 'followUp' ? 'سجلات تحتاج متابعة' : KPI_MODAL_TITLE[detailModal.kpi],
+      sheetName: detailModal.kind === 'followUp' ? 'Bubbles_FollowUp' : `Bubbles_${detailModal.kpi}`,
+      headers: [
+        'السائق',
+        'العميل',
+        'المنتج',
+        'الكمية',
+        'الفاتورة',
+        'الموقع',
+        'CBM',
+        'الحالة',
+        ...(detailModal.kind === 'kpi' && detailModal.kpi === 'avgReturn' ? ['مدة الإرجاع (س)'] : []),
+        'السبب',
+        'تاريخ الإنشاء',
+        'وقت الإرجاع',
+      ],
+      rows: rows.map((r) => [
+        r.driver_name,
+        r.customer_name,
+        r.product_type ?? '—',
+        r.quantity,
+        r.invoice_number ?? '—',
+        r.location ?? '—',
+        r.cbm ?? '—',
+        STATUS_AR[r.status],
+        ...(detailModal.kind === 'kpi' && detailModal.kpi === 'avgReturn'
+          ? [bubblesRecordReturnHours(r) ?? '—']
+          : []),
+        r.reason ?? '—',
+        new Date(r.created_at).toLocaleString('ar-IQ'),
+        r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
+      ]),
+    };
+  }, [detailModal, sourceTab, driverKpiSummaries, followUpDetailRecords, detailKpiRows]);
+
   const gateDrivers = useMemo(() => {
     const todayKey = getBaghdadDateKey(new Date());
     const set = new Set<string>();
@@ -431,6 +645,14 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
       issue: records.filter((r) => r.status === 'issue').length,
     };
   }, [records, isAdmin]);
+
+  const pendingCount = useMemo(() => records.filter((r) => r.status === 'pending').length, [records]);
+  const displayGrouped = sourceTab === 'archive' ? archiveGrouped : grouped;
+  const displayKpis = sourceTab === 'archive' ? archiveKpis : kpis;
+  const displayPieData = sourceTab === 'archive' ? archivePieData : pieData;
+  const displayBarData = sourceTab === 'archive' ? archiveBarData : barData;
+  const displayLineData = sourceTab === 'archive' ? archiveLineData : lineData;
+  const displayRows = sourceTab === 'archive' ? archiveFilteredDisplay : filteredDisplay;
 
   const onUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -560,33 +782,92 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     await fetchRecords();
   };
 
-  const exportHeaders = [
-    'السائق',
-    'العميل',
-    'المنتج',
-    'الكمية',
-    'الفاتورة',
-    'الموقع',
-    'CBM',
-    'الحالة',
-    'السبب',
-    'تاريخ الإنشاء',
-    'وقت الإرجاع',
-  ];
+  const exportHeaders =
+    sourceTab === 'archive'
+      ? [
+          'اليوم المؤرشف',
+          'سبب الأرشفة',
+          'السائق',
+          'العميل',
+          'المنتج',
+          'الكمية',
+          'الفاتورة',
+          'الموقع',
+          'CBM',
+          'الحالة',
+          'السبب',
+          'تاريخ الإنشاء',
+          'وقت الإرجاع',
+          'وقت الأرشفة',
+        ]
+      : [
+          'السائق',
+          'العميل',
+          'المنتج',
+          'الكمية',
+          'الفاتورة',
+          'الموقع',
+          'CBM',
+          'الحالة',
+          'السبب',
+          'تاريخ الإنشاء',
+          'وقت الإرجاع',
+        ];
 
-  const exportRows = filteredDisplay.map((r) => [
-    r.driver_name,
-    r.customer_name,
-    r.product_type ?? '—',
-    String(r.quantity),
-    r.invoice_number ?? '—',
-    r.location ?? '—',
-    r.cbm != null ? String(r.cbm) : '—',
-    STATUS_AR[r.status],
-    r.reason ?? '—',
-    new Date(r.created_at).toLocaleString('ar-IQ'),
-    r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
-  ]);
+  const exportRows = displayRows.map((r) => {
+    if (sourceTab === 'archive') {
+      const arc = r as BubblesArchiveRecord;
+      return [
+        arc.archived_day || '—',
+        arc.archived_reason || '—',
+        arc.driver_name,
+        arc.customer_name,
+        arc.product_type ?? '—',
+        String(arc.quantity),
+        arc.invoice_number ?? '—',
+        arc.location ?? '—',
+        arc.cbm != null ? String(arc.cbm) : '—',
+        STATUS_AR[arc.status],
+        arc.reason ?? '—',
+        new Date(arc.created_at).toLocaleString('ar-IQ'),
+        arc.return_time ? new Date(arc.return_time).toLocaleString('ar-IQ') : '—',
+        arc.archived_at ? new Date(arc.archived_at).toLocaleString('ar-IQ') : '—',
+      ];
+    }
+    return [
+      r.driver_name,
+      r.customer_name,
+      r.product_type ?? '—',
+      String(r.quantity),
+      r.invoice_number ?? '—',
+      r.location ?? '—',
+      r.cbm != null ? String(r.cbm) : '—',
+      STATUS_AR[r.status],
+      r.reason ?? '—',
+      new Date(r.created_at).toLocaleString('ar-IQ'),
+      r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
+    ];
+  });
+
+  const openArchiveInReportsHub = () => {
+    if (!onOpenReportsHub) return;
+    if (sourceTab !== 'archive') return;
+    try {
+      localStorage.setItem(
+        'bubblesArchiveBridge:v1',
+        JSON.stringify({
+          activeDomain: 'bubbles',
+          search,
+          dateFrom,
+          dateTo,
+          archiveTab,
+        })
+      );
+    } catch {
+      /* ignore localStorage write failures */
+    }
+    onOpenReportsHub();
+  };
 
   const suspenseCharts = (
     <div className="flex items-center justify-center py-16 text-stone-500">
@@ -636,6 +917,44 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
         </div>
       )}
 
+      {!gateMinimalUi && sourceTab === 'live' && pendingCount > 0 && (
+        <div className="rounded-2xl border border-violet-200 dark:border-violet-900/50 bg-violet-50/40 dark:bg-violet-950/20 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-violet-900 dark:text-violet-100">تنبيه المتعلّقات</p>
+            <p className="text-xs text-violet-800/80 dark:text-violet-200/80">
+              لديك متعلّقات (قيد الانتظار) عدد: <span className="font-black">{pendingCount}</span>
+            </p>
+          </div>
+          <span className="shrink-0 px-3 py-1.5 rounded-xl bg-violet-600 text-white text-sm font-black">
+            {pendingCount}
+          </span>
+        </div>
+      )}
+
+      {!gateMinimalUi && (
+        <div className="flex flex-wrap gap-2">
+          {([
+            ['live', 'التشغيل الحالي'],
+            ['archive', 'الأرشيف'],
+          ] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setSourceTab(k)}
+              className={cn(
+                'px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                sourceTab === k
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {sourceTab === 'live' ? (
       <div className="flex flex-wrap gap-2">
         {(gateMinimalUi
           ? (['active', 'issues', 'completed'] as const)
@@ -656,6 +975,25 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
           </button>
         ))}
       </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {(['all', 'completed', 'delayed', 'issues'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setArchiveTab(k)}
+              className={cn(
+                'px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                archiveTab === k
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-md'
+                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300'
+              )}
+            >
+              {ARCHIVE_TAB_LABEL_AR[k]}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 space-y-3">
         <SmartSearchBar
@@ -711,30 +1049,35 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {(
           [
-            { kpi: 'drivers' as const, label: 'عدد السائقين', value: kpis.driverCount, icon: Package },
-            { kpi: 'completed' as const, label: 'مكتمل %', value: `${kpis.completedPct}%`, icon: CheckCircle2 },
-            { kpi: 'delayed' as const, label: 'متأخر %', value: `${kpis.delayedPct}%`, icon: Clock },
-            { kpi: 'issues' as const, label: 'مشاكل', value: kpis.issuesCount, icon: AlertTriangle },
-            { kpi: 'avgReturn' as const, label: 'متوسط إرجاع (س)', value: kpis.avgReturnH ?? '—', icon: CircleDot },
-            { kpi: 'total' as const, label: 'إجمالي السجلات', value: kpis.total, icon: CircleDot },
+            { kpi: 'drivers' as const, label: 'عدد السائقين', value: displayKpis.driverCount, icon: Package },
+            { kpi: 'completed' as const, label: 'مكتمل %', value: `${displayKpis.completedPct}%`, icon: CheckCircle2 },
+            { kpi: 'delayed' as const, label: 'متأخر %', value: `${displayKpis.delayedPct}%`, icon: Clock },
+            { kpi: 'issues' as const, label: 'مشاكل', value: displayKpis.issuesCount, icon: AlertTriangle },
+            { kpi: 'avgReturn' as const, label: 'متوسط إرجاع (س)', value: displayKpis.avgReturnH ?? '—', icon: CircleDot },
+            { kpi: 'total' as const, label: 'إجمالي السجلات', value: displayKpis.total, icon: CircleDot },
           ] as const
         ).map(({ kpi, label, value, icon: Icon }) => (
           <button
             key={kpi}
             type="button"
-            onClick={() => setDetailModal({ kind: 'kpi', kpi })}
+            onClick={() => sourceTab === 'live' && setDetailModal({ kind: 'kpi', kpi })}
             aria-label={`عرض تفاصيل: ${label}`}
+            disabled={sourceTab !== 'live'}
             className={cn(
               'rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 shadow-sm',
-              'text-right w-full transition-all cursor-pointer',
-              'hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-md',
+              'text-right w-full transition-all',
+              sourceTab === 'live' ? 'cursor-pointer hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-md' : 'cursor-default',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900'
             )}
           >
             <Icon className="w-5 h-5 text-violet-500 mb-2" />
             <p className="text-xs text-stone-500 dark:text-stone-400">{label}</p>
             <p className="text-xl font-bold text-stone-900 dark:text-white">{value}</p>
-            <p className="text-[11px] text-violet-600 dark:text-violet-400 mt-2 font-medium">انقر للمعاينة</p>
+            {sourceTab === 'live' ? (
+              <p className="text-[11px] text-violet-600 dark:text-violet-400 mt-2 font-medium">انقر للمعاينة</p>
+            ) : (
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 font-medium">ملخص الأرشيف</p>
+            )}
           </button>
         ))}
       </div>
@@ -742,11 +1085,55 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
 
       {!gateMinimalUi && (
       <Suspense fallback={suspenseCharts}>
-        <ChartsPanelLazy barData={barData} pieData={pieData} lineData={lineData} minLineItems={1} />
+        <ChartsPanelLazy barData={displayBarData} pieData={displayPieData} lineData={displayLineData} minLineItems={1} />
       </Suspense>
       )}
 
-      {!gateMinimalUi && (driverScores.best.length > 0 || driverScores.worst.length > 0) && (
+      {!gateMinimalUi && sourceTab === 'archive' && (
+        <div className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 shadow-sm">
+          <h3 className="font-bold text-stone-900 dark:text-white mb-3">ملخص الأرشفة اليومية</h3>
+          <div className="overflow-x-auto rounded-xl border border-stone-100 dark:border-stone-800">
+            <table className="w-full text-sm text-right min-w-[820px]">
+              <thead>
+                <tr className="bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-300">
+                  <th className="p-2">اليوم</th>
+                  <th className="p-2">إجمالي مؤرشف</th>
+                  <th className="p-2">معلّق متبقٍ</th>
+                  <th className="p-2">مكتمل</th>
+                  <th className="p-2">متأخر</th>
+                  <th className="p-2">مشاكل</th>
+                  <th className="p-2">سائقين</th>
+                  <th className="p-2">متوسط إرجاع (س)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailySnapshots.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-6 text-center text-stone-500 dark:text-stone-400">
+                      لا توجد لقطات يومية بعد.
+                    </td>
+                  </tr>
+                ) : (
+                  dailySnapshots.slice(0, 20).map((s) => (
+                    <tr key={s.day} className="border-t border-stone-100 dark:border-stone-800">
+                      <td className="p-2 font-semibold">{s.day}</td>
+                      <td className="p-2">{s.total_records}</td>
+                      <td className="p-2">{s.pending_count}</td>
+                      <td className="p-2">{s.completed_count}</td>
+                      <td className="p-2">{s.delayed_count}</td>
+                      <td className="p-2">{s.issue_count}</td>
+                      <td className="p-2">{s.drivers_count}</td>
+                      <td className="p-2">{s.avg_return_hours ?? '—'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {!gateMinimalUi && sourceTab === 'live' && (driverScores.best.length > 0 || driverScores.worst.length > 0) && (
         <div className="grid md:grid-cols-2 gap-4">
           <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 p-4">
             <h3 className="font-bold text-emerald-800 dark:text-emerald-200 mb-2">أفضل التزام (تقديري)</h3>
@@ -790,7 +1177,7 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
         </div>
       )}
 
-      {canGate && gateDrivers.length > 0 && (
+      {canGate && sourceTab === 'live' && gateDrivers.length > 0 && (
         <div className="rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/30 p-4 space-y-3">
           <h3 className="font-bold text-blue-900 dark:text-blue-100 flex items-center gap-2">
             <Package className="w-5 h-5" />
@@ -837,18 +1224,27 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
 
       {!gateMinimalUi && (
       <div className="flex flex-wrap items-center justify-between gap-3">
+        {sourceTab === 'archive' ? (
+          <button
+            type="button"
+            onClick={openArchiveInReportsHub}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+          >
+            فتح أرشيف الببلز في التقارير الذكية
+          </button>
+        ) : null}
         <ExportMenu
           meta={{
-            title: 'Bubbles Tracking',
-            filterDescription: [tab && `تبويب: ${tab}`, search && `بحث: ${search}`, dateFrom && `من ${dateFrom}`, dateTo && `إلى ${dateTo}`]
+            title: sourceTab === 'archive' ? 'Bubbles Archive' : 'Bubbles Tracking',
+            filterDescription: [sourceTab === 'archive' ? `المصدر: أرشيف` : `المصدر: تشغيل`, sourceTab === 'archive' ? `تبويب: ${archiveTab}` : tab && `تبويب: ${tab}`, search && `بحث: ${search}`, dateFrom && `من ${dateFrom}`, dateTo && `إلى ${dateTo}`]
               .filter(Boolean)
               .join(' | ') || 'الكل',
-            rowCount: filteredDisplay.length,
+            rowCount: displayRows.length,
           }}
           headerRow={exportHeaders}
           dataRows={exportRows}
-          sheetName="Bubbles"
-          disabled={filteredDisplay.length === 0}
+          sheetName={sourceTab === 'archive' ? 'Bubbles_Archive' : 'Bubbles'}
+          disabled={displayRows.length === 0}
         />
       </div>
       )}
@@ -857,11 +1253,11 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
         <div className="flex justify-center py-24">
           <Loader2 className="w-10 h-10 animate-spin text-violet-600" />
         </div>
-      ) : grouped.length === 0 ? (
+      ) : displayGrouped.length === 0 ? (
         <div className="text-center py-20 text-stone-500 dark:text-stone-400">لا توجد بيانات ضمن الفلاتر الحالية.</div>
       ) : (
         <div className="space-y-4">
-          {grouped.map((g) => (
+          {displayGrouped.map((g) => (
             <motion.div
               key={g.driver_name}
               initial={{ opacity: 0, y: 8 }}
@@ -870,6 +1266,9 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
             >
               <div className="px-4 py-3 bg-stone-50 dark:bg-stone-800/80 border-b border-stone-200 dark:border-stone-700 font-bold text-stone-900 dark:text-white">
                 <HighlightText text={g.driver_name} query={debouncedSearch} />
+                {sourceTab === 'archive' ? (
+                  <span className="mr-2 text-xs text-violet-600 dark:text-violet-400 font-semibold">أرشيف</span>
+                ) : null}
               </div>
               <div className="p-3 space-y-4">
                 {g.customers.map((c) => (
@@ -919,7 +1318,7 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
         </div>
       )}
 
-      {detailModal && (
+      {sourceTab === 'live' && detailModal && (
         <div
           className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/60"
           role="dialog"
@@ -1105,13 +1504,28 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
             </div>
 
             <div className="shrink-0 border-t border-stone-200 p-4 dark:border-stone-700">
-              <button
-                type="button"
-                onClick={() => setDetailModal(null)}
-                className="w-full rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-100 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700 sm:w-auto sm:px-6"
-              >
-                إغلاق
-              </button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                {detailModalExport ? (
+                  <ExportMenu
+                    meta={{
+                      title: detailModalExport.title,
+                      filterDescription: 'تصدير من نافذة التفاصيل',
+                      rowCount: detailModalExport.rows.length,
+                    }}
+                    headerRow={detailModalExport.headers}
+                    dataRows={detailModalExport.rows}
+                    sheetName={detailModalExport.sheetName}
+                    disabled={detailModalExport.rows.length === 0}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setDetailModal(null)}
+                  className="w-full rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-100 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700 sm:w-auto sm:px-6"
+                >
+                  إغلاق
+                </button>
+              </div>
             </div>
           </motion.div>
         </div>

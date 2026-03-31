@@ -164,7 +164,7 @@ export default function App() {
       case 'attendance-reports':
         return <AttendanceReports profile={authProfile} />;
       case 'bubbles':
-        return <Bubbles profile={authProfile} userId={authUser.id} />;
+        return <Bubbles profile={authProfile} userId={authUser.id} onOpenReportsHub={() => setActivePage('reports-hub')} />;
       case 'reports-hub':
         return <ReportsHub profile={authProfile} />;
       case 'attendance-activity-log':

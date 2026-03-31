@@ -95,6 +95,25 @@ export interface BubblesRecord {
   return_time: string | null;
 }
 
+export interface BubblesArchiveRecord extends BubblesRecord {
+  source_id: string | null;
+  archived_at: string;
+  archived_day: string;
+  archived_reason: string;
+}
+
+export interface BubblesDailySnapshot {
+  day: string;
+  drivers_count: number;
+  total_records: number;
+  pending_count: number;
+  completed_count: number;
+  delayed_count: number;
+  issue_count: number;
+  avg_return_hours: number | null;
+  generated_at: string;
+}
+
 export interface UserProfile {
   id: string;
   full_name: string;

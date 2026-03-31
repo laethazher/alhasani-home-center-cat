@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   Package,
   CircleDot,
+  X,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -30,6 +31,7 @@ import type {
   Violation,
   BubblesRecord,
   BubblesRecordStatus,
+  BubblesDailySnapshot,
 } from '../lib/supabaseClient';
 import {
   SmartSearchBar,
@@ -132,6 +134,30 @@ function mapBubblesRecordRow(row: Record<string, unknown>): BubblesRecord {
   };
 }
 
+function mapBubblesArchiveRow(row: Record<string, unknown>): BubblesRecord {
+  const st = String(row.status ?? 'pending');
+  const status: BubblesRecordStatus =
+    st === 'completed' || st === 'delayed' || st === 'issue' || st === 'pending' ? st : 'pending';
+  const cbmRaw = row.cbm;
+  const archivedAt = String(row.archived_at ?? row.created_at ?? '');
+  return {
+    id: `arc-${String(row.archive_id ?? row.id ?? '')}`,
+    driver_name: String(row.driver_name ?? ''),
+    customer_name: String(row.customer_name ?? ''),
+    product_type: row.product_type != null && row.product_type !== '' ? String(row.product_type) : null,
+    quantity: Number(row.quantity ?? 0) || 0,
+    invoice_number:
+      row.invoice_number != null && row.invoice_number !== '' ? String(row.invoice_number) : null,
+    location: row.location != null && row.location !== '' ? String(row.location) : null,
+    cbm: cbmRaw != null && cbmRaw !== '' ? Number(cbmRaw) : null,
+    status,
+    reason: row.reason != null && row.reason !== '' ? String(row.reason) : null,
+    created_at: archivedAt,
+    return_time:
+      row.return_time != null && row.return_time !== '' ? String(row.return_time) : null,
+  };
+}
+
 function bubbleRowSearchBlob(r: BubblesRecord): string {
   return [
     r.driver_name,
@@ -149,6 +175,14 @@ function bubbleRowSearchBlob(r: BubblesRecord): string {
 type SortKey = 'name' | 'late' | 'absent' | 'present' | 'loading_delay';
 type VehicleSortKey = 'plate' | 'status' | 'odometer';
 type ViolationSortKey = 'name' | 'violations' | 'delay';
+type BubbleDrillKey =
+  | 'drivers'
+  | 'total'
+  | 'completed'
+  | 'delayed'
+  | 'issues_pending'
+  | 'compliance'
+  | 'follow_up';
 
 const VEHICLE_STATUS_AR: Record<string, string> = {
   available: 'متاحة',
@@ -210,9 +244,12 @@ export default function ReportsHub({ profile }: Props) {
   const [violExitRequests, setViolExitRequests] = useState<ExitRequest[]>([]);
   const [manualViolations, setManualViolations] = useState<Violation[]>([]);
   const [bubblesRecords, setBubblesRecords] = useState<BubblesRecord[]>([]);
+  const [bubbleSnapshots, setBubbleSnapshots] = useState<BubblesDailySnapshot[]>([]);
   const [bubbleOnlyOpenDrivers, setBubbleOnlyOpenDrivers] = useState(false);
   const [bubbleStatusFilter, setBubbleStatusFilter] = useState<'all' | BubblesRecordStatus>('all');
   const [bubbleDelayHoursMin, setBubbleDelayHoursMin] = useState('');
+  const [bridgeNotice, setBridgeNotice] = useState(false);
+  const [bubbleDrillModal, setBubbleDrillModal] = useState<BubbleDrillKey | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [activeDomain, setActiveDomain] = useState<ReportsHubDomain>('attendance');
@@ -241,6 +278,9 @@ export default function ReportsHub({ profile }: Props) {
     setSelectedAttendanceKeys(new Set());
     setSelectedVehicleKeys(new Set());
     setSelectedViolationKeys(new Set());
+  }, [activeDomain]);
+  useEffect(() => {
+    if (activeDomain !== 'bubbles') setBubbleDrillModal(null);
   }, [activeDomain]);
   const tableSearch =
     activeDomain === 'all'
@@ -287,6 +327,31 @@ export default function ReportsHub({ profile }: Props) {
     structured,
   } = useAdvancedFilters(rangeSeed);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('bubblesArchiveBridge:v1');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      localStorage.removeItem('bubblesArchiveBridge:v1');
+      setActiveDomain('bubbles');
+      if (typeof parsed.search === 'string') {
+        const bubblesQuery = parsed.search;
+        setHubSearch((prev) => ({ ...prev, bubbles: bubblesQuery }));
+      }
+      if (typeof parsed.dateFrom === 'string') setField('dateFrom', parsed.dateFrom);
+      if (typeof parsed.dateTo === 'string') setField('dateTo', parsed.dateTo);
+      if (parsed.archiveTab === 'completed') setBubbleStatusFilter('completed');
+      else if (parsed.archiveTab === 'delayed') setBubbleStatusFilter('delayed');
+      else if (parsed.archiveTab === 'issues') setBubbleStatusFilter('issue');
+      else setBubbleStatusFilter('all');
+      setBubbleOnlyOpenDrivers(false);
+      setBubbleDelayHoursMin('');
+      setBridgeNotice(true);
+    } catch {
+      /* ignore malformed bridge payload */
+    }
+  }, [setField]);
+
   const debouncedAttendanceSearch = useDebouncedValue(hubSearch.attendance, 250);
   const debouncedVehiclesSearch = useDebouncedValue(hubSearch.vehicles, 250);
   const debouncedViolationsSearch = useDebouncedValue(hubSearch.violations, 250);
@@ -322,6 +387,8 @@ export default function ReportsHub({ profile }: Props) {
       exitViolRes,
       violRes,
       bubbleRes,
+      bubbleArcRes,
+      bubbleSnapRes,
     ] = await Promise.all([
       supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
       supabase.from('staff_members').select('*').eq('is_active', true),
@@ -342,6 +409,8 @@ export default function ReportsHub({ profile }: Props) {
         .order('created_at', { ascending: false }),
       supabase.from('violations').select('*').order('violation_date', { ascending: false }),
       supabase.from('bubbles_records').select('*').order('created_at', { ascending: false }),
+      supabase.from('bubbles_records_archive').select('*').order('archived_at', { ascending: false }).limit(5000),
+      supabase.from('bubbles_daily_snapshots').select('*').order('day', { ascending: false }).limit(365),
     ]);
     if (archRes.data) setArchive(archRes.data);
     if (staffRes.data) setStaff(staffRes.data);
@@ -350,10 +419,14 @@ export default function ReportsHub({ profile }: Props) {
     if (vehRes.data) setVehicles(vehRes.data);
     if (exitViolRes.data) setViolExitRequests(exitViolRes.data);
     if (violRes.data) setManualViolations(violRes.data);
-    if (bubbleRes.data) {
-      setBubblesRecords(
-        (bubbleRes.data as Record<string, unknown>[]).map((row) => mapBubblesRecordRow(row))
-      );
+    const liveBubbles = (bubbleRes.data ?? []) as Record<string, unknown>[];
+    const arcBubbles = (bubbleArcRes.data ?? []) as Record<string, unknown>[];
+    setBubblesRecords([
+      ...liveBubbles.map((row) => mapBubblesRecordRow(row)),
+      ...arcBubbles.map((row) => mapBubblesArchiveRow(row)),
+    ]);
+    if (bubbleSnapRes.data) {
+      setBubbleSnapshots((bubbleSnapRes.data ?? []) as BubblesDailySnapshot[]);
     }
     if (!silent) setLoading(false);
   }, []);
@@ -959,6 +1032,11 @@ export default function ReportsHub({ profile }: Props) {
   const bubbleHubColumns: ColumnDef<BubblesRecord>[] = useMemo(
     () => [
       {
+        id: 'source',
+        header: 'المصدر',
+        accessor: (r) => (String(r.id).startsWith('arc-') ? 'أرشيف' : 'تشغيلي'),
+      },
+      {
         id: 'created',
         header: 'التاريخ',
         accessor: (r) =>
@@ -1025,6 +1103,115 @@ export default function ReportsHub({ profile }: Props) {
     return { uniqueDrivers, completed, delayed, issues, pending, total, compliancePct };
   }, [filteredBubbleRows]);
 
+  const bubbleKpiCards = useMemo(
+    () =>
+      [
+        { key: 'drivers' as const, label: 'سائقون (فريدون)', value: bubbleKpis.uniqueDrivers, icon: Users },
+        { key: 'total' as const, label: 'سجلات معروضة', value: bubbleKpis.total, icon: LayoutGrid },
+        { key: 'completed' as const, label: 'مكتمل', value: bubbleKpis.completed, icon: Truck },
+        { key: 'delayed' as const, label: 'متأخر', value: bubbleKpis.delayed, icon: ArrowUpDown },
+        {
+          key: 'issues_pending' as const,
+          label: 'مشاكل / معلّق',
+          value: `${bubbleKpis.issues} / ${bubbleKpis.pending}`,
+          icon: Shield,
+        },
+        { key: 'compliance' as const, label: 'نسبة مكتمل (%)', value: bubbleKpis.compliancePct, icon: BarChart3 },
+      ],
+    [bubbleKpis]
+  );
+
+  const bubbleFollowUpDrivers = useMemo(() => {
+    const byDriver = new Map<
+      string,
+      { driver: string; total: number; pending: number; delayed: number; issue: number; bad: number }
+    >();
+    for (const r of filteredBubbleRows) {
+      const item = byDriver.get(r.driver_name) ?? {
+        driver: r.driver_name,
+        total: 0,
+        pending: 0,
+        delayed: 0,
+        issue: 0,
+        bad: 0,
+      };
+      item.total += 1;
+      if (r.status === 'pending' || r.status === 'delayed' || r.status === 'issue') {
+        item.bad += 1;
+      }
+      if (r.status === 'pending') item.pending += 1;
+      if (r.status === 'delayed') item.delayed += 1;
+      if (r.status === 'issue') item.issue += 1;
+      byDriver.set(r.driver_name, item);
+    }
+    return [...byDriver.values()]
+      .filter((x) => x.bad > 0)
+      .sort((a, b) => b.bad - a.bad || b.total - a.total)
+      .slice(0, 8);
+  }, [filteredBubbleRows]);
+
+  const bubbleFollowUpRows = useMemo(() => {
+    if (bubbleFollowUpDrivers.length === 0) return [] as BubblesRecord[];
+    const names = new Set(bubbleFollowUpDrivers.map((d) => d.driver));
+    return filteredBubbleRows.filter(
+      (r) => names.has(r.driver_name) && (r.status === 'pending' || r.status === 'delayed' || r.status === 'issue')
+    );
+  }, [bubbleFollowUpDrivers, filteredBubbleRows]);
+
+  const bubbleDrillTitle = useMemo(() => {
+    if (!bubbleDrillModal) return '';
+    switch (bubbleDrillModal) {
+      case 'drivers':
+        return 'تفاصيل السائقين';
+      case 'total':
+        return 'تفاصيل كل السجلات المعروضة';
+      case 'completed':
+        return 'تفاصيل السجلات المكتملة';
+      case 'delayed':
+        return 'تفاصيل السجلات المتأخرة';
+      case 'issues_pending':
+        return 'تفاصيل المشاكل / المعلّق';
+      case 'compliance':
+        return 'تفاصيل السجلات المحتسبة في نسبة الاكتمال';
+      case 'follow_up':
+        return 'تفاصيل السجلات التي تحتاج متابعة';
+      default:
+        return 'تفاصيل';
+    }
+  }, [bubbleDrillModal]);
+
+  const bubbleDrillRows = useMemo(() => {
+    if (!bubbleDrillModal || bubbleDrillModal === 'drivers') return [] as BubblesRecord[];
+    if (bubbleDrillModal === 'follow_up') return bubbleFollowUpRows;
+    if (bubbleDrillModal === 'total') return filteredBubbleRows;
+    if (bubbleDrillModal === 'completed') return filteredBubbleRows.filter((r) => r.status === 'completed');
+    if (bubbleDrillModal === 'delayed') return filteredBubbleRows.filter((r) => r.status === 'delayed');
+    if (bubbleDrillModal === 'issues_pending')
+      return filteredBubbleRows.filter((r) => r.status === 'issue' || r.status === 'pending');
+    return filteredBubbleRows.filter((r) => r.status === 'completed');
+  }, [bubbleDrillModal, filteredBubbleRows, bubbleFollowUpRows]);
+
+  const bubbleDriverSummaryRows = useMemo(() => {
+    const map = new Map<
+      string,
+      { driver: string; total: number; pending: number; delayed: number; issue: number; completed: number }
+    >();
+    for (const r of filteredBubbleRows) {
+      const item = map.get(r.driver_name) ?? {
+        driver: r.driver_name,
+        total: 0,
+        pending: 0,
+        delayed: 0,
+        issue: 0,
+        completed: 0,
+      };
+      item.total += 1;
+      item[r.status] += 1;
+      map.set(r.driver_name, item);
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }, [filteredBubbleRows]);
+
   const bubbleInsights = useMemo(() => {
     const rows = filteredBubbleRows;
     const byDriver = new Map<string, number>();
@@ -1047,6 +1234,7 @@ export default function ReportsHub({ profile }: Props) {
       .map((k) => ({ name: BUBBLE_STATUS_AR[k], value: sc[k] }));
     const delayedReturns = rows.filter((r) => r.status === 'delayed').length;
     const openIssues = rows.filter((r) => r.status === 'issue').length;
+    const latestSnap = bubbleSnapshots[0];
     return {
       metrics: [
         { label: 'سجلات في العرض', value: rows.length },
@@ -1055,6 +1243,8 @@ export default function ReportsHub({ profile }: Props) {
         { label: 'مشاكل', value: openIssues },
         { label: 'مكتمل في العرض', value: sc.completed },
         { label: 'معلق', value: sc.pending },
+        { label: 'أيام مؤرشفة', value: bubbleSnapshots.length },
+        { label: 'معلّق (آخر لقطة)', value: latestSnap?.pending_count ?? 0 },
       ] as { label: string; value: string | number }[],
       alerts:
         openIssues > 0
@@ -1065,7 +1255,7 @@ export default function ReportsHub({ profile }: Props) {
       bar: bar.length ? bar : [{ name: 'لا توجد بيانات', value: 0 }],
       pie: pie.length ? pie : [{ name: 'لا توجد بيانات', value: 0 }],
     };
-  }, [filteredBubbleRows]);
+  }, [filteredBubbleRows, bubbleSnapshots]);
 
   const panelInsights = useMemo(() => {
     if (activeDomain === 'all') {
@@ -1384,6 +1574,7 @@ export default function ReportsHub({ profile }: Props) {
       }
       fileSlug = `bubbles_${df}_${dt}`;
       headers = [
+        'المصدر',
         'التاريخ',
         'السائق',
         'العميل',
@@ -1397,6 +1588,7 @@ export default function ReportsHub({ profile }: Props) {
         'وقت الإرجاع',
       ];
       rows = filteredBubbleRows.map((r) => [
+        String(r.id).startsWith('arc-') ? 'أرشيف' : 'تشغيلي',
         new Date(r.created_at).toLocaleString('ar-IQ'),
         r.driver_name,
         r.customer_name,
@@ -1544,6 +1736,29 @@ export default function ReportsHub({ profile }: Props) {
           </button>
         ))}
       </div>
+
+      {bridgeNotice && activeDomain === 'bubbles' ? (
+        <div className="rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/20 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-blue-900 dark:text-blue-100 font-semibold">
+            تم تطبيق فلاتر من أرشيف Bubbles.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setBridgeNotice(false);
+              setHubSearch((prev) => ({ ...prev, bubbles: '' }));
+              setBubbleStatusFilter('all');
+              setBubbleOnlyOpenDrivers(false);
+              setBubbleDelayHoursMin('');
+              setField('dateFrom', rangeSeed.dateFrom);
+              setField('dateTo', rangeSeed.dateTo);
+            }}
+            className="px-3 py-1.5 rounded-lg border border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-200 text-xs font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/40"
+          >
+            مسح سريع
+          </button>
+        </div>
+      ) : null}
 
       <motion.div
         initial={{ opacity: 0, y: 8 }}
@@ -1756,6 +1971,7 @@ export default function ReportsHub({ profile }: Props) {
               headerRow={
                 activeDomain === 'bubbles'
                   ? [
+                      'المصدر',
                       'التاريخ',
                       'السائق',
                       'العميل',
@@ -1787,6 +2003,7 @@ export default function ReportsHub({ profile }: Props) {
               dataRows={
                 activeDomain === 'bubbles'
                   ? filteredBubbleRows.map((r) => [
+                      String(r.id).startsWith('arc-') ? 'أرشيف' : 'تشغيلي',
                       new Date(r.created_at).toLocaleString('ar-IQ'),
                       r.driver_name,
                       r.customer_name,
@@ -1853,17 +2070,181 @@ export default function ReportsHub({ profile }: Props) {
       </motion.div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {kpiItems.map(({ label, value, icon: Icon }) => (
-          <div
-            key={label}
-            className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 shadow-sm"
-          >
-            <Icon className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-2" />
-            <p className="text-xs text-stone-500 dark:text-stone-400">{label}</p>
-            <p className="text-2xl font-bold text-stone-900 dark:text-white">{value}</p>
-          </div>
-        ))}
+        {(activeDomain === 'bubbles' ? bubbleKpiCards : kpiItems).map((item) => {
+          const { label, value, icon: Icon } = item;
+          const drillKey = activeDomain === 'bubbles' ? (item as (typeof bubbleKpiCards)[number]).key : null;
+          if (activeDomain === 'bubbles' && drillKey) {
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setBubbleDrillModal(drillKey)}
+                className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 shadow-sm text-right transition-all hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900"
+              >
+                <Icon className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-2" />
+                <p className="text-xs text-stone-500 dark:text-stone-400">{label}</p>
+                <p className="text-2xl font-bold text-stone-900 dark:text-white">{value}</p>
+                <p className="text-[11px] text-violet-600 dark:text-violet-400 mt-2 font-medium">انقر للمعاينة</p>
+              </button>
+            );
+          }
+          return (
+            <div
+              key={label}
+              className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 shadow-sm"
+            >
+              <Icon className="w-5 h-5 text-blue-600 dark:text-blue-400 mb-2" />
+              <p className="text-xs text-stone-500 dark:text-stone-400">{label}</p>
+              <p className="text-2xl font-bold text-stone-900 dark:text-white">{value}</p>
+            </div>
+          );
+        })}
       </div>
+
+      {activeDomain === 'bubbles' && bubbleDrillModal ? (
+        <div className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-[1px] p-3 sm:p-6 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            className="w-full max-w-6xl max-h-[92vh] rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 shadow-2xl flex flex-col overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-stone-200 dark:border-stone-700 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-bold text-stone-900 dark:text-white">{bubbleDrillTitle}</h3>
+              <div className="flex items-center gap-2">
+                <ExportMenu
+                  meta={{
+                    title: bubbleDrillTitle,
+                    filterDescription: 'تصدير من معاينة بطاقات Bubbles',
+                    rowCount:
+                      bubbleDrillModal === 'drivers' ? bubbleDriverSummaryRows.length : bubbleDrillRows.length,
+                  }}
+                  headerRow={
+                    bubbleDrillModal === 'drivers'
+                      ? ['السائق', 'الإجمالي', 'معلّق', 'متأخر', 'مشكلة', 'مكتمل']
+                      : [
+                          'المصدر',
+                          'التاريخ',
+                          'السائق',
+                          'العميل',
+                          'النوع',
+                          'الكمية',
+                          'الفاتورة',
+                          'الموقع',
+                          'CBM',
+                          'الحالة',
+                          'السبب',
+                          'وقت الإرجاع',
+                        ]
+                  }
+                  dataRows={
+                    bubbleDrillModal === 'drivers'
+                      ? bubbleDriverSummaryRows.map((r) => [
+                          r.driver,
+                          r.total,
+                          r.pending,
+                          r.delayed,
+                          r.issue,
+                          r.completed,
+                        ])
+                      : bubbleDrillRows.map((r) => [
+                          String(r.id).startsWith('arc-') ? 'أرشيف' : 'تشغيلي',
+                          new Date(r.created_at).toLocaleString('ar-IQ'),
+                          r.driver_name,
+                          r.customer_name,
+                          r.product_type ?? '—',
+                          r.quantity,
+                          r.invoice_number ?? '—',
+                          r.location ?? '—',
+                          r.cbm ?? '—',
+                          BUBBLE_STATUS_AR[r.status],
+                          r.reason ?? '—',
+                          r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
+                        ])
+                  }
+                  sheetName={
+                    bubbleDrillModal === 'drivers'
+                      ? 'Bubbles_Drivers'
+                      : bubbleDrillModal === 'follow_up'
+                        ? 'Bubbles_FollowUp'
+                        : 'Bubbles_Details'
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => setBubbleDrillModal(null)}
+                  className="p-2 rounded-lg border border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800"
+                  aria-label="إغلاق"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-3 sm:p-4 overflow-auto">
+              <table className="w-full text-sm text-right min-w-[900px]">
+                <thead>
+                  <tr className="bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-300">
+                    {bubbleDrillModal === 'drivers' ? (
+                      <>
+                        <th className="p-2">السائق</th>
+                        <th className="p-2">الإجمالي</th>
+                        <th className="p-2">معلّق</th>
+                        <th className="p-2">متأخر</th>
+                        <th className="p-2">مشكلة</th>
+                        <th className="p-2">مكتمل</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="p-2">المصدر</th>
+                        <th className="p-2">التاريخ</th>
+                        <th className="p-2">السائق</th>
+                        <th className="p-2">العميل</th>
+                        <th className="p-2">الحالة</th>
+                        <th className="p-2">الفاتورة</th>
+                        <th className="p-2">السبب</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(bubbleDrillModal === 'drivers' ? bubbleDriverSummaryRows : bubbleDrillRows).length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={bubbleDrillModal === 'drivers' ? 6 : 7}
+                        className="p-6 text-center text-stone-500 dark:text-stone-400"
+                      >
+                        لا توجد بيانات للتفاصيل ضمن الفلاتر الحالية.
+                      </td>
+                    </tr>
+                  ) : bubbleDrillModal === 'drivers' ? (
+                    bubbleDriverSummaryRows.map((r) => (
+                      <tr key={r.driver} className="border-t border-stone-100 dark:border-stone-800">
+                        <td className="p-2 font-semibold">{r.driver}</td>
+                        <td className="p-2">{r.total}</td>
+                        <td className="p-2">{r.pending}</td>
+                        <td className="p-2">{r.delayed}</td>
+                        <td className="p-2">{r.issue}</td>
+                        <td className="p-2">{r.completed}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    bubbleDrillRows.map((r) => (
+                      <tr key={r.id} className="border-t border-stone-100 dark:border-stone-800">
+                        <td className="p-2">{String(r.id).startsWith('arc-') ? 'أرشيف' : 'تشغيلي'}</td>
+                        <td className="p-2 whitespace-nowrap">{new Date(r.created_at).toLocaleString('ar-IQ')}</td>
+                        <td className="p-2">{r.driver_name}</td>
+                        <td className="p-2">{r.customer_name}</td>
+                        <td className="p-2">{BUBBLE_STATUS_AR[r.status]}</td>
+                        <td className="p-2">{r.invoice_number ?? '—'}</td>
+                        <td className="p-2">{r.reason ?? '—'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
 
       {activeDomain === 'bubbles' && showBubblesTab ? (
         <motion.div
@@ -1911,6 +2292,30 @@ export default function ReportsHub({ profile }: Props) {
             />
           </div>
         </motion.div>
+      ) : null}
+
+      {activeDomain === 'bubbles' && showBubblesTab ? (
+        <button
+          type="button"
+          onClick={() => setBubbleDrillModal('follow_up')}
+          disabled={bubbleFollowUpDrivers.length === 0}
+          className="w-full rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/30 dark:bg-red-950/20 p-4 text-right transition-all disabled:opacity-75 disabled:cursor-default enabled:hover:border-red-400 dark:enabled:hover:border-red-700 enabled:hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900"
+        >
+          <h3 className="font-bold text-red-800 dark:text-red-200 mb-2 flex items-center justify-between gap-2">
+            يحتاج متابعة
+            {bubbleFollowUpDrivers.length > 0 ? (
+              <span className="text-xs font-semibold text-red-600 dark:text-red-300">معاينة التفاصيل</span>
+            ) : null}
+          </h3>
+          <ul className="text-sm space-y-1 text-stone-700 dark:text-stone-300">
+            {bubbleFollowUpDrivers.map((x) => (
+              <li key={x.driver}>
+                {x.driver} — يحتاج متابعة {x.bad} (معلّق {x.pending} / متأخر {x.delayed} / مشكلة {x.issue})
+              </li>
+            ))}
+            {bubbleFollowUpDrivers.length === 0 ? <li>لا توجد حالات متابعة ضمن الفلاتر الحالية.</li> : null}
+          </ul>
+        </button>
       ) : null}
 
       {(activeDomain === 'attendance' || activeDomain === 'all') && (
