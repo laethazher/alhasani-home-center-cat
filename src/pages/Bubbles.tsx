@@ -9,6 +9,7 @@ import {
   Clock,
   XCircle,
   Package,
+  X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -79,6 +80,56 @@ const BUBBLES_ISSUE_REASON_OPTIONS = [
   'تم الارجاع جزئياً',
 ] as const;
 
+type KpiDrillKey = 'drivers' | 'completed' | 'delayed' | 'issues' | 'avgReturn' | 'total';
+
+type BubblesDetailModalState =
+  | { kind: 'kpi'; kpi: KpiDrillKey }
+  | { kind: 'followUp' };
+
+type DriverKpiSummaryRow = {
+  name: string;
+  total: number;
+  pending: number;
+  delayed: number;
+  issue: number;
+  completed: number;
+};
+
+function buildDriverKpiSummaries(list: BubblesRecord[]): DriverKpiSummaryRow[] {
+  const m = new Map<string, { pending: number; delayed: number; issue: number; completed: number; total: number }>();
+  for (const r of list) {
+    const name = r.driver_name.trim() || '—';
+    if (!m.has(name)) {
+      m.set(name, { pending: 0, delayed: 0, issue: 0, completed: 0, total: 0 });
+    }
+    const x = m.get(name)!;
+    x.total += 1;
+    if (r.status === 'pending') x.pending += 1;
+    else if (r.status === 'delayed') x.delayed += 1;
+    else if (r.status === 'issue') x.issue += 1;
+    else if (r.status === 'completed') x.completed += 1;
+  }
+  return [...m.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+}
+
+const KPI_MODAL_TITLE: Record<KpiDrillKey, string> = {
+  drivers: 'تفاصيل السائقين',
+  completed: 'السجلات المكتملة',
+  delayed: 'السجلات المتأخرة',
+  issues: 'سجلات المشاكل',
+  avgReturn: 'أسس حساب متوسط الإرجاع',
+  total: 'جميع السجلات',
+};
+
+function bubblesRecordReturnHours(r: BubblesRecord): number | null {
+  if (r.status !== 'completed' || !r.return_time) return null;
+  const ms = new Date(r.return_time).getTime() - new Date(r.created_at).getTime();
+  if (ms < 0) return null;
+  return Math.round((ms / (1000 * 60 * 60)) * 10) / 10;
+}
+
 interface Props {
   profile: UserProfile;
   userId: string;
@@ -101,6 +152,7 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
   const [gateDriver, setGateDriver] = useState<string | null>(null);
   const [gateIssueReason, setGateIssueReason] = useState('');
   const [gateBusy, setGateBusy] = useState(false);
+  const [detailModal, setDetailModal] = useState<BubblesDetailModalState | null>(null);
 
   const debouncedSearch = useDebouncedValue(search, 250);
 
@@ -160,6 +212,15 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
       setTab('active');
     }
   }, [gateMinimalUi, tab]);
+
+  useEffect(() => {
+    if (!detailModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detailModal]);
 
   const filteredByTab = useMemo(() => {
     return records.filter((r) => {
@@ -309,6 +370,48 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
     const worst = [...list].filter((x) => x.bad > 0).sort((a, b) => a.score - b.score).slice(0, 5);
     return { best, worst };
   }, [records]);
+
+  const driverKpiSummaries = useMemo(() => buildDriverKpiSummaries(records), [records]);
+
+  const worstDriverNameSet = useMemo(
+    () => new Set(driverScores.worst.map((x) => x.name)),
+    [driverScores.worst]
+  );
+
+  const followUpDetailRecords = useMemo(
+    () =>
+      records.filter(
+        (r) =>
+          (r.status === 'delayed' || r.status === 'issue') &&
+          worstDriverNameSet.has(r.driver_name.trim() || '—')
+      ),
+    [records, worstDriverNameSet]
+  );
+
+  const avgReturnDetailRecords = useMemo(
+    () => records.filter((r) => bubblesRecordReturnHours(r) != null),
+    [records]
+  );
+
+  const detailKpiRows = useMemo((): BubblesRecord[] => {
+    if (!detailModal || detailModal.kind !== 'kpi') return [];
+    switch (detailModal.kpi) {
+      case 'drivers':
+        return [];
+      case 'completed':
+        return records.filter((r) => r.status === 'completed');
+      case 'delayed':
+        return records.filter((r) => r.status === 'delayed');
+      case 'issues':
+        return records.filter((r) => r.status === 'issue');
+      case 'avgReturn':
+        return avgReturnDetailRecords;
+      case 'total':
+        return records;
+      default:
+        return [];
+    }
+  }, [detailModal, records, avgReturnDetailRecords]);
 
   const gateDrivers = useMemo(() => {
     const todayKey = getBaghdadDateKey(new Date());
@@ -606,22 +709,33 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
 
       {!gateMinimalUi && (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        {[
-          { label: 'عدد السائقين', value: kpis.driverCount, icon: Package },
-          { label: 'مكتمل %', value: `${kpis.completedPct}%`, icon: CheckCircle2 },
-          { label: 'متأخر %', value: `${kpis.delayedPct}%`, icon: Clock },
-          { label: 'مشاكل', value: kpis.issuesCount, icon: AlertTriangle },
-          { label: 'متوسط إرجاع (س)', value: kpis.avgReturnH ?? '—', icon: CircleDot },
-          { label: 'إجمالي السجلات', value: kpis.total, icon: CircleDot },
-        ].map(({ label, value, icon: Icon }) => (
-          <div
-            key={label}
-            className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 shadow-sm"
+        {(
+          [
+            { kpi: 'drivers' as const, label: 'عدد السائقين', value: kpis.driverCount, icon: Package },
+            { kpi: 'completed' as const, label: 'مكتمل %', value: `${kpis.completedPct}%`, icon: CheckCircle2 },
+            { kpi: 'delayed' as const, label: 'متأخر %', value: `${kpis.delayedPct}%`, icon: Clock },
+            { kpi: 'issues' as const, label: 'مشاكل', value: kpis.issuesCount, icon: AlertTriangle },
+            { kpi: 'avgReturn' as const, label: 'متوسط إرجاع (س)', value: kpis.avgReturnH ?? '—', icon: CircleDot },
+            { kpi: 'total' as const, label: 'إجمالي السجلات', value: kpis.total, icon: CircleDot },
+          ] as const
+        ).map(({ kpi, label, value, icon: Icon }) => (
+          <button
+            key={kpi}
+            type="button"
+            onClick={() => setDetailModal({ kind: 'kpi', kpi })}
+            aria-label={`عرض تفاصيل: ${label}`}
+            className={cn(
+              'rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-4 shadow-sm',
+              'text-right w-full transition-all cursor-pointer',
+              'hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-md',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900'
+            )}
           >
             <Icon className="w-5 h-5 text-violet-500 mb-2" />
             <p className="text-xs text-stone-500 dark:text-stone-400">{label}</p>
             <p className="text-xl font-bold text-stone-900 dark:text-white">{value}</p>
-          </div>
+            <p className="text-[11px] text-violet-600 dark:text-violet-400 mt-2 font-medium">انقر للمعاينة</p>
+          </button>
         ))}
       </div>
       )}
@@ -645,8 +759,25 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
               {driverScores.best.length === 0 && <li>لا بيانات كافية</li>}
             </ul>
           </div>
-          <div className="rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/30 dark:bg-red-950/20 p-4">
-            <h3 className="font-bold text-red-800 dark:text-red-200 mb-2">يحتاج متابعة</h3>
+          <button
+            type="button"
+            disabled={driverScores.worst.length === 0}
+            onClick={() => driverScores.worst.length > 0 && setDetailModal({ kind: 'followUp' })}
+            aria-label="عرض تفاصيل السجلات التي تحتاج متابعة"
+            className={cn(
+              'rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/30 dark:bg-red-950/20 p-4 text-right w-full transition-all',
+              driverScores.worst.length > 0 &&
+                'cursor-pointer hover:border-red-400 dark:hover:border-red-700 hover:shadow-md',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900',
+              driverScores.worst.length === 0 && 'opacity-80 cursor-default'
+            )}
+          >
+            <h3 className="font-bold text-red-800 dark:text-red-200 mb-2 flex items-center justify-between gap-2">
+              يحتاج متابعة
+              {driverScores.worst.length > 0 ? (
+                <span className="text-xs font-semibold text-red-600 dark:text-red-300">معاينة التفاصيل</span>
+              ) : null}
+            </h3>
             <ul className="text-sm space-y-1 text-stone-700 dark:text-stone-300">
               {driverScores.worst.map((x) => (
                 <li key={x.name}>
@@ -655,7 +786,7 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
               ))}
               {driverScores.worst.length === 0 && <li>لا مشاكل مسجّلة</li>}
             </ul>
-          </div>
+          </button>
         </div>
       )}
 
@@ -785,6 +916,204 @@ export default function Bubbles({ profile, userId: _userId }: Props) {
               </div>
             </motion.div>
           ))}
+        </div>
+      )}
+
+      {detailModal && (
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="bubbles-detail-modal-title"
+          onClick={() => setDetailModal(null)}
+        >
+          <motion.div
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl dark:border-stone-700 dark:bg-stone-900"
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-stone-200 p-4 dark:border-stone-700">
+              <div className="min-w-0 space-y-1">
+                <h3
+                  id="bubbles-detail-modal-title"
+                  className="text-lg font-bold text-stone-900 dark:text-white"
+                >
+                  {detailModal.kind === 'followUp'
+                    ? 'سجلات تحتاج متابعة — التفاصيل'
+                    : KPI_MODAL_TITLE[detailModal.kpi]}
+                </h3>
+                {detailModal.kind === 'kpi' && detailModal.kpi === 'completed' ? (
+                  <p className="text-sm text-stone-500 dark:text-stone-400">
+                    {detailKpiRows.length} من {records.length} سجل (نسبة المكتمل من إجمالي البيانات المحمّلة)
+                  </p>
+                ) : null}
+                {detailModal.kind === 'kpi' && detailModal.kpi === 'delayed' ? (
+                  <p className="text-sm text-stone-500 dark:text-stone-400">
+                    {detailKpiRows.length} سجل متأخر من إجمالي {records.length} سجل
+                  </p>
+                ) : null}
+                {detailModal.kind === 'kpi' && detailModal.kpi === 'drivers' ? (
+                  <p className="text-sm text-stone-500 dark:text-stone-400">
+                    ملخّص حسب السائق — يطابق عدد السائقين الفريدين في النظام
+                  </p>
+                ) : null}
+                {detailModal.kind === 'followUp' ? (
+                  <p className="text-sm text-stone-500 dark:text-stone-400">
+                    {followUpDetailRecords.length} سجل (متأخر أو مشكلة لسائقي قائمة «يحتاج متابعة»)
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailModal(null)}
+                className="shrink-0 rounded-xl border border-stone-200 p-2 text-stone-600 transition-colors hover:bg-stone-100 dark:border-stone-600 dark:text-stone-300 dark:hover:bg-stone-800"
+                aria-label="إغلاق"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {detailModal.kind === 'kpi' && detailModal.kpi === 'drivers' ? (
+                <div className="overflow-x-auto rounded-xl border border-stone-200 dark:border-stone-700">
+                  <table className="w-full min-w-[720px] text-right text-sm">
+                    <thead>
+                      <tr className="bg-stone-100 text-stone-600 dark:bg-stone-800/80 dark:text-stone-300">
+                        <th className="p-3 font-semibold">السائق</th>
+                        <th className="p-3 font-semibold">الإجمالي</th>
+                        <th className="p-3 font-semibold">معلّق</th>
+                        <th className="p-3 font-semibold">متأخر</th>
+                        <th className="p-3 font-semibold">مشكلة</th>
+                        <th className="p-3 font-semibold">مكتمل</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {driverKpiSummaries.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-stone-500 dark:text-stone-400">
+                            لا توجد بيانات
+                          </td>
+                        </tr>
+                      ) : (
+                        driverKpiSummaries.map((row) => (
+                          <tr
+                            key={row.name}
+                            className="border-t border-stone-100 dark:border-stone-800 hover:bg-stone-50/80 dark:hover:bg-stone-800/40"
+                          >
+                            <td className="p-3 font-medium text-stone-900 dark:text-white">{row.name}</td>
+                            <td className="p-3">{row.total}</td>
+                            <td className="p-3">{row.pending}</td>
+                            <td className="p-3">{row.delayed}</td>
+                            <td className="p-3">{row.issue}</td>
+                            <td className="p-3">{row.completed}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : detailModal.kind === 'kpi' && detailModal.kpi === 'avgReturn' && avgReturnDetailRecords.length === 0 ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 text-center text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
+                  لا توجد سجلات مكتملة بوقت إرجاع صالح لحساب المتوسط.
+                </p>
+              ) : (
+                (() => {
+                  const rows: BubblesRecord[] =
+                    detailModal.kind === 'followUp' ? followUpDetailRecords : detailKpiRows;
+                  const showReturnHoursCol =
+                    detailModal.kind === 'kpi' && detailModal.kpi === 'avgReturn';
+                  if (rows.length === 0) {
+                    return (
+                      <p className="text-center text-stone-500 dark:text-stone-400 py-12">لا توجد صفوف للعرض.</p>
+                    );
+                  }
+                  return (
+                    <div className="overflow-x-auto rounded-xl border border-stone-200 dark:border-stone-700">
+                      <table className="w-full min-w-[960px] text-right text-sm">
+                        <thead>
+                          <tr className="bg-stone-100 text-stone-600 dark:bg-stone-800/80 dark:text-stone-300">
+                            <th className="p-2 font-semibold">السائق</th>
+                            <th className="p-2 font-semibold">العميل</th>
+                            <th className="p-2 font-semibold">المنتج</th>
+                            <th className="p-2 font-semibold">الكمية</th>
+                            <th className="p-2 font-semibold">الفاتورة</th>
+                            <th className="p-2 font-semibold">الموقع</th>
+                            <th className="p-2 font-semibold">CBM</th>
+                            <th className="p-2 font-semibold">الحالة</th>
+                            {showReturnHoursCol ? (
+                              <th className="p-2 font-semibold whitespace-nowrap">مدة الإرجاع (س)</th>
+                            ) : null}
+                            <th className="p-2 font-semibold">السبب</th>
+                            <th className="p-2 font-semibold whitespace-nowrap">الإنشاء</th>
+                            <th className="p-2 font-semibold whitespace-nowrap">الإرجاع</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((r) => (
+                            <tr
+                              key={r.id}
+                              className="border-t border-stone-100 dark:border-stone-800 hover:bg-stone-50/80 dark:hover:bg-stone-800/40"
+                            >
+                              <td className="p-2 text-stone-900 dark:text-white">{r.driver_name}</td>
+                              <td className="p-2">{r.customer_name}</td>
+                              <td className="p-2">{r.product_type ?? '—'}</td>
+                              <td className="p-2">{r.quantity}</td>
+                              <td className="p-2">{r.invoice_number ?? '—'}</td>
+                              <td className="p-2">{r.location ?? '—'}</td>
+                              <td className="p-2">{r.cbm ?? '—'}</td>
+                              <td className="p-2">
+                                <span
+                                  className={cn(
+                                    'rounded-lg px-2 py-0.5 text-xs font-semibold',
+                                    statusBadgeClass(r.status)
+                                  )}
+                                >
+                                  {STATUS_AR[r.status]}
+                                </span>
+                              </td>
+                              {showReturnHoursCol ? (
+                                <td className="p-2 font-mono tabular-nums">
+                                  {bubblesRecordReturnHours(r) ?? '—'}
+                                </td>
+                              ) : null}
+                              <td className="p-2 max-w-[140px] break-words text-stone-600 dark:text-stone-400">
+                                {r.reason ?? '—'}
+                              </td>
+                              <td className="p-2 whitespace-nowrap text-xs text-stone-600 dark:text-stone-400">
+                                {new Date(r.created_at).toLocaleString('ar-IQ', {
+                                  dateStyle: 'short',
+                                  timeStyle: 'short',
+                                })}
+                              </td>
+                              <td className="p-2 whitespace-nowrap text-xs text-stone-600 dark:text-stone-400">
+                                {r.return_time
+                                  ? new Date(r.return_time).toLocaleString('ar-IQ', {
+                                      dateStyle: 'short',
+                                      timeStyle: 'short',
+                                    })
+                                  : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            <div className="shrink-0 border-t border-stone-200 p-4 dark:border-stone-700">
+              <button
+                type="button"
+                onClick={() => setDetailModal(null)}
+                className="w-full rounded-xl border border-stone-200 bg-stone-50 py-3 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-100 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:bg-stone-700 sm:w-auto sm:px-6"
+              >
+                إغلاق
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
 

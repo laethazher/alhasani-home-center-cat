@@ -92,8 +92,8 @@ export default function Layout({
   const [sidebarOpen, setSidebarOpen]                   = useState(true);
   const [mobileOpen, setMobileOpen]                     = useState(false);
   const [unreadNotifs, setUnreadNotifs]                 = useState(0);
-  const [maintenanceExpanded, setMaintenanceExpanded]   = useState(true);
-  const [attendanceExpanded, setAttendanceExpanded]     = useState(true);
+  const [maintenanceExpanded, setMaintenanceExpanded]   = useState(false);
+  const [attendanceExpanded, setAttendanceExpanded]     = useState(false);
 
   const safeRole   = profile?.role ?? 'driver';
   const roleColor  = ROLE_COLORS[safeRole] ?? '#60a5fa';
@@ -110,9 +110,6 @@ export default function Layout({
     MAINTENANCE_CHILDREN.find(c => c.key === activePage)?.label ??
     ATTENDANCE_CHILDREN.find(c => c.key === activePage)?.label ??
     'لوحة التحكم';
-
-  useEffect(() => { if (isMaintenancePage) setMaintenanceExpanded(true); }, [isMaintenancePage]);
-  useEffect(() => { if (isAttendancePage)  setAttendanceExpanded(true);  }, [isAttendancePage]);
 
   useEffect(() => {
     if (safeRole !== 'admin' && safeRole !== 'maintenance_manager') return;
