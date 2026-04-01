@@ -12,7 +12,8 @@ import {
   Download,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { UserProfile, AttendanceActivityLog } from '../lib/supabaseClient';
 
 const ACTION_LABELS: Record<string, { label: string; icon: typeof Plus }> = {
@@ -26,9 +27,12 @@ const PAGE_SIZE = 25;
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
-export default function AttendanceActivityLog({ profile }: Props) {
+export default function AttendanceActivityLog({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const activityTable = department === 'installation' ? 'installation_attendance_activity_log' : 'attendance_activity_log';
   const [logs, setLogs] = useState<(AttendanceActivityLog & { user_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -38,7 +42,7 @@ export default function AttendanceActivityLog({ profile }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     let query = supabase
-      .from('attendance_activity_log')
+      .from(activityTable)
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
@@ -64,7 +68,7 @@ export default function AttendanceActivityLog({ profile }: Props) {
     }
     setTotalCount(count ?? 0);
     setLoading(false);
-  }, [page, filterAction]);
+  }, [page, filterAction, supabase, activityTable]);
 
   useEffect(() => {
     fetchData();

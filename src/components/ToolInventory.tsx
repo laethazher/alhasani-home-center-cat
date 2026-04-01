@@ -2,24 +2,35 @@ import React, { useState } from 'react';
 import { TOOL_INVENTORY_ITEMS } from '../constants';
 import { Package, Minus, Plus } from 'lucide-react';
 import { ImageCapture } from './ImageCapture';
+import type { InventoryTemplateItem } from '../data/repositories/inventoryRepository';
 
 interface ToolInventoryProps {
   values: Record<number, number>;
   onChange: (id: number, count: number) => void;
   toolImages?: Record<number, string[]>;
   onImagesChange?: (id: number, images: string[]) => void;
+  items?: Array<Pick<InventoryTemplateItem, 'id' | 'item_name' | 'required_quantity'>>;
 }
 
 export const ToolInventory: React.FC<ToolInventoryProps> = ({ 
   values, 
   onChange,
   toolImages = {},
-  onImagesChange = (id: number, images: string[]) => { }
+  onImagesChange = (id: number, images: string[]) => { },
+  items,
 }) => {
+  const inventoryItems = (items && items.length > 0
+    ? items.map((item) => ({
+        id: Number(item.id),
+        name: item.item_name,
+        quantity: Number(item.required_quantity || 0),
+      }))
+    : TOOL_INVENTORY_ITEMS);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {TOOL_INVENTORY_ITEMS.map((item) => (
+        {inventoryItems.map((item) => (
           <div 
             key={item.id}
             className="bg-white dark:bg-stone-800 p-4 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm flex flex-col justify-between"

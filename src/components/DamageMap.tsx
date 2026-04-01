@@ -16,7 +16,8 @@ export const DamageMap: React.FC<{
   points: DamagePoint[];
   onDamageChange: (points: DamagePoint[]) => void;
   cacheBuster?: number;
-}> = ({ points, onDamageChange, cacheBuster }) => {
+  imageSrc?: string;
+}> = ({ points, onDamageChange, cacheBuster, imageSrc = '/truck-collage.jpg?v=1' }) => {
   const [activePoint, setActivePoint] = useState<string | null>(null);
   const imgRef = useRef<HTMLDivElement>(null);
 
@@ -68,7 +69,7 @@ export const DamageMap: React.FC<{
           onClick={handleImageClick}
         >
           <img 
-            src="/truck-collage.jpg?v=1" 
+            src={imageSrc} 
             alt="Truck Angles" 
             className="w-full h-auto select-none opacity-95 object-cover rounded-xl"
             crossOrigin="anonymous"

@@ -6,6 +6,9 @@ import { supabase } from './lib/supabaseClient';
 import { playNotificationSound } from './lib/notificationSound';
 import Layout, { type PageKey } from './components/Layout';
 import LoginPage from './pages/LoginPage';
+import SystemHome from './pages/SystemHome';
+import InstallationWorkspace from './pages/InstallationWorkspace';
+import GateGuardWorkspace from './pages/GateGuardWorkspace';
 import Dashboard from './pages/Dashboard';
 import Reports from './pages/Reports';
 import Vehicles from './pages/Vehicles';
@@ -29,6 +32,7 @@ import { SmartPageProvider } from './smart';
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
+  const [systemArea, setSystemArea] = useState<'tajhiz' | 'installation' | 'gate' | null>(null);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -44,6 +48,10 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDarkMode);
     try { localStorage.setItem('darkMode', String(isDarkMode)); } catch { /* noop */ }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    if (!user) setSystemArea(null);
+  }, [user]);
 
   const role = profile?.role;
   useEffect(() => {
@@ -95,6 +103,49 @@ export default function App() {
   /* ── Not logged in ── */
   if (!user || !profile) {
     return <LoginPage />;
+  }
+
+  if (!systemArea) {
+    return (
+      <SystemHome
+        profileName={profile.full_name}
+        isDarkMode={isDarkMode}
+        isGateGuard={role === 'gate_guard'}
+        onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
+        onSelectTajhiz={() => setSystemArea('tajhiz')}
+        onSelectInstallation={() => setSystemArea('installation')}
+        onSelectGate={() => setSystemArea('gate')}
+        onSignOut={signOut}
+        signingOut={signingOut}
+      />
+    );
+  }
+
+  if (systemArea === 'gate') {
+    return (
+      <GateGuardWorkspace
+        profile={profile}
+        userId={user.id}
+        onBack={() => setSystemArea(null)}
+        onSignOut={signOut}
+        signingOut={signingOut}
+        isDarkMode={isDarkMode}
+      />
+    );
+  }
+
+  if (systemArea === 'installation') {
+    return (
+      <InstallationWorkspace
+        profile={profile}
+        userId={user.id}
+        onBack={() => setSystemArea(null)}
+        onSignOut={signOut}
+        signingOut={signingOut}
+        isDarkMode={isDarkMode}
+        onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
+      />
+    );
   }
 
   /* ── Authenticated ── */
@@ -181,6 +232,7 @@ export default function App() {
       profile={profile}
       activePage={activePage}
       onNavigate={setActivePage}
+      onBackToSections={() => setSystemArea(null)}
       onSignOut={signOut}
       signingOut={signingOut}
       isDarkMode={isDarkMode}

@@ -21,7 +21,8 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToCsv } from '../lib/excelExport';
 import { logAttendanceActivity } from '../lib/attendanceActivity';
@@ -95,9 +96,12 @@ function buildAttendanceRow(
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
-export default function CrewAttendance({ profile }: Props) {
+export default function CrewAttendance({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
@@ -133,15 +137,21 @@ export default function CrewAttendance({ profile }: Props) {
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const [staffRes, vehRes, attRes, exitRes] = await Promise.all([
-      supabase.from('staff_members').select('*').eq('is_active', true).order('role').order('full_name'),
-      supabase.from('vehicles').select('*'),
-      supabase.from('attendance').select('*').eq('attendance_date', todayStr),
+      supabase.from(tables.staffMembers).select('*').eq('is_active', true).order('role').order('full_name'),
+      supabase.from(tables.vehicles).select('*'),
+      supabase.from(tables.attendance).select('*').eq('attendance_date', todayStr),
       supabase
-        .from('exit_requests')
+        .from(tables.exitRequests)
         .select('driver_id, loading_is_delay, loading_delay_minutes')
         .eq('track_driver_loading_time', true),
     ]);
-    if (staffRes.data) setStaff(staffRes.data);
+    if (staffRes.data) {
+      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+      })) as StaffMember[];
+      setStaff(normalizedStaff);
+    }
     if (vehRes.data) setVehicles(vehRes.data);
     if (attRes.data) setAttendance(attRes.data);
     if (exitRes.data) {
@@ -177,7 +187,7 @@ export default function CrewAttendance({ profile }: Props) {
     (async () => {
       setDriverExitLoading(true);
       const { data, error } = await supabase
-        .from('exit_requests')
+        .from(tables.exitRequests)
         .select('*')
         .eq('track_driver_loading_time', true)
         .eq('driver_id', driverLoadingModal.staffId)
@@ -369,7 +379,7 @@ export default function CrewAttendance({ profile }: Props) {
       }));
 
       const { error: upsertErr } = await supabase
-        .from('attendance')
+        .from(tables.attendance)
         .upsert(payloads, { onConflict: 'staff_id,attendance_date' });
 
       if (upsertErr) throw upsertErr;
@@ -381,8 +391,8 @@ export default function CrewAttendance({ profile }: Props) {
         else addCount++;
       });
 
-      if (addCount > 0) await logAttendanceActivity('add', { date: todayStr, count: addCount });
-      if (editCount > 0) await logAttendanceActivity('edit', { date: todayStr, count: editCount });
+      if (addCount > 0) await logAttendanceActivity('add', { date: todayStr, count: addCount }, department);
+      if (editCount > 0) await logAttendanceActivity('edit', { date: todayStr, count: editCount }, department);
       resyncRowsFromServerRef.current = true;
       await fetchData(true);
       setSaveSuccess(true);
@@ -404,7 +414,8 @@ export default function CrewAttendance({ profile }: Props) {
     if (!window.confirm('هل أنت متأكد من أرشفة يوم الحضور؟ لن يمكن تعديل البيانات إلا من قبل المدير.')) return;
     setArchiving(true);
     try {
-      const { data, error } = await supabase.rpc('archive_attendance_day', { p_date: todayStr });
+      const rpcName = department === 'installation' ? 'installation_archive_attendance_day' : 'archive_attendance_day';
+      const { data, error } = await supabase.rpc(rpcName, { p_date: todayStr });
       const result = data as { success?: boolean; error?: string; archived_count?: number } | null;
       if (error) {
         alert('فشل الأرشفة: ' + error.message);
@@ -414,7 +425,7 @@ export default function CrewAttendance({ profile }: Props) {
         alert(result?.error === 'admin_only' ? 'هذا الإجراء مسموح للأدمن فقط' : (result?.error || 'فشل الأرشفة'));
         return;
       }
-      await logAttendanceActivity('archive', { date: todayStr, archived_count: result?.archived_count ?? 0 });
+      await logAttendanceActivity('archive', { date: todayStr, archived_count: result?.archived_count ?? 0 }, department);
       resyncRowsFromServerRef.current = true;
       await fetchData(true);
       alert(`تم أرشفة ${result?.archived_count ?? 0} سجل بنجاح`);
@@ -488,7 +499,7 @@ export default function CrewAttendance({ profile }: Props) {
       `;
       exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `${filename}.pdf`);
     }
-    logAttendanceActivity('export', { date: todayStr });
+    logAttendanceActivity('export', { date: todayStr }, department);
   };
 
   const handleAddStaff = async (role: 'driver' | 'assistant') => {
@@ -500,7 +511,7 @@ export default function CrewAttendance({ profile }: Props) {
     setAddLoading(true);
     setAddError('');
     try {
-      const { error } = await supabase.from('staff_members').insert({
+      const { error } = await supabase.from(tables.staffMembers).insert({
         full_name: name,
         role,
         is_active: true,
@@ -523,7 +534,7 @@ export default function CrewAttendance({ profile }: Props) {
     setDeleting(true);
     try {
       for (const id of selectedStaffIds) {
-        await supabase.from('staff_members').delete().eq('id', id);
+        await supabase.from(tables.staffMembers).delete().eq('id', id);
       }
       setSelectedStaffIds([]);
       setIsSelectionMode(false);

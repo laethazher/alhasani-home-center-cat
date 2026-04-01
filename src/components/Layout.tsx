@@ -8,7 +8,8 @@ import {
   Users, CalendarCheck, BarChart3, Sparkles, CircleDot,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
 
 /* ═══════════════════════════════════════════════════════════
@@ -76,10 +77,12 @@ interface LayoutProps {
   profile: UserProfile | null;
   activePage: PageKey;
   onNavigate: (page: PageKey) => void;
+  onBackToSections?: () => void;
   onSignOut: () => void;
   signingOut?: boolean;
   isDarkMode: boolean;
   onToggleDark: () => void;
+  department?: DepartmentCode;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -87,8 +90,10 @@ interface LayoutProps {
 ═══════════════════════════════════════════════════════════ */
 export default function Layout({
   children, profile, activePage, onNavigate,
-  onSignOut, signingOut = false, isDarkMode, onToggleDark,
+  onBackToSections, onSignOut, signingOut = false, isDarkMode, onToggleDark, department = 'tajhiz',
 }: LayoutProps) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [sidebarOpen, setSidebarOpen]                   = useState(true);
   const [mobileOpen, setMobileOpen]                     = useState(false);
   const [unreadNotifs, setUnreadNotifs]                 = useState(0);
@@ -103,7 +108,9 @@ export default function Layout({
 
   const visibleMaintenanceChildren = MAINTENANCE_CHILDREN.filter(c => c.roles.includes(safeRole));
   const visibleAttendanceChildren  = ATTENDANCE_CHILDREN.filter(c => c.roles.includes(safeRole));
-  const visibleItems = NAV_ITEMS.filter(i => i.roles === 'all' || i.roles.includes(safeRole));
+  const visibleItems = NAV_ITEMS
+    .filter(i => i.roles === 'all' || i.roles.includes(safeRole))
+    .filter(i => department === 'installation' ? i.key !== 'bubbles' : true);
 
   const currentPageLabel =
     visibleItems.find(i => i.key === activePage)?.label ??
@@ -113,13 +120,13 @@ export default function Layout({
 
   useEffect(() => {
     if (safeRole !== 'admin' && safeRole !== 'maintenance_manager') return;
-    const fetch = () => supabase.from('maintenance_notifications')
+    const fetch = () => supabase.from(tables.maintenanceNotifications)
       .select('id', { count:'exact', head:true }).eq('is_read', false)
       .then(({ count }) => { if (typeof count === 'number') setUnreadNotifs(count); });
     fetch();
     const iv = setInterval(fetch, 15_000);
     return () => clearInterval(iv);
-  }, [safeRole]);
+  }, [safeRole, supabase, tables.maintenanceNotifications]);
 
   /* ─── NAV BUTTON ─── */
   function NavBtn({ item, mobile }: { item: NavItem; mobile?: boolean; key?: React.Key }) {
@@ -541,6 +548,22 @@ export default function Layout({
           </div>
 
           <div className="flex items-center gap-2">
+            {onBackToSections && (
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={onBackToSections}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200"
+                style={{
+                  background: isDarkMode ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.10)',
+                  color: '#059669',
+                  border: isDarkMode ? '1px solid rgba(16,185,129,0.28)' : '1px solid rgba(16,185,129,0.2)',
+                }}
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">رجوع للأقسام</span>
+              </motion.button>
+            )}
+
             {unreadNotifs > 0 && (
               <motion.button
                 initial={{ scale:0 }} animate={{ scale:1 }}

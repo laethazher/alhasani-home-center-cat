@@ -11,7 +11,8 @@ import {
   User,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import type { UserProfile, StaffMember, AttendanceArchive } from '../lib/supabaseClient';
@@ -49,9 +50,12 @@ function getDominantAttendanceType(s: StaffStats): string {
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
-export default function CrewStaff({ profile }: Props) {
+export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,10 +72,16 @@ export default function CrewStaff({ profile }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [staffRes, archRes] = await Promise.all([
-      supabase.from('staff_members').select('*').eq('is_active', true).order('role').order('full_name'),
-      supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
+      supabase.from(tables.staffMembers).select('*').eq('is_active', true).order('role').order('full_name'),
+      supabase.from(department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive').select('*').order('attendance_date', { ascending: false }),
     ]);
-    if (staffRes.data) setStaff(staffRes.data);
+    if (staffRes.data) {
+      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+      })) as StaffMember[];
+      setStaff(normalizedStaff);
+    }
     if (archRes.data) setArchive(archRes.data);
     setLoading(false);
   }, []);
@@ -148,7 +158,7 @@ export default function CrewStaff({ profile }: Props) {
     setDeleting(true);
     try {
       for (const id of selectedStaffIds) {
-        await supabase.from('staff_members').delete().eq('id', id);
+        await supabase.from(tables.staffMembers).delete().eq('id', id);
       }
       setSelectedStaffIds([]);
       setIsSelectionMode(false);

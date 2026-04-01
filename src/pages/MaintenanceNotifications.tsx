@@ -5,7 +5,8 @@ import {
   Calendar, Truck, Clock, AlertTriangle, RefreshCw, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { MaintenanceNotification, Vehicle, PeriodicMaintenance } from '../lib/supabaseClient';
 
 const TYPE_CONFIG: Record<string, { icon: typeof Bell; color: string; label: string }> = {
@@ -15,7 +16,13 @@ const TYPE_CONFIG: Record<string, { icon: typeof Bell; color: string; label: str
   maintenance_completed: { icon: Check,         color: 'text-emerald-600', label: 'صيانة مكتملة' },
 };
 
-export default function MaintenanceNotifications() {
+interface Props {
+  department?: DepartmentCode;
+}
+
+export default function MaintenanceNotifications({ department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [notifications, setNotifications] = useState<MaintenanceNotification[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,8 +32,8 @@ export default function MaintenanceNotifications() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [notifRes, vehRes] = await Promise.all([
-      supabase.from('maintenance_notifications').select('*').order('created_at', { ascending: false }),
-      supabase.from('vehicles').select('*'),
+      supabase.from(tables.maintenanceNotifications).select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.vehicles).select('*'),
     ]);
     if (notifRes.data) setNotifications(notifRes.data);
     if (vehRes.data) setVehicles(vehRes.data);
@@ -43,12 +50,12 @@ export default function MaintenanceNotifications() {
   const unreadCount = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
 
   async function markAsRead(id: number) {
-    await supabase.from('maintenance_notifications').update({ is_read: true }).eq('id', id);
+    await supabase.from(tables.maintenanceNotifications).update({ is_read: true }).eq('id', id);
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
   }
 
   async function markAllAsRead() {
-    await supabase.from('maintenance_notifications').update({ is_read: true }).eq('is_read', false);
+    await supabase.from(tables.maintenanceNotifications).update({ is_read: true }).eq('is_read', false);
     setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
   }
 
@@ -68,7 +75,7 @@ export default function MaintenanceNotifications() {
             new Date(n.created_at).toDateString() === today.toDateString()
           );
           if (!exists) {
-            await supabase.from('maintenance_notifications').insert({
+            await supabase.from(tables.maintenanceNotifications).insert({
               vehicle_id: v.id,
               notification_type: 'insurance_expiry',
               title: 'انتهاء التأمين قريباً',
@@ -89,7 +96,7 @@ export default function MaintenanceNotifications() {
             new Date(n.created_at).toDateString() === today.toDateString()
           );
           if (!exists) {
-            await supabase.from('maintenance_notifications').insert({
+            await supabase.from(tables.maintenanceNotifications).insert({
               vehicle_id: v.id,
               notification_type: 'inspection_expiry',
               title: 'انتهاء الفحص السنوي قريباً',
@@ -103,7 +110,7 @@ export default function MaintenanceNotifications() {
     }
 
     // Check periodic maintenance
-    const { data: periodicItems } = await supabase.from('periodic_maintenance').select('*');
+    const { data: periodicItems } = await supabase.from(tables.periodicMaintenance).select('*');
     if (periodicItems) {
       for (const item of periodicItems) {
         if (item.status === 'overdue' || item.status === 'approaching') {
@@ -115,7 +122,7 @@ export default function MaintenanceNotifications() {
             new Date(n.created_at).toDateString() === today.toDateString()
           );
           if (!exists) {
-            await supabase.from('maintenance_notifications').insert({
+            await supabase.from(tables.maintenanceNotifications).insert({
               vehicle_id: v.id,
               notification_type: 'maintenance_due',
               title: item.status === 'overdue' ? 'صيانة مستحقة' : 'صيانة قريبة',

@@ -26,13 +26,19 @@ import {
   Search,
   Check,
   ChevronDown,
+  Plus,
+  Pencil,
+  Trash2,
+  GripVertical,
+  X,
 } from 'lucide-react';
 import { DamageMap } from '../components/DamageMap';
 import { InspectionForm } from '../components/InspectionForm';
 import { ToolInventory } from '../components/ToolInventory';
 import { SignaturePad } from '../components/SignaturePad';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
@@ -42,6 +48,7 @@ type Tab = 'damage' | 'inspection' | 'tools' | 'history';
 
 interface ReportsProps {
   userId: string;
+  department?: DepartmentCode;
 }
 
 interface SavedReportView {
@@ -49,6 +56,7 @@ interface SavedReportView {
   vehicleId: number | null;
   driverName: string;
   truckNumber: string;
+  vehicleType?: string;
   date: string;
   damagePoints: any[];
   inspectionValues: Record<number, boolean>;
@@ -61,14 +69,48 @@ interface SavedReportView {
   createdAt: string;
 }
 
+interface InventoryItemView {
+  id: number;
+  name: string;
+  quantity: number;
+  sortOrder: number;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return 'خطأ غير معروف';
+}
+
+function resolveInstallationVehicleType(raw: unknown): 'starex' | 'nissan' | null {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (!value) return null;
+  if (value.includes('starex') || value.includes('star') || value.includes('ستار')) return 'starex';
+  if (value.includes('nissan') || value.includes('نيس')) return 'nissan';
+  return null;
+}
+
+function getVehicleMapImage(department: DepartmentCode, vehicleType?: unknown): string {
+  if (department !== 'installation') return '/truck-collage.jpg?v=1';
+  const normalized = resolveInstallationVehicleType(vehicleType);
+  if (normalized === 'starex') return '/صورة ستاركس.png';
+  if (normalized === 'nissan') return '/صورة نيسان.png';
+  // For installation, never fallback to tajhiz collage image.
+  return '/صورة ستاركس.png';
+}
+
 interface VehicleSelectProps {
   vehicles: Vehicle[];
   selectedVehicleId: string;
   onSelect: (vehicle: Vehicle) => void;
   driverMap: Map<string, string>;
+  staffLabel: string;
 }
 
-function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap }: VehicleSelectProps) {
+function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap, staffLabel }: VehicleSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -120,7 +162,7 @@ function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap }: Veh
             {selectedVehicle.status === 'available' ? 'متاحة' : selectedVehicle.status === 'maintenance' ? 'صيانة' : selectedVehicle.status === 'broken' ? 'معطلة' : 'محجوزة'}
           </span>
           <span className="px-2 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-medium">
-            السائق الحالي: {selectedDriver || 'بدون سائق'}
+            {staffLabel} الحالي: {selectedDriver || `بدون ${staffLabel}`}
           </span>
         </div>
       )}
@@ -140,7 +182,7 @@ function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap }: Veh
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="ابحث برقم المركبة أو اسم السائق"
+                  placeholder={`ابحث برقم المركبة أو اسم ${staffLabel}`}
                   className="flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400 text-stone-900 dark:text-white"
                   autoFocus
                 />
@@ -193,7 +235,9 @@ function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap }: Veh
   );
 }
 
-export default function Reports({ userId }: ReportsProps) {
+export default function Reports({ userId, department = 'tajhiz' }: ReportsProps) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [activeTab, setActiveTab] = useState<Tab>('damage');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -201,6 +245,22 @@ export default function Reports({ userId }: ReportsProps) {
   const [viewingReport, setViewingReport] = useState<SavedReportView | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemView[]>(
+    TOOL_INVENTORY_ITEMS.map((item, index) => ({
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      sortOrder: index + 1,
+    }))
+  );
+  const [templateName, setTemplateName] = useState('');
+  const [templateQuantity, setTemplateQuantity] = useState<number>(1);
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [showToolsEditor, setShowToolsEditor] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [draggingTemplateId, setDraggingTemplateId] = useState<number | null>(null);
+  const [reorderingTemplates, setReorderingTemplates] = useState(false);
   
   // Selection state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -225,7 +285,7 @@ export default function Reports({ userId }: ReportsProps) {
     const toExport = savedReports.filter(r => selectedReportIds.includes(r.id));
     if (toExport.length === 0) return;
 
-    const headers = ['المعرف', 'اسم السائق', 'رقم المركبة', 'التاريخ', 'عدد الأضرار', 'اكتمال الفحص', 'تاريخ الإنشاء'];
+    const headers = ['المعرف', `اسم ${staffLabel}`, 'رقم المركبة', 'التاريخ', 'عدد الأضرار', 'اكتمال الفحص', 'تاريخ الإنشاء'];
     const rows = toExport.map(r => [
       r.id,
       r.driverName,
@@ -244,7 +304,7 @@ export default function Reports({ userId }: ReportsProps) {
     if (toExport.length === 0) return;
 
     setExportingSelected(true);
-    const headers = ['السائق', 'المركبة', 'التاريخ', 'الأضرار', 'الفحص'];
+    const headers = [staffLabel, 'المركبة', 'التاريخ', 'الأضرار', 'الفحص'];
     const rows = toExport.map(r => [
       r.driverName,
       r.truckNumber,
@@ -253,9 +313,10 @@ export default function Reports({ userId }: ReportsProps) {
       `${Object.values(r.inspectionValues).filter(Boolean).length}/17`
     ]);
 
+    const sectionText = isInstallation ? ' | القسم: التركيب' : '';
     let html = `
       <h1 style="text-align:center;font-size:22px;margin-bottom:12px">ملخص سجل تقارير الفحص المختارة</h1>
-      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')}</p>
+      <p style="text-align:center;color:#666;margin-bottom:20px">تاريخ التصدير: ${new Date().toLocaleDateString('ar-IQ')}${sectionText}</p>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#dc2626;color:#fff">
           ${headers.map(h => `<th style="padding:8px;text-align:right">${h}</th>`).join('')}
@@ -299,6 +360,12 @@ export default function Reports({ userId }: ReportsProps) {
   const [warehouseManagerSignature, setWarehouseManagerSignature] = useState('');
 
   const [cacheBuster] = useState(() => Date.now());
+  const isInstallation = department === 'installation';
+  const isTajhiz = department === 'tajhiz';
+  const staffLabel = isInstallation ? 'الفني' : 'السائق';
+  const departmentManagerLabel = isInstallation ? 'توقيع مسؤول قسم التركيب' : 'توقيع مسؤول قسم التجهيز';
+  const departmentManagerText = isInstallation ? 'مسؤول قسم التركيب' : 'مسؤول قسم التجهيز';
+  const toolsSectionTitle = isInstallation ? 'جرد عدة كادر التركيب' : 'جرد العدة والمواد';
   const driverMap = useMemo(
     () => new Map(drivers.map((driver) => [String(driver.id), driver.full_name])),
     [drivers]
@@ -310,72 +377,290 @@ export default function Reports({ userId }: ReportsProps) {
   const selectedVehicleDriver = selectedVehicle?.assigned_driver_id
     ? (driverMap.get(String(selectedVehicle.assigned_driver_id)) || '')
     : '';
+  const selectedVehicleImage = getVehicleMapImage(
+    department,
+    (selectedVehicle as unknown as { vehicle_type?: unknown } | null)?.vehicle_type
+  );
 
   const fetchReports = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('reports')
+        .from(tables.reports)
         .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
+      if (isTajhiz) {
+        setSavedReports(
+          ((data ?? []) as Report[]).map((r) => ({
+            id: r.id,
+            vehicleId: r.vehicle_id,
+            driverName: r.driver_name || '',
+            truckNumber: r.truck_number || '',
+            vehicleType: '',
+            date: r.date || '',
+            damagePoints: Array.isArray(r.damage_points) ? r.damage_points : [],
+            inspectionValues: (r.inspection_values as Record<number, boolean>) || {},
+            toolValues: (r.tool_values as Record<number, number>) || {},
+            toolImages: (r.tool_images as Record<number, string[]>) || {},
+            driverSignature: r.driver_signature || '',
+            equipmentManagerSignature: r.equipment_manager || '',
+            logisticsManagerSignature: r.logistics_manager || '',
+            warehouseManagerSignature: r.warehouse_manager || '',
+            createdAt: r.created_at,
+          }))
+        );
+        return;
+      }
       setSavedReports(
-        ((data ?? []) as Report[]).map((r) => ({
-          id: r.id,
-          vehicleId: r.vehicle_id,
-          driverName: r.driver_name || '',
-          truckNumber: r.truck_number || '',
-          date: r.date || '',
-          damagePoints: Array.isArray(r.damage_points) ? r.damage_points : [],
-          inspectionValues: (r.inspection_values as Record<number, boolean>) || {},
-          toolValues: (r.tool_values as Record<number, number>) || {},
-          toolImages: (r.tool_images as Record<number, string[]>) || {},
-          driverSignature: r.driver_signature || '',
-          equipmentManagerSignature: r.equipment_manager || '',
-          logisticsManagerSignature: r.logistics_manager || '',
-          warehouseManagerSignature: r.warehouse_manager || '',
-          createdAt: r.created_at,
-        }))
+        ((data ?? []) as Array<Record<string, unknown>>).map((row) => {
+          const payload = (row.payload && typeof row.payload === 'object'
+            ? (row.payload as Record<string, unknown>)
+            : {}) as Record<string, unknown>;
+          return {
+            id: Number(row.id),
+            vehicleId: row.vehicle_id == null ? null : Number(row.vehicle_id),
+            driverName: String(row.driver_name ?? payload.driver_name ?? ''),
+            truckNumber: String(row.truck_number ?? row.vehicle_number ?? payload.truck_number ?? ''),
+            vehicleType: String(row.vehicle_type ?? payload.vehicle_type ?? ''),
+            date: String(row.date ?? payload.date ?? ''),
+            damagePoints: Array.isArray(row.damage_points)
+              ? (row.damage_points as any[])
+              : Array.isArray(payload.damage_points)
+                ? (payload.damage_points as any[])
+                : [],
+            inspectionValues: (row.inspection_values as Record<number, boolean>) || (payload.inspection_values as Record<number, boolean>) || {},
+            toolValues: (row.tool_values as Record<number, number>) || (payload.tool_values as Record<number, number>) || {},
+            toolImages: (row.tool_images as Record<number, string[]>) || (payload.tool_images as Record<number, string[]>) || {},
+            driverSignature: String(row.driver_signature ?? payload.driver_signature ?? ''),
+            equipmentManagerSignature: String(row.equipment_manager ?? payload.equipment_manager ?? ''),
+            logisticsManagerSignature: String(row.logistics_manager ?? payload.logistics_manager ?? ''),
+            warehouseManagerSignature: String(row.warehouse_manager ?? payload.warehouse_manager ?? ''),
+            createdAt: String(row.created_at ?? new Date().toISOString()),
+          } as SavedReportView;
+        })
       );
     } catch (error) {
       console.error("Failed to fetch reports:", error);
     }
-  }, []);
+  }, [isTajhiz, supabase, tables.reports]);
 
   const fetchVehicles = useCallback(async () => {
+    const orderColumn = department === 'installation' ? 'vehicle_number' : 'plate_number';
     const { data, error } = await supabase
-      .from('vehicles')
+      .from(tables.vehicles)
       .select('*')
-      .order('plate_number');
+      .order(orderColumn);
     if (error) {
       console.error('Failed to fetch vehicles:', error);
       return;
     }
-    setVehicles(data || []);
-  }, []);
+    const normalizedVehicles = ((data ?? []) as Array<Record<string, unknown>>).map((v) => ({
+      ...v,
+      plate_number: String(v.plate_number ?? v.vehicle_number ?? ''),
+      assigned_driver_id:
+        v.assigned_driver_id != null
+          ? String(v.assigned_driver_id)
+          : v.responsible_staff_id != null
+            ? String(v.responsible_staff_id)
+            : null,
+    })) as Vehicle[];
+    setVehicles(normalizedVehicles);
+  }, [department, supabase, tables.vehicles]);
 
   const fetchDrivers = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('staff_members')
+    let query = supabase
+      .from(tables.staffMembers)
       .select('*')
-      .eq('role', 'driver')
       .eq('is_active', true)
       .order('full_name');
+    if (department !== 'installation') query = query.eq('role', 'driver');
+    const { data, error } = await query;
     if (error) {
       console.error('Failed to fetch drivers:', error);
       return;
     }
-    setDrivers(data || []);
-  }, []);
+    const normalizedDrivers = ((data ?? []) as Array<Record<string, unknown>>).map((d) => ({
+      ...d,
+      role: d.role === 'assistant' || d.role === 'crew' ? 'assistant' : 'driver',
+    })) as StaffMember[];
+    setDrivers(normalizedDrivers.filter((d) => d.role === 'driver'));
+  }, [department, supabase, tables.staffMembers]);
+
+  const fetchInventoryTemplates = useCallback(async () => {
+    const { data, error } = await supabase
+      .from(tables.inventoryTemplates)
+      .select('id, item_name, required_quantity, sort_order')
+      .eq('department_code', department)
+      .eq('category', 'tools')
+      .eq('is_active', true)
+      .order('sort_order');
+    if (error) {
+      console.error('Failed to fetch inventory templates:', error);
+      setInventoryItems(
+        TOOL_INVENTORY_ITEMS.map((item, index) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          sortOrder: index + 1,
+        }))
+      );
+      return;
+    }
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    if (rows.length === 0) {
+      setInventoryItems(
+        TOOL_INVENTORY_ITEMS.map((item, index) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          sortOrder: index + 1,
+        }))
+      );
+      return;
+    }
+    setInventoryItems(
+      rows.map((row) => ({
+        id: Number(row.id),
+        name: String(row.item_name ?? ''),
+        quantity: Number(row.required_quantity ?? 0),
+        sortOrder: Number(row.sort_order ?? 0),
+      }))
+    );
+  }, [department, supabase, tables.inventoryTemplates]);
 
   useEffect(() => {
-    Promise.all([fetchReports(), fetchVehicles(), fetchDrivers()]).catch((error) => {
+    Promise.all([fetchReports(), fetchVehicles(), fetchDrivers(), fetchInventoryTemplates()]).catch((error) => {
       console.error('Failed to initialize reports page:', error);
     });
-  }, [fetchReports, fetchVehicles, fetchDrivers]);
+  }, [fetchReports, fetchVehicles, fetchDrivers, fetchInventoryTemplates]);
+
+  const resetTemplateForm = () => {
+    setTemplateName('');
+    setTemplateQuantity(1);
+    setEditingTemplateId(null);
+    setShowTemplateModal(false);
+  };
+
+  const startEditTemplate = (item: InventoryItemView) => {
+    setEditingTemplateId(item.id);
+    setTemplateName(item.name);
+    setTemplateQuantity(item.quantity);
+    setShowTemplateModal(true);
+  };
+
+  const startAddTemplate = () => {
+    setEditingTemplateId(null);
+    setTemplateName('');
+    setTemplateQuantity(1);
+    setShowTemplateModal(true);
+  };
+
+  const saveTemplate = async () => {
+    const normalizedName = templateName.trim();
+    const normalizedQty = Number(templateQuantity || 0);
+    if (!normalizedName) {
+      alert('يرجى إدخال اسم العنصر');
+      return;
+    }
+    if (normalizedQty < 0) {
+      alert('الكمية المطلوبة يجب أن تكون 0 أو أكبر');
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      if (editingTemplateId) {
+        const target = inventoryItems.find((x) => x.id === editingTemplateId);
+        const { error } = await supabase
+          .from(tables.inventoryTemplates)
+          .update({
+            item_name: normalizedName,
+            required_quantity: normalizedQty,
+            sort_order: target?.sortOrder ?? 0,
+          })
+          .eq('id', editingTemplateId)
+          .eq('department_code', department)
+          .eq('category', 'tools');
+        if (error) throw error;
+      } else {
+        const maxSort = inventoryItems.reduce((max, item) => Math.max(max, item.sortOrder), 0);
+        const { error } = await supabase.from(tables.inventoryTemplates).insert({
+          department_code: department,
+          category: 'tools',
+          item_name: normalizedName,
+          required_quantity: normalizedQty,
+          sort_order: maxSort + 1,
+          is_active: true,
+        });
+        if (error) throw error;
+      }
+      await fetchInventoryTemplates();
+      resetTemplateForm();
+    } catch (error) {
+      const message = getErrorMessage(error);
+      alert(`فشل حفظ عنصر الجرد: ${message}`);
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const archiveTemplate = async (item: InventoryItemView) => {
+    if (!window.confirm(`تعطيل عنصر "${item.name}" من الجرد؟`)) return;
+    try {
+      const { error } = await supabase
+        .from(tables.inventoryTemplates)
+        .update({ is_active: false })
+        .eq('id', item.id)
+        .eq('department_code', department)
+        .eq('category', 'tools');
+      if (error) throw error;
+      await fetchInventoryTemplates();
+      if (editingTemplateId === item.id) resetTemplateForm();
+    } catch (error) {
+      const message = getErrorMessage(error);
+      alert(`فشل تعطيل عنصر الجرد: ${message}`);
+    }
+  };
+
+  const persistTemplateOrder = async (items: InventoryItemView[]) => {
+    setReorderingTemplates(true);
+    try {
+      const updates = items.map((item, index) =>
+        supabase
+          .from(tables.inventoryTemplates)
+          .update({ sort_order: index + 1 })
+          .eq('id', item.id)
+          .eq('department_code', department)
+          .eq('category', 'tools')
+      );
+      const results = await Promise.all(updates);
+      const firstError = results.find((r) => r.error)?.error;
+      if (firstError) throw firstError;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      alert(`فشل تحديث ترتيب العناصر: ${message}`);
+      await fetchInventoryTemplates();
+    } finally {
+      setReorderingTemplates(false);
+      setDraggingTemplateId(null);
+    }
+  };
+
+  const moveTemplate = async (draggedId: number, targetId: number) => {
+    if (draggedId === targetId) return;
+    const ordered = [...inventoryItems].sort((a, b) => a.sortOrder - b.sortOrder);
+    const fromIndex = ordered.findIndex((item) => item.id === draggedId);
+    const toIndex = ordered.findIndex((item) => item.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+    const [moved] = ordered.splice(fromIndex, 1);
+    ordered.splice(toIndex, 0, moved);
+    const normalized = ordered.map((item, index) => ({ ...item, sortOrder: index + 1 }));
+    setInventoryItems(normalized);
+    await persistTemplateOrder(normalized);
+  };
 
   const handleSubmit = async () => {
     if (!selectedVehicle || !driverName.trim()) {
-      alert('يرجى اختيار المركبة وتأكيد اسم السائق');
+      alert(`يرجى اختيار المركبة وتأكيد اسم ${staffLabel}`);
       return;
     }
 
@@ -397,23 +682,46 @@ export default function Reports({ userId }: ReportsProps) {
         logistics_manager: logisticsManagerSignature,
         warehouse_manager: warehouseManagerSignature,
       };
-      const { data: insertedReport, error } = await supabase
-        .from('reports')
-        .insert(reportPayload)
-        .select('id')
-        .single();
-
-      if (error) throw error;
+      let insertedId: number | null = null;
+      if (isInstallation) {
+        // Strict isolation: installation writes only to installation_reports payload schema.
+        const installationInsert = {
+          user_id: userId,
+          vehicle_id: selectedVehicle.id,
+          vehicle_number: selectedVehicle.plate_number,
+          vehicle_type: String((selectedVehicle as unknown as { vehicle_type?: unknown }).vehicle_type ?? ''),
+          report_type: 'inventory',
+          payload: {
+            ...reportPayload,
+            vehicle_type: String((selectedVehicle as unknown as { vehicle_type?: unknown }).vehicle_type ?? ''),
+          },
+        };
+        const { data, error } = await supabase
+          .from('installation_reports')
+          .insert(installationInsert)
+          .select('id')
+          .single();
+        if (error) throw error;
+        insertedId = data?.id ?? null;
+      } else {
+        const { data, error } = await supabase
+          .from('reports')
+          .insert(reportPayload)
+          .select('id')
+          .single();
+        if (error) throw error;
+        insertedId = data?.id ?? null;
+      }
 
       const completedInspectionCount = Object.values(inspectionValues).filter(Boolean).length;
-      const reportSummary = `تم إنشاء تقرير فحص للمركبة ${selectedVehicle.plate_number} للسائق ${driverName.trim()}`;
+      const reportSummary = `تم إنشاء تقرير فحص للمركبة ${selectedVehicle.plate_number} للـ${staffLabel} ${driverName.trim()}`;
       const reportDetails = `الأضرار: ${damagePoints.length} | الفحص السليم: ${completedInspectionCount}/${WEEKLY_INSPECTION_ITEMS.length}`;
-      const { error: eventError } = await supabase.from('vehicle_events').insert({
+      const { error: eventError } = await supabase.from(tables.vehicleEvents).insert({
         vehicle_id: selectedVehicle.id,
         event_type: 'report_created',
         description: `${reportSummary} - ${reportDetails}`,
         old_value: null,
-        new_value: insertedReport ? `report:${insertedReport.id}` : reportDetails,
+        new_value: insertedId ? `report:${insertedId}` : reportDetails,
       });
       if (eventError) {
         console.error('Failed to log report event:', eventError);
@@ -423,7 +731,7 @@ export default function Reports({ userId }: ReportsProps) {
       await fetchReports();
     } catch (error: unknown) {
       console.error("Submission error:", error);
-      const msg = error instanceof Error ? error.message : 'خطأ غير معروف';
+      const msg = getErrorMessage(error);
       alert('فشل في حفظ التقرير: ' + msg);
     } finally {
       setIsSubmitting(false);
@@ -621,27 +929,51 @@ export default function Reports({ userId }: ReportsProps) {
                 vehicles={vehicles}
                 selectedVehicleId={selectedVehicleId}
                 onSelect={(vehicle) => {
+                  const nextVehicleId = String(vehicle.id);
+                  if (isInstallation && selectedVehicleId && selectedVehicleId !== nextVehicleId) {
+                    const hasDraftData =
+                      driverName.trim().length > 0 ||
+                      damagePoints.length > 0 ||
+                      Object.keys(inspectionValues).length > 0 ||
+                      Object.keys(toolValues).length > 0 ||
+                      Object.values(toolImages).some((images) => Array.isArray(images) && images.length > 0);
+                    if (hasDraftData) {
+                      const approved = window.confirm(
+                        'تم إدخال بيانات جرد للمركبة الحالية. تغيير المركبة سيحذف هذه البيانات من النموذج الحالي. هل تريد المتابعة؟'
+                      );
+                      if (!approved) return;
+                    }
+                  }
+
                   setSelectedVehicleId(String(vehicle.id));
                   setTruckNumber(vehicle.plate_number);
                   // لا يتم تعبئة driverName تلقائيًا - يبقى إدخال يدوي
+                  if (isInstallation && selectedVehicleId !== nextVehicleId) {
+                    // Prevent mixing old damage/tool images across different installation vehicle types.
+                    setDamagePoints([]);
+                    setInspectionValues({});
+                    setToolValues({});
+                    setToolImages({});
+                  }
                 }}
                 driverMap={driverMap}
+                staffLabel={staffLabel}
               />
               <div className="space-y-2">
                 <label className="text-xs font-bold text-stone-500 dark:text-stone-400 flex items-center gap-2">
-                  <User className="w-3 h-3" /> اسم السائق
+                  <User className="w-3 h-3" /> {`اسم ${staffLabel}`}
                 </label>
                 <div className="space-y-2">
                 <input 
                   type="text" 
                   className="input-field" 
-                  placeholder="اسم السائق وقت إنشاء التقرير"
+                  placeholder={`اسم ${staffLabel} وقت إنشاء التقرير`}
                   value={driverName}
                   onChange={(e) => setDriverName(e.target.value)}
                 />
                 {selectedVehicle && (
                   <div className="text-[11px] text-stone-500 dark:text-stone-400">
-                    <span>السائق الحالي على المركبة: {selectedVehicleDriver || 'بدون سائق'} (مرجع فقط)</span>
+                    <span>{`${staffLabel} الحالي على المركبة: ${selectedVehicleDriver || `بدون ${staffLabel}`}`} (مرجع فقط)</span>
                   </div>
                 )}
                 </div>
@@ -679,7 +1011,7 @@ export default function Reports({ userId }: ReportsProps) {
                     {selectedVehicle.plate_number}
                   </span>
                   <span className="text-stone-500 dark:text-stone-400">
-                    السائق الحالي: {selectedVehicleDriver || 'بدون سائق'}
+                    {staffLabel} الحالي: {selectedVehicleDriver || `بدون ${staffLabel}`}
                   </span>
                 </div>
               </section>
@@ -722,6 +1054,7 @@ export default function Reports({ userId }: ReportsProps) {
                         points={damagePoints}
                         onDamageChange={setDamagePoints} 
                         cacheBuster={cacheBuster}
+                        imageSrc={selectedVehicleImage}
                       />
                     </div>
                   )}
@@ -737,11 +1070,119 @@ export default function Reports({ userId }: ReportsProps) {
                   
                   {activeTab === 'tools' && (
                     <div className="space-y-6">
+                      <section className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 rounded-2xl p-4 space-y-4">
+                        <div className="flex items-center justify-between flex-wrap gap-3">
+                          <h4 className="text-sm font-extrabold text-stone-800 dark:text-stone-100">
+                            {toolsSectionTitle}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {showToolsEditor && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowToolsEditor(false);
+                                  resetTemplateForm();
+                                }}
+                                className="text-xs font-bold text-stone-500 hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200"
+                              >
+                                إلغاء
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setShowToolsEditor((prev) => !prev)}
+                              className={cn(
+                                "flex items-center gap-2 rounded-xl text-xs font-bold px-3 py-2 border transition-colors",
+                                showToolsEditor
+                                  ? "bg-stone-200 dark:bg-stone-700 text-stone-800 dark:text-stone-100 border-stone-300 dark:border-stone-600"
+                                  : "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                              )}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              {showToolsEditor ? 'إخفاء التعديل' : 'تعديل الجرد'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {showToolsEditor && (
+                          <>
+                            <div className="flex items-center justify-end">
+                              <button
+                                type="button"
+                                onClick={startAddTemplate}
+                                className="flex items-center gap-2 rounded-xl bg-emerald-600 text-white text-xs font-bold px-3 py-2 hover:bg-emerald-700"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                إضافة عنصر
+                              </button>
+                            </div>
+
+                            <div className="space-y-2">
+                              {inventoryItems.length === 0 ? (
+                                <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد عناصر جرد حالياً.</p>
+                              ) : (
+                                [...inventoryItems]
+                                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                                  .map((item) => (
+                                  <div
+                                    key={item.id}
+                                    draggable={!reorderingTemplates}
+                                    onDragStart={() => setDraggingTemplateId(item.id)}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={async () => {
+                                      if (!draggingTemplateId) return;
+                                      await moveTemplate(draggingTemplateId, item.id);
+                                    }}
+                                    className={cn(
+                                      "flex items-center justify-between gap-3 p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700",
+                                      draggingTemplateId === item.id && 'opacity-60',
+                                      reorderingTemplates && 'cursor-wait'
+                                    )}
+                                  >
+                                    <div className="min-w-0 flex items-center gap-2">
+                                      <GripVertical className="w-4 h-4 text-stone-400" />
+                                      <p className="text-sm font-bold text-stone-800 dark:text-stone-100 truncate">{item.name}</p>
+                                      <p className="text-xs text-stone-500 dark:text-stone-400">المطلوب: {item.quantity}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditTemplate(item)}
+                                        className="p-2 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                        title="تعديل"
+                                      >
+                                        <Pencil className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => archiveTemplate(item)}
+                                        className="p-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                        title="تعطيل"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                              اسحب العنصر وأفلته لإعادة ترتيب جرد العدة.
+                            </p>
+                          </>
+                        )}
+                      </section>
+
                       <ToolInventory 
                         values={toolValues} 
                         onChange={(id, count) => setToolValues(prev => ({ ...prev, [id]: count }))} 
                         toolImages={toolImages}
                         onImagesChange={(id, images) => setToolImages(prev => ({ ...prev, [id]: images }))}
+                        items={inventoryItems.map((item) => ({
+                          id: item.id,
+                          item_name: item.name,
+                          required_quantity: item.quantity,
+                        }))}
                       />
                     </div>
                   )}
@@ -754,11 +1195,11 @@ export default function Reports({ userId }: ReportsProps) {
               <h3 className="text-xl font-bold">التوقيعات والاعتمادات</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <SignaturePad 
-                  label="اسم وتوقيع السائق" 
+                  label={`اسم وتوقيع ${staffLabel}`} 
                   onSave={setDriverSignature} 
                 />
                 <SignaturePad 
-                  label="توقيع مسؤول قسم التجهيز" 
+                  label={departmentManagerLabel} 
                   onSave={setEquipmentManagerSignature} 
                 />
                 <SignaturePad 
@@ -774,6 +1215,86 @@ export default function Reports({ userId }: ReportsProps) {
           </>
         )}
       </div>
+
+      <AnimatePresence>
+        {showTemplateModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={resetTemplateForm}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 p-5 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="text-base font-black text-stone-900 dark:text-stone-100">
+                  {editingTemplateId ? 'تعديل عنصر جرد' : 'إضافة عنصر جرد'}
+                </h4>
+                <button
+                  type="button"
+                  onClick={resetTemplateForm}
+                  className="p-1.5 rounded-lg text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400">اسم العنصر</label>
+                <input
+                  type="text"
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="مثال: مفك + دريل"
+                  className="input-field"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400">الكمية المطلوبة</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={templateQuantity}
+                  onChange={(e) => setTemplateQuantity(Number(e.target.value || 0))}
+                  className="input-field"
+                />
+              </div>
+
+              {editingTemplateId && (
+                <div className="text-xs text-stone-500 dark:text-stone-400">
+                  سيتم تحديث اسم العنصر والكمية مع الحفاظ على ترتيبه الحالي.
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={resetTemplateForm}
+                  className="px-4 py-2 rounded-xl text-sm font-bold border border-stone-300 dark:border-stone-600 text-stone-600 dark:text-stone-300"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={saveTemplate}
+                  disabled={savingTemplate}
+                  className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 flex items-center gap-2"
+                >
+                  {savingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {editingTemplateId ? 'حفظ التعديل' : 'إضافة العنصر'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Bottom Action Bar */}
       {activeTab !== 'history' && (
@@ -886,7 +1407,7 @@ export default function Reports({ userId }: ReportsProps) {
                 {/* Info Grid */}
                 <div className="grid grid-cols-3 gap-8 bg-stone-50 p-6 rounded-2xl" style={{ pageBreakInside: 'avoid' }}>
                   <div>
-                    <span className="text-[10px] font-bold text-stone-400 uppercase block mb-1">السائق</span>
+                    <span className="text-[10px] font-bold text-stone-400 uppercase block mb-1">{staffLabel}</span>
                     <p className="font-bold text-lg">{viewingReport.driverName}</p>
                   </div>
                   <div>
@@ -904,7 +1425,7 @@ export default function Reports({ userId }: ReportsProps) {
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
                   <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
                     <img 
-                      src="/truck-collage.jpg?v=1" 
+                      src={getVehicleMapImage(department, viewingReport.vehicleType)}
                       alt="Truck Map" 
                       className="w-full h-auto object-cover"
                       crossOrigin="anonymous"
@@ -990,7 +1511,7 @@ export default function Reports({ userId }: ReportsProps) {
                 <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">جرد العدة والمواد</h3>
                   <div className="space-y-4">
-                    {TOOL_INVENTORY_ITEMS.map((item) => (
+                    {inventoryItems.map((item) => (
                       <div key={item.id} className="border border-stone-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                         <div className="flex items-center justify-between p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
                           <div className="flex items-center gap-3">
@@ -1032,14 +1553,14 @@ export default function Reports({ userId }: ReportsProps) {
                 {/* Signatures */}
                 <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 dark:border-stone-700 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
                   <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                    <p className="text-sm font-bold text-stone-500 dark:text-stone-400">اسم وتوقيع السائق</p>
+                    <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{`اسم وتوقيع ${staffLabel}`}</p>
                     <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.driverSignature && <img src={viewingReport.driverSignature} className="max-h-full" />}
                     </div>
                     <p className="text-xs font-bold text-stone-400 dark:text-stone-500">{viewingReport.driverName}</p>
                   </div>
                   <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                    <p className="text-sm font-bold text-stone-500 dark:text-stone-400">مسؤول قسم التجهيز</p>
+                    <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{departmentManagerText}</p>
                     <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.equipmentManagerSignature && <img src={viewingReport.equipmentManagerSignature} className="max-h-full" />}
                     </div>

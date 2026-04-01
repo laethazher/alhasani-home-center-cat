@@ -6,14 +6,21 @@ import {
   Download, Printer,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { SparePart, SparePartUsage } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 
 const LOW_STOCK_THRESHOLD = 5;
 
-export default function SpareParts() {
+interface Props {
+  department?: DepartmentCode;
+}
+
+export default function SpareParts({ department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [parts, setParts] = useState<SparePart[]>([]);
   const [usage, setUsage] = useState<SparePartUsage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,7 +53,7 @@ export default function SpareParts() {
     if (!window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} قطعة؟`)) return;
     setLoading(true);
     try {
-      await supabase.from('spare_parts').delete().in('id', selectedIds);
+      await supabase.from(tables.spareParts).delete().in('id', selectedIds);
       setSelectedIds([]);
       setIsSelectionMode(false);
       await fetchData();
@@ -68,8 +75,8 @@ export default function SpareParts() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [partsRes, usageRes] = await Promise.all([
-      supabase.from('spare_parts').select('*').order('name'),
-      supabase.from('spare_part_usage').select('*'),
+      supabase.from(tables.spareParts).select('*').order('name'),
+      supabase.from(tables.sparePartUsage).select('*'),
     ]);
     if (partsRes.data) setParts(partsRes.data);
     if (usageRes.data) setUsage(usageRes.data);
@@ -129,9 +136,9 @@ export default function SpareParts() {
     };
 
     if (editingPart) {
-      await supabase.from('spare_parts').update(data).eq('id', editingPart.id);
+      await supabase.from(tables.spareParts).update(data).eq('id', editingPart.id);
     } else {
-      await supabase.from('spare_parts').insert(data);
+      await supabase.from(tables.spareParts).insert(data);
     }
     setSubmitting(false);
     setShowForm(false);
@@ -139,7 +146,7 @@ export default function SpareParts() {
   }
 
   async function handleDelete(id: number) {
-    await supabase.from('spare_parts').delete().eq('id', id);
+    await supabase.from(tables.spareParts).delete().eq('id', id);
     setDeleteConfirm(null);
     fetchData();
   }

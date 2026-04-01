@@ -5,16 +5,20 @@ import {
   User, FileText, Image as ImageIcon, Download, Calendar, Check,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
-export default function MaintenanceHistory({ profile }: Props) {
+export default function MaintenanceHistory({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [records, setRecords] = useState<MaintenanceRecord[]>([]);
   const [requests, setRequests] = useState<{ id: number; driver_id: number | null; approved_by: string | null }[]>([]);
   const [images, setImages] = useState<MaintenanceImage[]>([]);
@@ -39,11 +43,11 @@ export default function MaintenanceHistory({ profile }: Props) {
     if (user) setCurrentUserId(user.id);
 
     const [recRes, reqRes, imgRes, vehRes, drvRes] = await Promise.all([
-      supabase.from('maintenance_records').select('*').order('created_at', { ascending: false }),
-      supabase.from('maintenance_requests').select('id, driver_id, approved_by'),
-      supabase.from('maintenance_images').select('*'),
-      supabase.from('vehicles').select('*'),
-      supabase.from('staff_members').select('*').eq('role', 'driver'),
+      supabase.from(tables.maintenanceRecords).select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.maintenanceRequests).select('id, driver_id, approved_by'),
+      supabase.from(tables.maintenanceImages).select('*'),
+      supabase.from(tables.vehicles).select('*'),
+      supabase.from(tables.staffMembers).select('*').eq('role', 'driver'),
     ]);
     if (recRes.data) setRecords(recRes.data);
     if (reqRes.data) setRequests(reqRes.data);
@@ -100,7 +104,8 @@ export default function MaintenanceHistory({ profile }: Props) {
     setDeleting(true);
     try {
       const idsToRemove = [...selectedIds];
-      const { data, error } = await supabase.rpc('delete_maintenance_records', { p_record_ids: idsToRemove });
+      const rpcName = department === 'installation' ? 'installation_delete_maintenance_records' : 'delete_maintenance_records';
+      const { data, error } = await supabase.rpc(rpcName, { p_record_ids: idsToRemove });
       const result = data as { success?: boolean; error?: string } | null;
       if (error) {
         alert('فشل الحذف: ' + error.message);

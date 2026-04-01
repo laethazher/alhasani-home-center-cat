@@ -5,7 +5,8 @@ import {
   X, CheckCircle2, AlertTriangle, History, FileText, UserCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type {
   MaintenanceRequest, MaintenanceRecord, MaintenanceImage,
   Vehicle, StaffMember, UserProfile,
@@ -23,6 +24,7 @@ const IMAGE_TYPES = [
 interface Props {
   profile: UserProfile | null;
   onNavigate: (page: PageKey) => void;
+  department?: DepartmentCode;
 }
 
 function formatDuration(ms: number) {
@@ -33,7 +35,10 @@ function formatDuration(ms: number) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export default function ActiveMaintenance({ profile, onNavigate }: Props) {
+export default function ActiveMaintenance({ profile, onNavigate, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
+  const maintenanceImagesBucket = department === 'installation' ? 'installation-maintenance-images' : 'maintenance-images';
   const isAdmin = profile?.role === 'admin';
   const isMaintManager = profile?.role === 'maintenance_manager';
   const canEdit = isAdmin || isMaintManager;
@@ -56,7 +61,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const { data: reqs } = await supabase
-      .from('maintenance_requests')
+      .from(tables.maintenanceRequests)
       .select('*')
       .eq('status', 'in_progress')
       .order('started_at', { ascending: false })
@@ -68,12 +73,12 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
 
     if (req) {
       const [vRes, dRes, iRes, rRes, appRes] = await Promise.all([
-        supabase.from('vehicles').select('*').eq('id', req.vehicle_id).single(),
+        supabase.from(tables.vehicles).select('*').eq('id', req.vehicle_id).single(),
         req.driver_id
-          ? supabase.from('staff_members').select('*').eq('id', req.driver_id).single()
+          ? supabase.from(tables.staffMembers).select('*').eq('id', req.driver_id).single()
           : Promise.resolve({ data: null }),
-        supabase.from('maintenance_images').select('*').eq('request_id', req.id).order('created_at'),
-        supabase.from('maintenance_records').select('*').eq('vehicle_id', req.vehicle_id).order('created_at', { ascending: false }).limit(10),
+        supabase.from(tables.maintenanceImages).select('*').eq('request_id', req.id).order('created_at'),
+        supabase.from(tables.maintenanceRecords).select('*').eq('vehicle_id', req.vehicle_id).order('created_at', { ascending: false }).limit(10),
         req.approved_by
           ? supabase.from('user_profiles').select('full_name').eq('id', req.approved_by).single()
           : Promise.resolve({ data: null }),
@@ -99,7 +104,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
       .channel(`maint-req-${activeRequest.id}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'maintenance_requests', filter: `id=eq.${activeRequest.id}` },
+        { event: 'UPDATE', schema: 'public', table: tables.maintenanceRequests, filter: `id=eq.${activeRequest.id}` },
         () => fetchData(),
       )
       .subscribe();
@@ -121,15 +126,15 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
     setUploadingType(imageType);
     const ext = file.name.split('.').pop() || 'jpg';
     const path = `maintenance/${activeRequest!.id}/${imageType}_${Date.now()}.${ext}`;
-    const { error: storageErr } = await supabase.storage.from('maintenance-images').upload(path, file);
+    const { error: storageErr } = await supabase.storage.from(maintenanceImagesBucket).upload(path, file);
     if (storageErr) {
       setUploadError('فشل رفع الصورة: ' + (storageErr.message || 'خطأ غير معروف'));
       setUploadingType(null);
       return;
     }
-    const { data } = supabase.storage.from('maintenance-images').getPublicUrl(path);
+    const { data } = supabase.storage.from(maintenanceImagesBucket).getPublicUrl(path);
 
-    const { error: imgErr } = await supabase.from('maintenance_images').insert({
+    const { error: imgErr } = await supabase.from(tables.maintenanceImages).insert({
       request_id: activeRequest!.id,
       image_url: data.publicUrl,
       image_type: imageType,
@@ -142,7 +147,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
     }
 
     const { data: updatedImages } = await supabase
-      .from('maintenance_images')
+      .from(tables.maintenanceImages)
       .select('*')
       .eq('request_id', activeRequest!.id)
       .order('created_at');
@@ -453,6 +458,7 @@ export default function ActiveMaintenance({ profile, onNavigate }: Props) {
           setShowFinish(false);
           fetchData();
         }}
+        department={department}
       />
     </div>
   );

@@ -5,16 +5,20 @@ import {
   TrendingUp, ArrowLeft, Activity, Package, Bell, ChevronLeft,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRequest, MaintenanceRecord, Vehicle, PeriodicMaintenance } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
 import PeriodicMaintenancePanel from '../components/PeriodicMaintenancePanel';
 
 interface Props {
   onNavigate: (page: PageKey) => void;
+  department?: DepartmentCode;
 }
 
-export default function MaintenanceDashboard({ onNavigate }: Props) {
+export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [records, setRecords] = useState<MaintenanceRecord[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -24,10 +28,10 @@ export default function MaintenanceDashboard({ onNavigate }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [reqRes, recRes, vehRes, perRes] = await Promise.all([
-      supabase.from('maintenance_requests').select('*').order('created_at', { ascending: false }),
-      supabase.from('maintenance_records').select('*').order('created_at', { ascending: false }),
-      supabase.from('vehicles').select('*'),
-      supabase.from('periodic_maintenance').select('*'),
+      supabase.from(tables.maintenanceRequests).select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.maintenanceRecords).select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.vehicles).select('*'),
+      supabase.from(tables.periodicMaintenance).select('*'),
     ]);
     if (reqRes.data) setRequests(reqRes.data);
     if (recRes.data) setRecords(recRes.data);
@@ -242,7 +246,7 @@ export default function MaintenanceDashboard({ onNavigate }: Props) {
         className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
       >
         <h3 className="font-semibold text-stone-900 dark:text-white mb-4">الصيانة الدورية</h3>
-        <PeriodicMaintenancePanel />
+        <PeriodicMaintenancePanel department={department} />
       </motion.div>
 
       {/* Quick Links */}

@@ -29,7 +29,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient } from '../data/supabaseSource';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import {
@@ -614,6 +614,7 @@ interface StaffExitProps {
 }
 
 export default function StaffExit({ profile, userId }: StaffExitProps) {
+  const supabase = getDepartmentClient('installation');
   const role = profile.role;
   const isAdmin = role === 'admin';
   const isGateGuard = role === 'gate_guard';
@@ -717,13 +718,34 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   /* ── Fetch data ── */
   const fetchRequests = useCallback(async () => {
     const { data } = await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .select('*')
       .order('created_at', { ascending: false });
     if (data) {
+      const normalized: ExitRequest[] = (data as any[]).map((r) => ({
+        ...r,
+        id: String(r.id),
+        driver_id:
+          r.driver_id != null
+            ? String(r.driver_id)
+            : r.responsible_staff_id != null
+              ? String(r.responsible_staff_id)
+              : null,
+        driver_name:
+          r.driver_name ||
+          (Array.isArray(r.technician_names) && r.technician_names.length > 0
+            ? r.technician_names[0]
+            : ''),
+        assistant_ids: [],
+        assistant_names: Array.isArray(r.technician_names) ? r.technician_names : [],
+        assistant_returns: null,
+        vehicle_id: r.vehicle_id != null ? Number(r.vehicle_id) : null,
+        vehicle_plate: r.vehicle_plate || r.vehicle_number || null,
+        vehicle_cbm: null,
+      }));
       // Check for new approved requests (gate guard notification)
       if (isGateGuard) {
-        const approvedCount = data.filter(
+        const approvedCount = normalized.filter(
           (r: ExitRequest) => r.status === 'approved' || r.status === 'approved_override'
         ).length;
         if (approvedCount > prevApprovedCount.current && prevApprovedCount.current > 0) {
@@ -734,28 +756,44 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         }
         prevApprovedCount.current = approvedCount;
       }
-      setRequests(data);
+      setRequests(normalized);
     }
   }, [isGateGuard, soundEnabled]);
 
   const fetchStaff = useCallback(async () => {
     const { data } = await supabase
-      .from('staff_members')
-      .select('*')
+      .from('installation_staff_members')
+      .select('id, full_name, is_active, city')
       .eq('is_active', true)
       .order('full_name');
     if (data) {
-      setDrivers(data.filter((m: StaffMember) => m.role === 'driver'));
-      setAssistants(data.filter((m: StaffMember) => m.role === 'assistant'));
+      const mapped = (data as any[]).map((m) => ({
+        id: String(m.id),
+        full_name: m.full_name,
+        role: 'driver',
+        city: m.city ?? null,
+        is_active: m.is_active ?? true,
+        created_at: new Date().toISOString(),
+      })) as StaffMember[];
+      setDrivers(mapped);
+      setAssistants([]);
     }
   }, []);
 
   const fetchVehicles = useCallback(async () => {
     const { data } = await supabase
-      .from('vehicles')
+      .from('installation_vehicles')
       .select('*')
-      .order('plate_number');
-    if (data) setVehicles(data);
+      .order('vehicle_number');
+    if (data) {
+      const mapped = (data as any[]).map((v) => ({
+        ...v,
+        plate_number: v.vehicle_number,
+        assigned_driver_id: v.responsible_staff_id != null ? String(v.responsible_staff_id) : null,
+        vehicle_type: v.vehicle_type === 'starex' ? 'ستاركس' : v.vehicle_type === 'nissan' ? 'نيسان' : v.vehicle_type,
+      }));
+      setVehicles(mapped as Vehicle[]);
+    }
   }, []);
 
   useEffect(() => {
@@ -766,15 +804,15 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   useEffect(() => {
     const channel = supabase
       .channel('exit_requests_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'exit_requests' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'installation_exit_requests' }, () => {
         fetchRequests();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'installation_vehicles' }, () => {
         // تحديث البيانات عند تغيير السائق في صفحة المركبات
         fetchVehicles();
         fetchStaff();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_members' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'installation_staff_members' }, () => {
         // تحديث قائمة السائقين عند أي تغيير (حذف/إضافة/تعديل)
         // تحديث المركبات أيضاً لأن التغييرات في السائقين قد تؤثر على تعيينات المركبات (مثل عمليات الدمج/الحذف)
         fetchStaff();
@@ -799,35 +837,31 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   /* ── Actions ── */
   const handleCreate = async () => {
-    if (!formDriverId && formAssistantIds.length === 0) return;
-    const cbmRaw = formVehicleCbm.trim();
-    const cbmNum = Number(cbmRaw.replace(',', '.'));
-    if (cbmRaw === '' || Number.isNaN(cbmNum) || cbmNum < 0) {
-      alert('يرجى إدخال حجم المركبة (CBM) رقماً صحيحاً أكبر أو يساوي صفر.');
-      return;
-    }
+    if (!formDriverId) return;
     setSubmitting(true);
-    const assistantNames = assistants
-      .filter((a) => formAssistantIds.includes(a.id))
-      .map((a) => a.full_name);
+    const assistantNames: string[] = [];
 
     const finalReason = formExitReason === 'أخرى' ? formCustomReason : formExitReason;
 
     const trackLoading = Boolean(formDriverId && formTrackLoadingTime);
 
     /* لا نرسل أعمدة احتساب التحميل في INSERT حتى يبقى الطلب يُنشأ حتى لو لم يُطبَّق ترحيل قاعدة البيانات بعد؛ نُكمّلها بـ UPDATE اختياري */
-    const { data: insertedRequest, error } = await supabase.from('exit_requests').insert({
+    const { data: insertedRequest, error } = await supabase.from('installation_exit_requests').insert({
       driver_id: formDriverId || null,
       driver_name: formDriverName || '',
-      assistant_ids: formAssistantIds,
+      assistant_ids: [],
       assistant_names: assistantNames,
+      technician_ids: [Number(formDriverId)],
+      technician_names: [formDriverName || ''],
       notes: formNotes || null,
       exit_reason: finalReason || null,
       exit_type: formExitType,
       exit_duration_minutes: formExitType === 'temporary' ? formDurationMinutes : null,
       vehicle_id: formVehicleId ? Number(formVehicleId) : null,
       vehicle_plate: formVehiclePlate || null,
-      vehicle_cbm: cbmNum,
+      vehicle_number: formVehiclePlate || null,
+      vehicle_type: formVehiclePlate.includes('نيسان') ? 'nissan' : 'starex',
+      vehicle_cbm: null,
       created_by: userId,
       status: 'pending',
     }).select().single();
@@ -842,7 +876,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     if (insertedRequest && trackLoading) {
       const calc = computeDriverLoadingFromCreatedAt(insertedRequest.created_at);
       const { error: loadUpdateErr } = await supabase
-        .from('exit_requests')
+        .from('installation_exit_requests')
         .update({
           track_driver_loading_time: true,
           loading_minutes_from_shift_start: calc.minutesFromShiftStart,
@@ -869,12 +903,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       if (!driverInfo || typeof driverInfo !== 'string' || driverInfo.trim() === '') {
         driverInfo = 'غير معروف';
       }
-      const assistantInfo = assistantNames.length > 0 ? ` مع ${assistantNames.join('، ')}` : '';
+      const assistantInfo = '';
       const exitTypeText = formExitType === 'temporary' ? `مؤقت (${formDurationMinutes} دقيقة)` : 'دائم';
       const reasonText = finalReason ? ` - ${finalReason}` : '';
-      const finalDescription = `إخراج المركبة: السائق ${driverInfo}${assistantInfo} - ${exitTypeText}${reasonText}`;
+      const finalDescription = `إخراج المركبة: الفني ${driverInfo}${assistantInfo} - ${exitTypeText}${reasonText}`;
       
-      const { error: eventError } = await supabase.from('vehicle_events').insert({
+      const { error: eventError } = await supabase.from('installation_vehicle_events').insert({
         vehicle_id: vehicleId,
         event_type: 'vehicle_exit',
         description: finalDescription,
@@ -888,10 +922,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
     if (!error && insertedRequest) {
       const { error: gateNotifErr } = await supabase.from('gate_notifications').insert({
-        source_department: 'tajhiz',
+        source_department: 'installation',
         source_module: 'staff-exit',
         request_ref: String(insertedRequest.id),
-        title: 'طلب خروج جديد - قسم التجهيز',
+        title: 'طلب خروج جديد - قسم التركيب',
         message: `تم إنشاء طلب خروج جديد للمركبة ${formVehiclePlate || '—'}`,
         created_by: userId,
         created_by_name: profile?.full_name || null,
@@ -925,7 +959,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   const handleApprove = async (id: string) => {
     await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .update({ status: 'approved', approved_by: userId, approved_at: new Date().toISOString() })
       .eq('id', id);
     await fetchRequests();
@@ -933,7 +967,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   const handleReject = async (id: string) => {
     await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .update({ status: 'rejected', approved_by: userId, approved_at: new Date().toISOString() })
       .eq('id', id);
     await fetchRequests();
@@ -960,7 +994,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     if (!clampExitId) return;
     setClampSubmitting(true);
     const { error } = await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .update({
         loading_verified: true,
         status: 'exited',
@@ -987,7 +1021,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     }
     setClampSubmitting(true);
     const { error } = await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .update({
         loading_verified: false,
         loading_issue_reason: reason,
@@ -1006,7 +1040,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
   const handleApproveOverride = async (id: string) => {
     const { error } = await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .update({
         status: 'approved_override',
         approved_by: userId,
@@ -1022,7 +1056,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('exit_requests').delete().eq('id', id);
+    await supabase.from('installation_exit_requests').delete().eq('id', id);
     await fetchRequests();
   };
 
@@ -1032,7 +1066,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     const currentReturns = request.assistant_returns || {};
     const updatedReturns = { ...currentReturns, [String(staffId)]: new Date().toISOString() };
     await supabase
-      .from('exit_requests')
+      .from('installation_exit_requests')
       .update({ assistant_returns: updatedReturns })
       .eq('id', requestId);
     await fetchRequests();
@@ -1045,11 +1079,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const getExportData = (reqs: ExitRequest[]) => reqs.map((r) => ({
     'الحالة': STATUS_CONFIG[r.status].label,
     'نوع الخروج': r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
-    'السائق': driverMap.get(String(r.driver_id)) || r.driver_name || '—',
-    'المساعدين': r.assistant_names.join(' ، ') || 'لا يوجد',
+    'الفني': driverMap.get(String(r.driver_id)) || r.driver_name || '—',
     'سبب الخروج': r.exit_reason || '—',
     'المركبة': r.vehicle_plate || '—',
-    'حجم المركبة CBM': r.vehicle_cbm != null ? String(r.vehicle_cbm) : '—',
     'تحقق القواطع': formatLoadingVerified(r),
     'سبب مشكلة التحميل': r.loading_issue_reason || '—',
     'ملاحظات': r.notes || '—',
@@ -1065,11 +1097,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     const headers = [
       'الحالة',
       'نوع الخروج',
-      'السائق',
-      'المساعدين',
+      'الفني',
       'سبب الخروج',
       'المركبة',
-      'CBM',
       'القواطع',
       'سبب مشكلة التحميل',
       'ملاحظات',
@@ -1084,10 +1114,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       STATUS_CONFIG[r.status].label,
       r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
       driverMap.get(String(r.driver_id)) || r.driver_name || '—',
-      r.assistant_names.join(' ، ') || 'لا يوجد',
       r.exit_reason || '—',
       r.vehicle_plate || '—',
-      r.vehicle_cbm != null ? String(r.vehicle_cbm) : '—',
       formatLoadingVerified(r),
       r.loading_issue_reason || '—',
       r.notes || '—',
@@ -1102,7 +1130,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   };
 
   const exportPDF = async (reqs: ExitRequest[], filename: string) => {
-    const headers = ['الحالة', 'السائق', 'المساعدين', 'سبب الخروج', 'المركبة', 'CBM', 'قواطع', 'سببمشكلة', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'تحميل', 'من7:00', 'تأخيرد', 'تأخير؟'];
+    const headers = ['الحالة', 'الفني', 'سبب الخروج', 'المركبة', 'قواطع', 'سببمشكلة', 'تاريخ الإنشاء', 'تاريخ المغادرة', 'تحميل', 'من7:00', 'تأخيرد', 'تأخير؟'];
     let html = `<h1 style="text-align:center;font-size:20px;margin-bottom:16px">إخراجات الكادر</h1>
       <table style="width:100%;border-collapse:collapse;font-size:10px">
         <thead><tr style="background:#10b981;color:#fff">
@@ -1114,10 +1142,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       html += `<tr style="${bg}">
         <td style="padding:6px 4px;border:1px solid #ddd">${STATUS_CONFIG[r.status].label}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${driverMap.get(String(r.driver_id)) || r.driver_name || '—'}</td>
-        <td style="padding:6px 4px;border:1px solid #ddd">${r.assistant_names.join(' ، ') || 'لا يوجد'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.exit_reason || '—'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.vehicle_plate || '—'}</td>
-        <td style="padding:6px 4px;border:1px solid #ddd">${r.vehicle_cbm != null ? r.vehicle_cbm : '—'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${formatLoadingVerified(r)}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${r.loading_issue_reason || '—'}</td>
         <td style="padding:6px 4px;border:1px solid #ddd">${new Date(r.created_at).toLocaleString('ar-IQ')}</td>
@@ -1542,11 +1568,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               headerRow={[
                 'الحالة',
                 'نوع الخروج',
-                'السائق',
-                'المساعدين',
+                'الفني',
                 'سبب الخروج',
                 'المركبة',
-                'CBM',
                 'القواطع',
                 'سبب مشكلة التحميل',
                 'ملاحظات',
@@ -1561,10 +1585,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 STATUS_CONFIG[r.status].label,
                 r.exit_type === 'temporary' ? `مؤقت (${r.exit_duration_minutes || ''} دقيقة)` : 'دائم',
                 driverMap.get(String(r.driver_id)) || r.driver_name || '—',
-                r.assistant_names.join(' ، ') || 'لا يوجد',
                 r.exit_reason || '—',
                 r.vehicle_plate || '—',
-                r.vehicle_cbm != null ? String(r.vehicle_cbm) : '—',
                 formatLoadingVerified(r),
                 r.loading_issue_reason || '—',
                 r.notes || '—',
@@ -1622,7 +1644,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
           >
             <Bell className="w-6 h-6 animate-bounce" />
             <div className="flex flex-col">
-              <span className="font-bold text-lg">طلب خروج جديد من قسم التجهيز يحتاج تأكيدك!</span>
+              <span className="font-bold text-lg">طلب خروج جديد من قسم التركيب يحتاج تأكيدك!</span>
               {flashAt && <span className="text-xs text-amber-50/95">وقت التنبيه: {flashAt}</span>}
             </div>
           </motion.div>
@@ -1675,7 +1697,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   <Users className="w-4 h-4 text-white" />
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-stone-500 dark:text-stone-400">متبقي المساعدين</p>
+                  <p className="text-xs text-stone-500 dark:text-stone-400">لا يوجد مساعدين</p>
                   <p className="text-lg font-bold text-purple-600 dark:text-purple-400">{remainingAssistants.length}<span className="text-xs font-normal text-stone-400">/{assistants.length}</span></p>
                 </div>
               </div>
@@ -1691,11 +1713,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   className="absolute z-30 left-0 right-0 mt-2 bg-white dark:bg-stone-900 rounded-xl border border-purple-200 dark:border-purple-800 shadow-xl overflow-hidden"
                 >
                   <div className="p-2 border-b border-stone-100 dark:border-stone-800">
-                    <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 text-center">المساعدين المتواجدين ({remainingAssistants.length})</p>
+                    <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 text-center">غير متاح في قسم التركيب</p>
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {remainingAssistants.length === 0 ? (
-                      <p className="text-xs text-stone-400 text-center py-4">جميع المساعدين غادروا</p>
+                      <p className="text-xs text-stone-400 text-center py-4">لا يوجد مساعدين ضمن هذا القسم</p>
                     ) : (
                       remainingAssistants.map((a, i) => (
                         <div key={a.id} className={cn(
@@ -1731,7 +1753,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   <Truck className="w-4 h-4 text-white" />
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-stone-500 dark:text-stone-400">متبقي السائقين</p>
+                  <p className="text-xs text-stone-500 dark:text-stone-400">متبقي الفنيين</p>
                   <p className="text-lg font-bold text-sky-600 dark:text-sky-400">{remainingDrivers.length}<span className="text-xs font-normal text-stone-400">/{drivers.length}</span></p>
                 </div>
               </div>
@@ -1747,11 +1769,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   className="absolute z-30 left-0 right-0 mt-2 bg-white dark:bg-stone-900 rounded-xl border border-sky-200 dark:border-sky-800 shadow-xl overflow-hidden"
                 >
                   <div className="p-2 border-b border-stone-100 dark:border-stone-800">
-                    <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 text-center">السائقين المتواجدين ({remainingDrivers.length})</p>
+                    <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 text-center">الفنيين المتواجدين ({remainingDrivers.length})</p>
                   </div>
                   <div className="max-h-64 overflow-y-auto">
                     {remainingDrivers.length === 0 ? (
-                      <p className="text-xs text-stone-400 text-center py-4">جميع السائقين غادروا</p>
+                      <p className="text-xs text-stone-400 text-center py-4">جميع الفنيين غادروا</p>
                     ) : (
                       remainingDrivers.map((d, i) => (
                         <div key={d.id} className={cn(
@@ -1991,7 +2013,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
               <div className="grid md:grid-cols-2 gap-6">
                 <SingleSelect
-                  label="السائق (اختياري)"
+                  label="الفني (اختياري)"
                   items={drivers}
                   selectedId={formDriverId}
                   onChange={(id, name) => {
@@ -2017,19 +2039,13 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         setFormVehiclePlate('');
                       }
                   }}
-                  placeholder="اختر السائق أو اتركه فارغاً..."
+                  placeholder="اختر الفني أو اتركه فارغاً..."
                   disabledInfo={usedStaffInfo}
                   violationCounts={violationCounts}
                 />
-                <MultiSelect
-                  label="المساعدين"
-                  items={assistants}
-                  selectedIds={formAssistantIds}
-                  onChange={setFormAssistantIds}
-                  placeholder="اختر المساعدين..."
-                  disabledInfo={usedStaffInfo}
-                  violationCounts={violationCounts}
-                />
+                <div className="rounded-2xl border border-dashed border-stone-300 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/30 p-4 flex items-center justify-center text-xs text-stone-500">
+                  بدون مساعدين في قسم التركيب
+                </div>
               </div>
 
               {(selectedDriverDisplayName || linkedVehicleLabel) && (
@@ -2039,9 +2055,9 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       <Users className="w-5 h-5 text-emerald-700 dark:text-emerald-300" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">السائق المختار</p>
+                      <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">الفني المختار</p>
                       <p className="truncate text-sm font-bold text-stone-900 dark:text-white">
-                        {selectedDriverDisplayName || 'لم يتم اختيار سائق'}
+                        {selectedDriverDisplayName || 'لم يتم اختيار فني'}
                       </p>
                     </div>
                   </div>
@@ -2053,7 +2069,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">رقم المركبة المرتبط</p>
                       <p className="truncate text-sm font-bold text-stone-900 dark:text-white">
-                        {linkedVehicleLabel || 'لا توجد مركبة مرتبطة بهذا السائق'}
+                        {linkedVehicleLabel || 'لا توجد مركبة مرتبطة بهذا الفني'}
                       </p>
                     </div>
                   </div>
@@ -2185,23 +2201,6 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
               </div>
 
               <div className="mt-4">
-                <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
-                  حجم المركبة (CBM) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="0.01"
-                  value={formVehicleCbm}
-                  onChange={(e) => setFormVehicleCbm(e.target.value)}
-                  placeholder="مثال: 12.5"
-                  className="w-full px-4 py-3 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 text-stone-900 dark:text-white placeholder:text-stone-400"
-                />
-                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">إلزامي — قيمة رقمية أكبر أو تساوي 0</p>
-              </div>
-
-              <div className="mt-4">
                 <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">ملاحظات (اختياري)</label>
                 <textarea
                   value={formNotes}
@@ -2223,7 +2222,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleCreate}
-                  disabled={!formDriverId && formAssistantIds.length === 0 || submitting}
+                  disabled={!formDriverId || submitting}
                   className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -2392,7 +2391,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         <div className="grid sm:grid-cols-2 gap-3">
                           {(driverMap.get(String(req.driver_id)) || req.driver_name) && (
                           <div>
-                            <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
+                            <span className="text-xs text-stone-500 dark:text-stone-400">الفني</span>
                             <p className="font-semibold text-stone-900 dark:text-white">
                               <HighlightText
                                 text={driverMap.get(String(req.driver_id)) || req.driver_name || ''}
@@ -2401,18 +2400,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             </p>
                           </div>
                           )}
-                          <div>
-                            <span className="text-xs text-stone-500 dark:text-stone-400">المساعدين ({req.assistant_names.length})</span>
-                            <p className="text-sm text-stone-700 dark:text-stone-300">
-                              {req.assistant_names.length > 0 ? (
-                                <HighlightText text={req.assistant_names.join(' ، ')} query={searchTerm} />
-                              ) : (
-                                'لا يوجد'
-                              )}
-                            </p>
-                          </div>
                         </div>
-                        {(req.exit_reason || req.vehicle_plate || req.vehicle_cbm != null) && (
+                        {(req.exit_reason || req.vehicle_plate) && (
                           <div className="flex flex-wrap gap-2">
                             {req.exit_reason && (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">
@@ -2424,11 +2413,6 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300">
                                 <Truck className="w-3 h-3" />
                                 {req.vehicle_plate}
-                              </span>
-                            )}
-                            {req.vehicle_cbm != null && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-800 dark:text-teal-200">
-                                CBM: {req.vehicle_cbm}
                               </span>
                             )}
                           </div>
@@ -2461,7 +2445,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         {/* Archive: show return summary — temporary only */}
                         {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-1">
-                            {/* Driver return badge */}
+                            {/* Technician return badge */}
                             {req.driver_id && (() => {
                               const returnedAt = (req.assistant_returns || {})[String(req.driver_id)];
                               return (
@@ -2472,28 +2456,11 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                                     : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
                                 )}>
                                   {returnedAt ? <CheckCircle2 className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
-                                  {driverMap.get(String(req.driver_id)) || req.driver_name} (سائق)
+                                  {driverMap.get(String(req.driver_id)) || req.driver_name} (فني)
                                   {returnedAt && req.exited_at && ` (${formatDuration(req.exited_at, returnedAt)})`}
                                 </span>
                               );
                             })()}
-                            {/* Assistant return badges */}
-                            {req.assistant_ids.map((aId, i) => {
-                              const aName = req.assistant_names[i] || 'مساعد';
-                              const returnedAt = (req.assistant_returns || {})[String(aId)];
-                              return (
-                                <span key={aId} className={cn(
-                                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
-                                  returnedAt
-                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
-                                    : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'
-                                )}>
-                                  {returnedAt ? <CheckCircle2 className="w-3 h-3" /> : <Timer className="w-3 h-3" />}
-                                  {aName}
-                                  {returnedAt && req.exited_at && ` (${formatDuration(req.exited_at, returnedAt)})`}
-                                </span>
-                              );
-                            })}
                           </div>
                         )}
                       </div>
@@ -2620,7 +2587,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                   <div className="grid sm:grid-cols-2 gap-3">
                     {(driverMap.get(String(req.driver_id)) || req.driver_name) && (
                     <div>
-                      <span className="text-xs text-stone-500 dark:text-stone-400">السائق</span>
+                      <span className="text-xs text-stone-500 dark:text-stone-400">الفني</span>
                       <p className="font-semibold text-stone-900 dark:text-white">
                         <HighlightText
                           text={driverMap.get(String(req.driver_id)) || req.driver_name || ''}
@@ -2629,22 +2596,10 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                       </p>
                     </div>
                     )}
-                    <div>
-                      <span className="text-xs text-stone-500 dark:text-stone-400">
-                        المساعدين ({req.assistant_names.length})
-                      </span>
-                      <p className="text-sm text-stone-700 dark:text-stone-300">
-                        {req.assistant_names.length > 0 ? (
-                          <HighlightText text={req.assistant_names.join(' ، ')} query={searchTerm} />
-                        ) : (
-                          'لا يوجد'
-                        )}
-                      </p>
-                    </div>
                   </div>
 
                   {/* Exit Reason & Vehicle */}
-                  {(req.exit_reason || req.vehicle_plate || req.vehicle_cbm != null) && (
+                  {(req.exit_reason || req.vehicle_plate) && (
                     <div className="flex flex-wrap gap-3">
                       {req.exit_reason && (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300">
@@ -2656,11 +2611,6 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300">
                           <Truck className="w-3 h-3" />
                           {req.vehicle_plate}
-                        </span>
-                      )}
-                      {req.vehicle_cbm != null && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-800 dark:text-teal-200">
-                          CBM: {req.vehicle_cbm}
                         </span>
                       )}
                     </div>
@@ -2696,8 +2646,8 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
                   <DriverLoadingDetails req={req} />
 
-                  {/* ── Assistant Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
-                  {req.status === 'exited' && req.exit_type === 'temporary' && (req.driver_id || req.assistant_ids.length > 0) && (
+                  {/* ── Technician Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
+                  {req.status === 'exited' && req.exit_type === 'temporary' && req.driver_id && (
                     <div className={cn(
                       'mt-3 p-3 rounded-xl border',
                       getOverdueInfo(req, now)?.isOverdue
@@ -2714,7 +2664,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         تأكيد العودة
                       </p>
                       <div className="space-y-2">
-                        {/* Driver return confirmation */}
+                        {/* Technician return confirmation */}
                         {req.driver_id && (() => {
                           const returns = req.assistant_returns || {};
                           const returnedAt = returns[String(req.driver_id)];
@@ -2744,7 +2694,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                                     : isDriverOverdue ? 'text-red-800 dark:text-red-300'
                                     : 'text-amber-800 dark:text-amber-300'
                                 )}>
-                                  {req.driver_name} <span className="text-xs opacity-70">(سائق)</span>
+                                  {req.driver_name} <span className="text-xs opacity-70">(فني)</span>
                                 </span>
                                 {hasReturned && req.exited_at && (
                                   <span className="text-xs text-emerald-600 dark:text-emerald-400 flex-shrink-0">
@@ -2777,71 +2727,6 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             </div>
                           );
                         })()}
-                        {/* Assistant return confirmations */}
-                        {req.assistant_ids.map((aId, i) => {
-                          const aName = req.assistant_names[i] || 'مساعد';
-                          const returns = req.assistant_returns || {};
-                          const returnedAt = returns[String(aId)];
-                          const hasReturned = !!returnedAt;
-                          const overdueNow = !hasReturned ? getOverdueInfo(req, now) : null;
-                          const isAssistantOverdue = overdueNow?.isOverdue;
-
-                          return (
-                            <div key={aId} className={cn(
-                              'flex items-center justify-between gap-3 px-3 py-2 rounded-lg',
-                              hasReturned
-                                ? 'bg-emerald-50 dark:bg-emerald-900/20'
-                                : isAssistantOverdue
-                                  ? 'bg-red-50 dark:bg-red-900/20'
-                                  : 'bg-amber-50 dark:bg-amber-900/20'
-                            )}>
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                {hasReturned ? (
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                                ) : isAssistantOverdue ? (
-                                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 animate-pulse" />
-                                ) : (
-                                  <Timer className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 animate-pulse" />
-                                )}
-                                <span className={cn(
-                                  'text-sm font-medium truncate',
-                                  hasReturned ? 'text-emerald-800 dark:text-emerald-300'
-                                    : isAssistantOverdue ? 'text-red-800 dark:text-red-300'
-                                    : 'text-amber-800 dark:text-amber-300'
-                                )}>
-                                  {aName}
-                                </span>
-                                {hasReturned && req.exited_at && (
-                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 flex-shrink-0">
-                                    ({formatDuration(req.exited_at, returnedAt)})
-                                  </span>
-                                )}
-                                {!hasReturned && req.exited_at && (
-                                  <span className={cn(
-                                    'text-xs flex-shrink-0',
-                                    isAssistantOverdue ? 'text-red-600 dark:text-red-400 font-bold' : 'text-amber-600 dark:text-amber-400'
-                                  )}>
-                                    {isAssistantOverdue
-                                      ? `متأخر — ${overdueNow.delayText}` 
-                                      : `مازال خارج — ${formatDuration(req.exited_at, now.toISOString())}`
-                                    }
-                                  </span>
-                                )}
-                              </div>
-                              {!hasReturned && isGateGuard && (
-                                <motion.button
-                                  whileHover={{ scale: 1.05 }}
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={() => handleConfirmReturn(req.id, String(aId))}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold shadow-sm flex-shrink-0"
-                                >
-                                  <RotateCcw className="w-3 h-3" />
-                                  تأكيد العودة
-                                </motion.button>
-                              )}
-                            </div>
-                          );
-                        })}
                       </div>
                     </div>
                   )}

@@ -10,7 +10,8 @@ import {
   FileText,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { logAttendanceActivity } from '../lib/attendanceActivity';
@@ -59,6 +60,7 @@ function getDominantType(s: StaffStats): string {
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
 type ExitLoadingRow = {
@@ -68,7 +70,10 @@ type ExitLoadingRow = {
   loading_delay_minutes: number | null;
 };
 
-export default function AttendanceReports({ profile }: Props) {
+export default function AttendanceReports({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
+  const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
@@ -90,15 +95,21 @@ export default function AttendanceReports({ profile }: Props) {
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const [archRes, staffRes, exitRes] = await Promise.all([
-      supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
-      supabase.from('staff_members').select('*').eq('is_active', true),
+      supabase.from(attendanceArchiveTable).select('*').order('attendance_date', { ascending: false }),
+      supabase.from(tables.staffMembers).select('*').eq('is_active', true),
       supabase
-        .from('exit_requests')
+        .from(tables.exitRequests)
         .select('driver_id, created_at, loading_is_delay, loading_delay_minutes')
         .eq('track_driver_loading_time', true),
     ]);
     if (archRes.data) setArchive(archRes.data);
-    if (staffRes.data) setStaff(staffRes.data);
+    if (staffRes.data) {
+      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+      })) as StaffMember[];
+      setStaff(normalizedStaff);
+    }
     if (exitRes.data) setExitLoadingRows(exitRes.data as ExitLoadingRow[]);
     if (!silent) setLoading(false);
   }, []);
@@ -278,7 +289,7 @@ export default function AttendanceReports({ profile }: Props) {
         `;
         await exportHtmlToPdf(`<div dir="rtl">${html}</div>`, `تقرير_حضور_${dateFrom}_${dateTo}.pdf`);
       }
-      await logAttendanceActivity('export', { type: 'report', dateFrom, dateTo });
+      await logAttendanceActivity('export', { type: 'report', dateFrom, dateTo }, department);
     } catch (e) {
       console.error(e);
       alert('فشل التصدير');

@@ -5,7 +5,8 @@ import {
   Plus, X, Save, Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { PeriodicMaintenance, Vehicle, PeriodicMaintenanceStatus } from '../lib/supabaseClient';
 
 const PERIODIC_TYPES = [
@@ -24,9 +25,12 @@ const STATUS_CONFIG: Record<PeriodicMaintenanceStatus, { bg: string; text: strin
 
 interface Props {
   vehicleId?: number;
+  department?: DepartmentCode;
 }
 
-export default function PeriodicMaintenancePanel({ vehicleId }: Props) {
+export default function PeriodicMaintenancePanel({ vehicleId, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [items, setItems] = useState<PeriodicMaintenance[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +41,8 @@ export default function PeriodicMaintenancePanel({ vehicleId }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [itemsRes, vehRes] = await Promise.all([
-      supabase.from('periodic_maintenance').select('*'),
-      supabase.from('vehicles').select('*'),
+      supabase.from(tables.periodicMaintenance).select('*'),
+      supabase.from(tables.vehicles).select('*'),
     ]);
     if (itemsRes.data) setItems(itemsRes.data);
     if (vehRes.data) setVehicles(vehRes.data);
@@ -77,7 +81,7 @@ export default function PeriodicMaintenancePanel({ vehicleId }: Props) {
       }));
 
     if (newItems.length > 0) {
-      await supabase.from('periodic_maintenance').insert(newItems);
+      await supabase.from(tables.periodicMaintenance).insert(newItems);
     }
     setSubmitting(false);
     setShowSetup(false);
@@ -92,7 +96,7 @@ export default function PeriodicMaintenancePanel({ vehicleId }: Props) {
       ? new Date(Date.now() + item.interval_days * 86400000).toISOString().split('T')[0]
       : null;
 
-    await supabase.from('periodic_maintenance').update({
+    await supabase.from(tables.periodicMaintenance).update({
       last_performed_at: today,
       next_due_date: nextDate,
       status: 'good',

@@ -17,6 +17,12 @@ export interface DepartmentTables {
   exitRequests: string;
   maintenanceRequests: string;
   maintenanceRecords: string;
+  maintenanceImages: string;
+  spareParts: string;
+  sparePartUsage: string;
+  periodicMaintenance: string;
+  maintenanceNotifications: string;
+  driverIssueReports: string;
   attendance: string;
   violations: string;
   reports: string;
@@ -33,6 +39,12 @@ export function getDepartmentTables(department: DepartmentCode): DepartmentTable
       exitRequests: 'installation_exit_requests',
       maintenanceRequests: 'installation_maintenance_requests',
       maintenanceRecords: 'installation_maintenance_records',
+      maintenanceImages: 'installation_maintenance_images',
+      spareParts: 'installation_spare_parts',
+      sparePartUsage: 'installation_spare_part_usage',
+      periodicMaintenance: 'installation_periodic_maintenance',
+      maintenanceNotifications: 'installation_maintenance_notifications',
+      driverIssueReports: 'installation_driver_issue_reports',
       attendance: 'installation_attendance',
       violations: 'installation_violations',
       reports: 'installation_reports',
@@ -48,6 +60,12 @@ export function getDepartmentTables(department: DepartmentCode): DepartmentTable
     exitRequests: 'exit_requests',
     maintenanceRequests: 'maintenance_requests',
     maintenanceRecords: 'maintenance_records',
+    maintenanceImages: 'maintenance_images',
+    spareParts: 'spare_parts',
+    sparePartUsage: 'spare_part_usage',
+    periodicMaintenance: 'periodic_maintenance',
+    maintenanceNotifications: 'maintenance_notifications',
+    driverIssueReports: 'driver_issue_reports',
     attendance: 'attendance',
     violations: 'violations',
     reports: 'reports',

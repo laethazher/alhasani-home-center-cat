@@ -107,6 +107,22 @@ create table if not exists public.installation_exit_requests (
   created_at timestamptz not null default now()
 );
 
+alter table public.installation_exit_requests add column if not exists driver_id bigint references public.installation_staff_members(id) on delete set null;
+alter table public.installation_exit_requests add column if not exists driver_name text;
+alter table public.installation_exit_requests add column if not exists assistant_ids bigint[] not null default '{}';
+alter table public.installation_exit_requests add column if not exists assistant_names text[] not null default '{}';
+alter table public.installation_exit_requests add column if not exists assistant_returns jsonb;
+alter table public.installation_exit_requests add column if not exists exit_type text not null default 'permanent' check (exit_type in ('permanent', 'temporary'));
+alter table public.installation_exit_requests add column if not exists exit_duration_minutes int;
+alter table public.installation_exit_requests add column if not exists vehicle_plate text;
+alter table public.installation_exit_requests add column if not exists vehicle_cbm numeric(12,2);
+alter table public.installation_exit_requests add column if not exists track_driver_loading_time boolean not null default false;
+alter table public.installation_exit_requests add column if not exists loading_minutes_from_shift_start int;
+alter table public.installation_exit_requests add column if not exists loading_delay_minutes int;
+alter table public.installation_exit_requests add column if not exists loading_is_delay boolean;
+alter table public.installation_exit_requests add column if not exists loading_verified boolean;
+alter table public.installation_exit_requests add column if not exists loading_issue_reason text;
+
 create index if not exists idx_installation_exit_requests_status on public.installation_exit_requests(status);
 create index if not exists idx_installation_exit_requests_vehicle on public.installation_exit_requests(vehicle_id);
 
@@ -126,6 +142,10 @@ create table if not exists public.installation_maintenance_requests (
   finished_at timestamptz,
   created_at timestamptz not null default now()
 );
+alter table public.installation_maintenance_requests add column if not exists driver_id bigint references public.installation_staff_members(id) on delete set null;
+update public.installation_maintenance_requests
+set driver_id = staff_id
+where driver_id is null and staff_id is not null;
 
 create table if not exists public.installation_maintenance_records (
   id bigint generated always as identity primary key,
@@ -179,10 +199,14 @@ create table if not exists public.installation_periodic_maintenance (
   maintenance_type text not null,
   last_performed_at timestamptz,
   next_due_date date,
+  next_due_km int,
   interval_days int,
+  interval_km int,
   status text not null default 'good' check (status in ('good', 'approaching', 'overdue')),
   created_at timestamptz not null default now()
 );
+alter table public.installation_periodic_maintenance add column if not exists next_due_km int;
+alter table public.installation_periodic_maintenance add column if not exists interval_km int;
 
 create table if not exists public.installation_driver_issue_reports (
   id bigint generated always as identity primary key,
@@ -193,6 +217,10 @@ create table if not exists public.installation_driver_issue_reports (
   status text not null default 'pending' check (status in ('pending', 'reviewed', 'converted')),
   created_at timestamptz not null default now()
 );
+alter table public.installation_driver_issue_reports add column if not exists driver_id bigint references public.installation_staff_members(id) on delete set null;
+update public.installation_driver_issue_reports
+set driver_id = staff_id
+where driver_id is null and staff_id is not null;
 
 create table if not exists public.installation_maintenance_notifications (
   id bigint generated always as identity primary key,
@@ -368,6 +396,10 @@ exception
 end;
 $$;
 
+drop function if exists public.installation_finish_maintenance(
+  bigint, text, text, text, boolean, text, text, numeric, int, text
+);
+
 create or replace function public.installation_finish_maintenance(
   p_request_id bigint,
   p_maintenance_type text,
@@ -378,7 +410,8 @@ create or replace function public.installation_finish_maintenance(
   p_technician_name text default null,
   p_cost numeric default 0,
   p_duration_minutes int default null,
-  p_notes text default null
+  p_notes text default null,
+  p_spare_parts jsonb default '[]'::jsonb
 )
 returns jsonb
 language plpgsql
@@ -388,6 +421,11 @@ as $$
 declare
   v_request public.installation_maintenance_requests%rowtype;
   v_record_id bigint;
+  v_spare jsonb;
+  v_part_id bigint;
+  v_qty int;
+  v_unit_cost numeric;
+  v_part_quantity int;
 begin
   if public.current_role() not in ('admin', 'maintenance_manager') then
     return jsonb_build_object('success', false, 'error', 'unauthorized');
@@ -413,6 +451,29 @@ begin
     p_inspection_only, p_parts_replaced, p_technician_name, coalesce(p_cost, 0), p_duration_minutes, p_notes
   )
   returning id into v_record_id;
+
+  for v_spare in select * from jsonb_array_elements(coalesce(p_spare_parts, '[]'::jsonb))
+  loop
+    v_part_id := (v_spare->>'part_id')::bigint;
+    v_qty := greatest(1, coalesce((v_spare->>'quantity')::int, 1));
+    if v_part_id is null then
+      continue;
+    end if;
+
+    select quantity, price
+    into v_part_quantity, v_unit_cost
+    from public.installation_spare_parts
+    where id = v_part_id;
+
+    if found and coalesce(v_part_quantity, 0) >= v_qty then
+      insert into public.installation_spare_part_usage (record_id, part_id, quantity_used, unit_cost)
+      values (v_record_id, v_part_id, v_qty, v_unit_cost);
+
+      update public.installation_spare_parts
+      set quantity = quantity - v_qty
+      where id = v_part_id;
+    end if;
+  end loop;
 
   update public.installation_maintenance_requests
   set status = 'completed', finished_at = now()
@@ -453,6 +514,106 @@ exception
     return jsonb_build_object('success', false, 'error', sqlerrm);
 end;
 $$;
+
+create or replace function public.installation_delete_maintenance_records(p_record_ids bigint[])
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rec record;
+  v_req_ids bigint[] := '{}';
+begin
+  if public.current_role() <> 'admin' then
+    return jsonb_build_object('success', false, 'error', 'admin_only');
+  end if;
+
+  if p_record_ids is null or array_length(p_record_ids, 1) is null then
+    return jsonb_build_object('success', false, 'error', 'no_ids');
+  end if;
+
+  for v_rec in
+    select id, vehicle_id, request_id, created_at
+    from public.installation_maintenance_records
+    where id = any(p_record_ids)
+  loop
+    if v_rec.request_id is not null then
+      v_req_ids := array_append(v_req_ids, v_rec.request_id);
+    end if;
+
+    delete from public.installation_vehicle_events
+    where vehicle_id = v_rec.vehicle_id
+      and event_type = 'status_changed'
+      and description like 'صيانة مكتملة%'
+      and created_at >= v_rec.created_at - interval '2 seconds'
+      and created_at <= v_rec.created_at + interval '2 seconds';
+
+    delete from public.installation_maintenance_notifications
+    where vehicle_id = v_rec.vehicle_id
+      and notification_type = 'maintenance_completed'
+      and created_at >= v_rec.created_at - interval '2 seconds'
+      and created_at <= v_rec.created_at + interval '2 seconds';
+  end loop;
+
+  if array_length(v_req_ids, 1) > 0 then
+    delete from public.installation_maintenance_requests where id = any(v_req_ids);
+  end if;
+
+  delete from public.installation_maintenance_records
+  where id = any(p_record_ids)
+    and request_id is null;
+
+  return jsonb_build_object('success', true);
+exception
+  when others then
+    return jsonb_build_object('success', false, 'error', sqlerrm);
+end;
+$$;
+
+create or replace function public.installation_delete_maintenance_requests(p_request_ids bigint[])
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_record_ids bigint[];
+  v_result jsonb;
+begin
+  if public.current_role() <> 'admin' then
+    return jsonb_build_object('success', false, 'error', 'admin_only');
+  end if;
+
+  if p_request_ids is null or array_length(p_request_ids, 1) is null then
+    return jsonb_build_object('success', false, 'error', 'no_ids');
+  end if;
+
+  select coalesce(array_agg(id), '{}')
+  into v_record_ids
+  from public.installation_maintenance_records
+  where request_id = any(p_request_ids);
+
+  if v_record_ids is not null and array_length(v_record_ids, 1) > 0 then
+    v_result := public.installation_delete_maintenance_records(v_record_ids);
+    if coalesce((v_result->>'success')::boolean, false) = false then
+      return v_result;
+    end if;
+  end if;
+
+  delete from public.installation_maintenance_requests where id = any(p_request_ids);
+  return jsonb_build_object('success', true);
+exception
+  when others then
+    return jsonb_build_object('success', false, 'error', sqlerrm);
+end;
+$$;
+
+grant execute on function public.installation_finish_maintenance(
+  bigint, text, text, text, boolean, text, text, numeric, int, text, jsonb
+) to authenticated;
+grant execute on function public.installation_delete_maintenance_records(bigint[]) to authenticated;
+grant execute on function public.installation_delete_maintenance_requests(bigint[]) to authenticated;
 
 -- ---------- storage ----------
 insert into storage.buckets (id, name, public)

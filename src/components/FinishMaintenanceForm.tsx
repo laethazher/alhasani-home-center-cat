@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRequest, SparePart } from '../lib/supabaseClient';
 
 const MAINTENANCE_TYPES = [
@@ -16,9 +17,12 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onDone: () => void;
+  department?: DepartmentCode;
 }
 
-export default function FinishMaintenanceForm({ request, open, onClose, onDone }: Props) {
+export default function FinishMaintenanceForm({ request, open, onClose, onDone, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
   const [maintenanceType, setMaintenanceType] = useState(request.maintenance_type);
   const [faultDescription, setFaultDescription] = useState(request.description ?? '');
@@ -33,7 +37,7 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
   const [submitError, setSubmitError] = useState('');
 
   const fetchParts = useCallback(async () => {
-    const { data } = await supabase.from('spare_parts').select('*').gt('quantity', 0);
+    const { data } = await supabase.from(tables.spareParts).select('*').gt('quantity', 0);
     if (data) setSpareParts(data);
   }, []);
 
@@ -79,7 +83,8 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone }
       quantity: sp.qty,
     }));
 
-    const { data, error } = await supabase.rpc('finish_maintenance', {
+    const rpcName = department === 'installation' ? 'installation_finish_maintenance' : 'finish_maintenance';
+    const { data, error } = await supabase.rpc(rpcName, {
       p_request_id: request.id,
       p_maintenance_type: maintenanceType,
       p_fault_description: faultDescription,

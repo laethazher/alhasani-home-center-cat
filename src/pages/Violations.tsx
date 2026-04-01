@@ -21,7 +21,8 @@ import {
   Trash2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type { ExitRequest, StaffMember, Violation } from '../lib/supabaseClient';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { exportHtmlToPdf } from '../lib/pdfExport';
@@ -68,9 +69,27 @@ function getSeverity(count: number): { label: string; color: string; bgColor: st
   return { label: 'منخفض', color: 'text-yellow-700 dark:text-yellow-300', bgColor: 'bg-yellow-100 dark:bg-yellow-900/30' };
 }
 
+function toUiRole(role?: string): 'driver' | 'assistant' {
+  if (role === 'driver' || role === 'technician') return 'driver';
+  return 'assistant';
+}
+
+function roleLabel(role: 'driver' | 'assistant', isInstallation: boolean): string {
+  if (isInstallation) return 'فني';
+  return role === 'driver' ? 'سائق' : 'مساعد';
+}
+
 /* ── Component ── */
-export default function Violations() {
+interface Props {
+  department?: DepartmentCode;
+}
+
+export default function Violations({ department = 'tajhiz' }: Props) {
   const { profile, user } = useUserProfile();
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
+  const violationsTable = tables.violations;
+  const isInstallation = department === 'installation';
   const [requests, setRequests] = useState<ExitRequest[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [manualViolations, setManualViolations] = useState<Violation[]>([]);
@@ -107,16 +126,25 @@ export default function Violations() {
   const [tableView, setTableView] = useState(false);
 
   const fetchData = useCallback(async () => {
+    const staffQuery = isInstallation
+      ? supabase.from(tables.staffMembers).select('*').eq('role', 'technician').eq('is_active', true).order('full_name')
+      : supabase.from(tables.staffMembers).select('*').eq('is_active', true).order('full_name');
     const [reqRes, staffRes, violationsRes] = await Promise.all([
-      supabase.from('exit_requests').select('*').eq('exit_type', 'temporary').in('status', ['exited']).order('created_at', { ascending: false }),
-      supabase.from('staff_members').select('*').order('full_name'),
-      supabase.from('violations').select('*').order('violation_date', { ascending: false }),
+      supabase.from(tables.exitRequests).select('*').eq('exit_type', 'temporary').in('status', ['exited']).order('created_at', { ascending: false }),
+      staffQuery,
+      supabase.from(violationsTable).select('*').order('violation_date', { ascending: false }),
     ]);
     if (reqRes.data) setRequests(reqRes.data);
-    if (staffRes.data) setStaff(staffRes.data);
+    if (staffRes.data) {
+      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        role: toUiRole(String(s.role ?? 'assistant')),
+      })) as StaffMember[];
+      setStaff(normalizedStaff);
+    }
     if (violationsRes.data) setManualViolations(violationsRes.data);
     setLoading(false);
-  }, []);
+  }, [isInstallation, supabase, tables.exitRequests, tables.staffMembers, violationsTable]);
 
   const deleteManualViolation = useCallback(
     async (requestId: string) => {
@@ -127,7 +155,7 @@ export default function Violations() {
       if (!window.confirm('حذف هذه المخالفة اليدوية من السجل؟ لا يمكن التراجع.')) return;
       setDeletingManualId(id);
       try {
-        const { error } = await supabase.from('violations').delete().eq('id', id);
+        const { error } = await supabase.from(violationsTable).delete().eq('id', id);
         if (error) throw error;
         await fetchData();
       } catch (e) {
@@ -136,7 +164,7 @@ export default function Violations() {
         setDeletingManualId(null);
       }
     },
-    [profile?.role, fetchData]
+    [profile?.role, fetchData, supabase, violationsTable]
   );
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -153,6 +181,8 @@ export default function Violations() {
       const allowedMs = req.exit_duration_minutes * 60 * 1000;
       const deadline = exitedTime + allowedMs;
 
+      // Installation violations are only for technicians.
+      if (!isInstallation) {
       // Check each assistant
       for (let i = 0; i < req.assistant_ids.length; i++) {
         const aId = String(req.assistant_ids[i]);
@@ -200,6 +230,7 @@ export default function Violations() {
             returnedAt: returnedAt || null,
           });
         }
+      }
       }
 
       // Check driver too (if present)
@@ -262,7 +293,7 @@ export default function Violations() {
         map.set(staffId, {
           staffId,
           staffName: staffMember.full_name,
-          staffRole: staffMember.role as 'driver' | 'assistant',
+          staffRole: toUiRole(staffMember.role),
           totalViolations: 0,
           totalDelayMinutes: 0,
           records: [],
@@ -283,7 +314,7 @@ export default function Violations() {
     }
 
     return map;
-  }, [requests, staff, manualViolations]);
+  }, [isInstallation, requests, staff, manualViolations]);
 
   /* ── Sorted + filtered list ── */
   const violationsList = useMemo((): StaffViolations[] => {
@@ -317,7 +348,7 @@ export default function Violations() {
       {
         id: 'role',
         header: 'الدور',
-        accessor: (v) => (v.staffRole === 'driver' ? 'سائق' : 'مساعد'),
+        accessor: (v) => roleLabel(v.staffRole, isInstallation),
       },
       {
         id: 'violations',
@@ -343,7 +374,7 @@ export default function Violations() {
         ),
       },
     ],
-    []
+    [isInstallation]
   );
 
   /* ── Stats ── */
@@ -382,7 +413,7 @@ export default function Violations() {
       const severity = getSeverity(v.totalViolations);
       return [
         v.staffName,
-        v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+        roleLabel(v.staffRole, isInstallation),
         v.totalViolations,
         formatDelay(v.totalDelayMinutes),
         severity.label
@@ -406,7 +437,7 @@ export default function Violations() {
     const headers = ['الموظف', 'الرتبة', 'المخالفات', 'التأخير'];
     const rows = toExport.map(v => [
       v.staffName,
-      v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+      roleLabel(v.staffRole, isInstallation),
       v.totalViolations,
       formatDelay(v.totalDelayMinutes)
     ]);
@@ -453,9 +484,11 @@ export default function Violations() {
         <div>
           <h1 className="text-2xl font-bold text-stone-900 dark:text-white flex items-center gap-3">
             <Shield className="w-7 h-7 text-red-600 dark:text-red-400" />
-            سجل المخالفات
+            {isInstallation ? 'سجل مخالفات كادر التركيب' : 'سجل المخالفات'}
           </h1>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">تتبع تأخيرات الموظفين في الخروج المؤقت</p>
+          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+            {isInstallation ? 'تتبع مخالفات وتأخيرات الفنيين في قسم التركيب' : 'تتبع تأخيرات الموظفين في الخروج المؤقت'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -638,7 +671,9 @@ export default function Violations() {
             <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
           </div>
           <p className="text-lg font-semibold text-stone-700 dark:text-stone-300">لا توجد مخالفات</p>
-          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">جميع الموظفين ملتزمين بأوقات الخروج</p>
+          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1">
+            {isInstallation ? 'لا توجد مخالفات على كادر التركيب (الفنيين)' : 'جميع الموظفين ملتزمين بأوقات الخروج'}
+          </p>
         </div>
       ) : tableView ? (
         <Suspense
@@ -718,7 +753,7 @@ export default function Violations() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-stone-900 dark:text-white truncate">{v.staffName}</span>
                         <span className="text-xs text-stone-400">
-                          ({v.staffRole === 'driver' ? 'سائق' : 'مساعد'})
+                          ({roleLabel(v.staffRole, isInstallation)})
                         </span>
                         <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold', severity.bgColor, severity.color)}>
                           <AlertTriangle className="w-3 h-3" />
@@ -880,7 +915,7 @@ export default function Violations() {
                 <div>
                   <label className="block text-sm font-semibold text-stone-700 dark:text-stone-300 mb-1.5">
                     <User className="w-4 h-4 inline ml-1" />
-                    اسم السائق / المساعد
+                    {isInstallation ? 'اسم الفني' : 'اسم السائق / المساعد'}
                   </label>
                   <select
                     value={formStaffId}
@@ -890,7 +925,7 @@ export default function Violations() {
                     <option value="">اختر الموظف...</option>
                     {staff.map((s) => (
                       <option key={s.id} value={String(s.id)}>
-                        {s.full_name} ({s.role === 'driver' ? 'سائق' : 'مساعد'})
+                        {s.full_name} ({roleLabel(toUiRole(s.role), isInstallation)})
                       </option>
                     ))}
                   </select>
@@ -978,7 +1013,7 @@ export default function Violations() {
                     if (!formStaffId || !formViolationType || !formViolationReason) return;
                     setSubmitting(true);
                     setFormError('');
-                    const { error } = await supabase.from('violations').insert({
+                    const { error } = await supabase.from(violationsTable).insert({
                       staff_id: Number(formStaffId),
                       violation_type: formViolationType,
                       violation_reason: formViolationReason,

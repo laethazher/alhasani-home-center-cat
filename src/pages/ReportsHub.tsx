@@ -16,7 +16,6 @@ import {
   X,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { buildHubChartsPreviewPng } from '../lib/chartPreviewPng';
 import { exportSheetsToExcelWithOptionalChartImage } from '../lib/excelSheetsWithImage';
@@ -51,6 +50,8 @@ import {
   type ReportsHubDomain,
   type StructuredSearchFilters,
 } from '../smart';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import { buildHubViolationStaffRows, type HubViolationStaffRow } from './reportsHubViolationsAggregate';
 import { advancedFilterTags, FilterTags } from '../smart/components/FilterTags';
 import type { ColumnDef } from '../smart/components/DataTableEnhanced';
@@ -232,9 +233,13 @@ function pickRowsByKeySet<T>(rows: T[], keys: Set<string>, getKey: (row: T) => s
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
-export default function ReportsHub({ profile }: Props) {
+export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
+  const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
@@ -272,7 +277,7 @@ export default function ReportsHub({ profile }: Props) {
   const [selectedViolationKeys, setSelectedViolationKeys] = useState<Set<string>>(() => new Set());
 
   const showViolationsTab = profile?.role === 'admin';
-  const showBubblesTab = profile?.role === 'admin' || profile?.role === 'manager';
+  const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department !== 'installation';
 
   useEffect(() => {
     setSelectedAttendanceKeys(new Set());
@@ -390,33 +395,57 @@ export default function ReportsHub({ profile }: Props) {
       bubbleArcRes,
       bubbleSnapRes,
     ] = await Promise.all([
-      supabase.from('attendance_archive').select('*').order('attendance_date', { ascending: false }),
-      supabase.from('staff_members').select('*').eq('is_active', true),
+      supabase.from(attendanceArchiveTable).select('*').order('attendance_date', { ascending: false }),
+      supabase.from(tables.staffMembers).select('*').eq('is_active', true),
       supabase
-        .from('exit_requests')
+        .from(tables.exitRequests)
         .select('driver_id, created_at, loading_is_delay, loading_delay_minutes')
         .eq('track_driver_loading_time', true),
       supabase
-        .from('exit_requests')
+        .from(tables.exitRequests)
         .select('id, created_at, loading_verified, loading_issue_reason, status, driver_name, vehicle_plate')
         .order('created_at', { ascending: false }),
-      supabase.from('vehicles').select('*').order('plate_number'),
+      supabase.from(tables.vehicles).select('*').order(department === 'installation' ? 'vehicle_number' : 'plate_number'),
       supabase
-        .from('exit_requests')
+        .from(tables.exitRequests)
         .select('*')
         .eq('exit_type', 'temporary')
         .in('status', ['exited'])
         .order('created_at', { ascending: false }),
-      supabase.from('violations').select('*').order('violation_date', { ascending: false }),
-      supabase.from('bubbles_records').select('*').order('created_at', { ascending: false }),
-      supabase.from('bubbles_records_archive').select('*').order('archived_at', { ascending: false }).limit(5000),
-      supabase.from('bubbles_daily_snapshots').select('*').order('day', { ascending: false }).limit(365),
+      supabase.from(tables.violations).select('*').order('violation_date', { ascending: false }),
+      showBubblesTab
+        ? supabase.from('bubbles_records').select('*').order('created_at', { ascending: false })
+        : Promise.resolve({ data: [] }),
+      showBubblesTab
+        ? supabase.from('bubbles_records_archive').select('*').order('archived_at', { ascending: false }).limit(5000)
+        : Promise.resolve({ data: [] }),
+      showBubblesTab
+        ? supabase.from('bubbles_daily_snapshots').select('*').order('day', { ascending: false }).limit(365)
+        : Promise.resolve({ data: [] }),
     ]);
     if (archRes.data) setArchive(archRes.data);
-    if (staffRes.data) setStaff(staffRes.data);
+    if (staffRes.data) {
+      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+      })) as StaffMember[];
+      setStaff(normalizedStaff);
+    }
     if (exitRes.data) setExitLoadingRows(exitRes.data as ExitLoadingRow[]);
     if (exitClampRes.data) setExitClampRows(exitClampRes.data as ExitClampReportRow[]);
-    if (vehRes.data) setVehicles(vehRes.data);
+    if (vehRes.data) {
+      const normalizedVehicles = (vehRes.data as Array<Record<string, unknown>>).map((v) => ({
+        ...v,
+        plate_number: String(v.plate_number ?? v.vehicle_number ?? ''),
+        assigned_driver_id:
+          v.assigned_driver_id != null
+            ? String(v.assigned_driver_id)
+            : v.responsible_staff_id != null
+              ? String(v.responsible_staff_id)
+              : null,
+      })) as Vehicle[];
+      setVehicles(normalizedVehicles);
+    }
     if (exitViolRes.data) setViolExitRequests(exitViolRes.data);
     if (violRes.data) setManualViolations(violRes.data);
     const liveBubbles = (bubbleRes.data ?? []) as Record<string, unknown>[];
@@ -429,7 +458,7 @@ export default function ReportsHub({ profile }: Props) {
       setBubbleSnapshots((bubbleSnapRes.data ?? []) as BubblesDailySnapshot[]);
     }
     if (!silent) setLoading(false);
-  }, []);
+  }, [department, supabase, attendanceArchiveTable, tables.staffMembers, tables.exitRequests, tables.vehicles, tables.violations, showBubblesTab]);
 
   useEffect(() => {
     void fetchData();
@@ -1533,7 +1562,7 @@ export default function ReportsHub({ profile }: Props) {
           blocks.push(chartSectionPdf(chartPng));
           await exportHtmlToPdf(`<div dir="rtl">${blocks.join('')}</div>`, `${fileSlug}.pdf`);
         }
-        await logAttendanceActivity('export', { type: 'reports_hub', dateFrom: df, dateTo: dt, scope: 'all' });
+        await logAttendanceActivity('export', { type: 'reports_hub', dateFrom: df, dateTo: dt, scope: 'all' }, department);
       } catch (e) {
         console.error(e);
         alert('فشل التصدير');
@@ -1647,7 +1676,7 @@ export default function ReportsHub({ profile }: Props) {
           dateFrom: df,
           dateTo: dt,
           scope: activeDomain,
-        });
+        }, department);
       }
     } catch (e) {
       console.error(e);

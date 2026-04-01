@@ -14,7 +14,8 @@ import {
   FileText,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import type {
@@ -37,9 +38,13 @@ const PAGE_SIZE = 20;
 
 interface Props {
   profile: UserProfile | null;
+  department?: DepartmentCode;
 }
 
-export default function AttendanceHistory({ profile }: Props) {
+export default function AttendanceHistory({ profile, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
+  const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
   const [records, setRecords] = useState<(AttendanceArchive & { staff?: StaffMember; vehicle?: Vehicle })[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -119,7 +124,7 @@ export default function AttendanceHistory({ profile }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     let query = supabase
-      .from('attendance_archive')
+      .from(attendanceArchiveTable)
       .select('*', { count: 'exact' })
       .order('attendance_date', { ascending: false })
       .order('id', { ascending: false });
@@ -131,11 +136,17 @@ export default function AttendanceHistory({ profile }: Props) {
     const { data: recData, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
     const [staffRes, vehRes] = await Promise.all([
-      supabase.from('staff_members').select('*'),
-      supabase.from('vehicles').select('*'),
+      supabase.from(tables.staffMembers).select('*'),
+      supabase.from(tables.vehicles).select('*'),
     ]);
 
-    if (staffRes.data) setStaff(staffRes.data);
+    if (staffRes.data) {
+      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+        ...s,
+        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+      })) as StaffMember[];
+      setStaff(normalizedStaff);
+    }
     if (vehRes.data) setVehicles(vehRes.data);
     if (recData) {
       const staffMap = new Map(staffRes.data?.map((s) => [Number(s.id), s]) ?? []);
@@ -208,7 +219,7 @@ export default function AttendanceHistory({ profile }: Props) {
     setSaving(true);
     try {
       const { error } = await supabase
-        .from('attendance_archive')
+        .from(attendanceArchiveTable)
         .update({
           attendance_type: editPayload.attendance_type,
           check_in_time: editPayload.check_in_time || null,
@@ -246,7 +257,7 @@ export default function AttendanceHistory({ profile }: Props) {
     if (!window.confirm(`هل أنت متأكد من حذف ${selectedRecordIds.length} سجل؟`)) return;
     setDeleting(true);
     try {
-      await supabase.from('attendance_archive').delete().in('id', selectedRecordIds);
+      await supabase.from(attendanceArchiveTable).delete().in('id', selectedRecordIds);
       setSelectedRecordIds([]);
       setIsSelectionMode(false);
       await fetchData();

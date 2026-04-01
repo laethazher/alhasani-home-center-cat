@@ -6,7 +6,8 @@ import {
   MessageSquare, Image as ImageIcon, FileWarning, Download, Printer, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { supabase } from '../lib/supabaseClient';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import type { DepartmentCode } from '../data/department';
 import type {
   MaintenanceRequest, MaintenancePriority, Vehicle, StaffMember,
   UserProfile, DriverIssueReport, MaintenanceRecord,
@@ -49,9 +50,13 @@ const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }>
 interface Props {
   profile: UserProfile | null;
   onNavigate: (page: PageKey) => void;
+  department?: DepartmentCode;
 }
 
-export default function MaintenanceRequests({ profile, onNavigate }: Props) {
+export default function MaintenanceRequests({ profile, onNavigate, department = 'tajhiz' }: Props) {
+  const supabase = getDepartmentClient(department);
+  const tables = getDepartmentTables(department);
+  const maintenanceImagesBucket = department === 'installation' ? 'installation-maintenance-images' : 'maintenance-images';
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
@@ -89,20 +94,61 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    const staffQuery = department === 'installation'
+      ? supabase.from(tables.staffMembers).select('*').eq('is_active', true)
+      : supabase.from(tables.staffMembers).select('*').eq('role', 'driver').eq('is_active', true);
+
     const [reqRes, vehRes, drvRes, issRes, recRes] = await Promise.all([
-      supabase.from('maintenance_requests').select('*').order('created_at', { ascending: false }),
-      supabase.from('vehicles').select('*'),
-      supabase.from('staff_members').select('*').eq('role', 'driver').eq('is_active', true),
-      supabase.from('driver_issue_reports').select('*').order('created_at', { ascending: false }),
-      supabase.from('maintenance_records').select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.maintenanceRequests).select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.vehicles).select('*'),
+      staffQuery,
+      supabase.from(tables.driverIssueReports).select('*').order('created_at', { ascending: false }),
+      supabase.from(tables.maintenanceRecords).select('*').order('created_at', { ascending: false }),
     ]);
-    if (reqRes.data) setRequests(reqRes.data);
-    if (vehRes.data) setVehicles(vehRes.data);
-    if (drvRes.data) setDrivers(drvRes.data);
-    if (issRes.data) setDriverIssues(issRes.data);
+    if (reqRes.data) {
+      const normalized = (reqRes.data as Array<Record<string, unknown>>).map((r) => ({
+        ...r,
+        // Installation schema used staff_id historically; normalize to driver_id for shared UI logic.
+        driver_id: r.driver_id ?? r.staff_id ?? null,
+        priority: (r.priority as MaintenancePriority) ?? 'medium',
+        status: (r.status as MaintenanceRequest['status']) ?? 'pending',
+        images: Array.isArray(r.images) ? r.images : [],
+        admin_notes: r.admin_notes ?? null,
+      })) as MaintenanceRequest[];
+      setRequests(normalized);
+    }
+    if (vehRes.data) {
+      const normalizedVehicles = (vehRes.data as Array<Record<string, unknown>>).map((v) => ({
+        ...v,
+        plate_number: String(v.plate_number ?? v.vehicle_number ?? ''),
+        assigned_driver_id:
+          v.assigned_driver_id != null
+            ? String(v.assigned_driver_id)
+            : v.responsible_staff_id != null
+              ? String(v.responsible_staff_id)
+              : null,
+      })) as Vehicle[];
+      setVehicles(normalizedVehicles);
+    }
+    if (drvRes.data) {
+      const normalizedDrivers = (drvRes.data as Array<Record<string, unknown>>)
+        .map((d) => ({
+          ...d,
+          role: d.role === 'assistant' || d.role === 'crew' ? 'assistant' : 'driver',
+        })) as StaffMember[];
+      setDrivers(normalizedDrivers);
+    }
+    if (issRes.data) {
+      const normalizedIssues = (issRes.data as Array<Record<string, unknown>>).map((issue) => ({
+        ...issue,
+        driver_id: issue.driver_id ?? issue.staff_id ?? null,
+        images: Array.isArray(issue.images) ? issue.images : [],
+      })) as DriverIssueReport[];
+      setDriverIssues(normalizedIssues);
+    }
     if (recRes.data) setPastRecords(recRes.data);
     if (!silent) setLoading(false);
-  }, []);
+  }, [department, supabase, tables.maintenanceRequests, tables.vehicles, tables.staffMembers, tables.driverIssueReports, tables.maintenanceRecords]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -113,7 +159,8 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   async function handleDeleteSelected() {
     if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} طلب؟ سيتم حذف كل ما يرتبط بها (السجلات، الصور، أحداث المركبة، التنبيهات) دون التأثير على النظام.`)) return;
     setDeleting(true);
-    const { data, error } = await supabase.rpc('delete_maintenance_requests', { p_request_ids: selectedIds });
+    const rpcName = department === 'installation' ? 'installation_delete_maintenance_requests' : 'delete_maintenance_requests';
+    const { data, error } = await supabase.rpc(rpcName, { p_request_ids: selectedIds });
     const result = data as { success?: boolean; error?: string } | null;
     if (error) {
       alert('فشل الحذف: ' + error.message);
@@ -210,10 +257,13 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
       const q = searchQuery.trim().toLowerCase();
       list = list.filter(r => {
         const v = vehicles.find(v => v.id === r.vehicle_id);
+        const plate = String(v?.plate_number ?? '').toLowerCase();
+        const mType = String(r.maintenance_type ?? '').toLowerCase();
+        const desc = String(r.description ?? '').toLowerCase();
         return (
-          v?.plate_number?.toLowerCase().includes(q) ||
-          r.maintenance_type.toLowerCase().includes(q) ||
-          r.description?.toLowerCase().includes(q)
+          plate.includes(q) ||
+          mType.includes(q) ||
+          desc.includes(q)
         );
       });
     }
@@ -237,12 +287,15 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     void fetchData(true);
   }, tab === 'requests');
 
+  const safeStatus = (status: string) => STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
+  const safePriority = (priority: string) => PRIORITY_CONFIG[(priority as MaintenancePriority)] ?? PRIORITY_CONFIG.medium;
+
   async function uploadImage(file: File): Promise<string | null> {
     const ext = file.name.split('.').pop();
     const path = `requests/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-    const { error } = await supabase.storage.from('maintenance-images').upload(path, file);
+    const { error } = await supabase.storage.from(maintenanceImagesBucket).upload(path, file);
     if (error) return null;
-    const { data } = supabase.storage.from('maintenance-images').getPublicUrl(path);
+    const { data } = supabase.storage.from(maintenanceImagesBucket).getPublicUrl(path);
     return data.publicUrl;
   }
 
@@ -258,7 +311,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     if (!formVehicleId) return;
     setSubmitting(true);
     setFormError('');
-    const { error } = await supabase.from('maintenance_requests').insert({
+    const { error } = await supabase.from(tables.maintenanceRequests).insert({
       vehicle_id: Number(formVehicleId),
       driver_id: formDriverId ? Number(formDriverId) : null,
       maintenance_type: formType,
@@ -294,7 +347,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   async function handleApprove(req: MaintenanceRequest) {
     if (hasActiveRequest) return;
     const now = new Date().toISOString();
-    await supabase.from('maintenance_requests').update({
+    await supabase.from(tables.maintenanceRequests).update({
       status: 'in_progress',
       approved_by: (await supabase.auth.getUser()).data.user?.id,
       approved_at: now,
@@ -305,7 +358,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
   }
 
   async function handleReject(req: MaintenanceRequest) {
-    await supabase.from('maintenance_requests').update({
+    await supabase.from(tables.maintenanceRequests).update({
       status: 'rejected',
       approved_by: (await supabase.auth.getUser()).data.user?.id,
       approved_at: new Date().toISOString(),
@@ -319,7 +372,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
     const vehicle = vehicles.find(v => v.id === issue.vehicle_id);
     if (!vehicle) return;
 
-    await supabase.from('maintenance_requests').insert({
+    await supabase.from(tables.maintenanceRequests).insert({
       vehicle_id: vehicle.id,
       driver_id: issue.driver_id,
       maintenance_type: 'صيانة عامة',
@@ -329,7 +382,7 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
       requested_by: (await supabase.auth.getUser()).data.user?.id,
     });
 
-    await supabase.from('driver_issue_reports').update({ status: 'converted' }).eq('id', issue.id);
+    await supabase.from(tables.driverIssueReports).update({ status: 'converted' }).eq('id', issue.id);
     fetchData();
   }
 
@@ -508,8 +561,8 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
             {filteredRequests.map((req, i) => {
               const vehicle = vehicles.find(v => v.id === req.vehicle_id);
               const driver = drivers.find((d) => String(d.id) === String(req.driver_id ?? ''));
-              const sc = STATUS_CONFIG[req.status];
-              const pc = PRIORITY_CONFIG[req.priority];
+              const sc = safeStatus(req.status);
+              const pc = safePriority(req.priority);
               const isSelected = selectedIds.includes(req.id);
 
               return (
@@ -828,8 +881,8 @@ export default function MaintenanceRequests({ profile, onNavigate }: Props) {
                 const req = showDetail;
                 const vehicle = vehicles.find(v => v.id === req.vehicle_id);
                 const driver = drivers.find((d) => String(d.id) === String(req.driver_id ?? ''));
-                const sc = STATUS_CONFIG[req.status];
-                const pc = PRIORITY_CONFIG[req.priority];
+                const sc = safeStatus(req.status);
+                const pc = safePriority(req.priority);
                 const vehicleHistory = pastRecords.filter(r => r.vehicle_id === req.vehicle_id);
 
                 return (
