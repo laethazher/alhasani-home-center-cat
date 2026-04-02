@@ -1184,7 +1184,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         const aId = String(req.assistant_ids[i]);
         if (!map.has(aId)) {
           const curDriver = driverMap.get(String(req.driver_id)) || req.driver_name || '';
-          const withDriver = curDriver ? ` مع السائق ${curDriver}` : '';
+          const withDriver = curDriver ? ` مع الفني ${curDriver}` : '';
           map.set(aId, `خرج${withDriver} بتاريخ ${date} الساعة ${time}`);
         }
       }

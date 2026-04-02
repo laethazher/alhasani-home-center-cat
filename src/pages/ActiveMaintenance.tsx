@@ -39,6 +39,8 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const maintenanceImagesBucket = department === 'installation' ? 'installation-maintenance-images' : 'maintenance-images';
+  const isInstallation = department === 'installation';
+  const driverLabel = isInstallation ? 'فني' : 'سائق';
   const isAdmin = profile?.role === 'admin';
   const isMaintManager = profile?.role === 'maintenance_manager';
   const canEdit = isAdmin || isMaintManager;
@@ -259,7 +261,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
               className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
             >
               <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
-                <User className="w-4 h-4 text-emerald-500" /> السائق المسؤول
+                <User className="w-4 h-4 text-emerald-500" /> {driverLabel} المسؤول
               </h3>
               <p className="text-sm text-stone-900 dark:text-white font-medium">{driver.full_name}</p>
             </motion.div>

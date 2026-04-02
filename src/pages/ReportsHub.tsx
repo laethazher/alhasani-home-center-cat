@@ -278,6 +278,15 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
 
   const showViolationsTab = profile?.role === 'admin';
   const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department !== 'installation';
+  const isInstallation = department === 'installation';
+  const attendanceDriverLabel = isInstallation ? 'فني' : 'سائق';
+  const attendanceAssistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
+  const vehicleDriverHeader = isInstallation ? 'الفني' : 'السائق';
+  const violationDriverLabel = isInstallation ? 'فني' : 'سائق';
+  const violationAssistantLabel = isInstallation ? 'مساعد فني' : 'مساعد';
+  const violationDriverPluralLabel = isInstallation ? 'فنيون' : 'سائقون';
+  const violationDriverBarName = isInstallation ? 'فني' : 'سائق';
+  const violationAssistantBarName = isInstallation ? 'مساعد فني' : 'مساعد';
 
   useEffect(() => {
     setSelectedAttendanceKeys(new Set());
@@ -898,7 +907,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         { label: 'عدد الموظفين', value: list.length },
         { label: 'إجمالي المخالفات', value: totalV },
         { label: 'إجمالي دقائق التأخير', value: totalM },
-        { label: 'سائقون', value: drivers },
+        { label: violationDriverPluralLabel, value: drivers },
         { label: 'مساعدون', value: assistants },
       ] as { label: string; value: string | number }[],
       alerts:
@@ -908,12 +917,12 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
             ? ['عدد مرتفع من المخالفات في العرض الحالي.']
             : [],
       bar: [
-        { name: 'سائق', value: drivers },
-        { name: 'مساعد', value: assistants },
+        { name: violationDriverBarName, value: drivers },
+        { name: violationAssistantBarName, value: assistants },
       ],
       pie: [
-        { name: 'سائق', value: drivers },
-        { name: 'مساعد', value: assistants },
+        { name: violationDriverBarName, value: drivers },
+        { name: violationAssistantBarName, value: assistants },
       ].filter((p) => p.value > 0),
     };
   }, [filteredViolationRows]);
@@ -993,7 +1002,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       {
         id: 'role',
         header: 'الدور',
-        accessor: (s) => (s.role === 'driver' ? 'سائق' : 'مساعد سائق'),
+        accessor: (s) => (s.role === 'driver' ? attendanceDriverLabel : attendanceAssistantLabel),
       },
       { id: 'present', header: 'حاضر', accessor: (s) => s.present },
       { id: 'late', header: 'متأخر', accessor: (s) => s.late },
@@ -1028,7 +1037,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       { id: 'model', header: 'الموديل', accessor: (v) => v.model ?? '—' },
       {
         id: 'driver',
-        header: 'السائق',
+        header: vehicleDriverHeader,
         accessor: (v) => (
           <HighlightText text={v.driver_name} query={activeDomain === 'all' ? hubSearch.all : hubSearch.vehicles} />
         ),
@@ -1050,7 +1059,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       {
         id: 'role',
         header: 'الدور',
-        accessor: (v) => (v.staffRole === 'driver' ? 'سائق' : 'مساعد'),
+        accessor: (v) => (v.staffRole === 'driver' ? violationDriverLabel : violationAssistantLabel),
       },
       { id: 'cnt', header: 'المخالفات', accessor: (v) => v.totalViolations },
       { id: 'delay', header: 'دقائق التأخير', accessor: (v) => v.totalDelayMinutes },
@@ -1483,7 +1492,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     ];
     const attendanceRows = staffForExport.map((s) => [
       s.full_name,
-      s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+      s.role === 'driver' ? attendanceDriverLabel : attendanceAssistantLabel,
       s.present,
       s.late,
       s.absent,
@@ -1492,7 +1501,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       s.role === 'driver' ? s.loading_delay_events : '—',
       s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
     ]);
-    const vehicleHeaders = ['اللوحة', 'الحالة', 'النوع', 'الموديل', 'السائق', 'العداد (كم)', 'ملاحظات'];
+    const vehicleHeaders = ['اللوحة', 'الحالة', 'النوع', 'الموديل', vehicleDriverHeader, 'العداد (كم)', 'ملاحظات'];
     const vehicleRows = vehicleForExport.map((v) => [
       v.plate_number,
       v.statusLabel,
@@ -1505,7 +1514,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     const violHeaders = ['الموظف', 'الدور', 'عدد المخالفات', 'مجموع دقائق التأخير'];
     const violRows = violForExport.map((v) => [
       v.staffName,
-      v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+      v.staffRole === 'driver' ? violationDriverLabel : violationAssistantLabel,
       v.totalViolations,
       v.totalDelayMinutes,
     ]);
@@ -1704,7 +1713,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     activeDomain === 'all'
       ? 'بحث موحّد: أسماء، أرقام لوحات، حالات، تواريخ، أرقام… (يطبق على الحضور والمركبات والمخالفات وBubbles)'
       : activeDomain === 'vehicles'
-        ? 'بحث باللوحة أو السائق أو الحالة أو العداد أو «متاح»…'
+        ? `بحث باللوحة أو ${vehicleDriverHeader} أو الحالة أو العداد أو «متاح»…`
         : activeDomain === 'violations'
           ? 'بحث باسم الموظف أو عدد مخالفات أو دقائق تأخير…'
           : activeDomain === 'bubbles'
@@ -2014,7 +2023,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                       'وقت الإرجاع',
                     ]
                   : activeDomain === 'vehicles'
-                    ? ['اللوحة', 'الحالة', 'النوع', 'الموديل', 'السائق', 'العداد (كم)', 'ملاحظات']
+                    ? ['اللوحة', 'الحالة', 'النوع', 'الموديل', vehicleDriverHeader, 'العداد (كم)', 'ملاحظات']
                     : activeDomain === 'violations'
                       ? ['الموظف', 'الدور', 'عدد المخالفات', 'مجموع دقائق التأخير']
                       : [
@@ -2058,13 +2067,13 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                     : activeDomain === 'violations'
                       ? filteredViolationRows.map((v) => [
                           v.staffName,
-                          v.staffRole === 'driver' ? 'سائق' : 'مساعد',
+                          v.staffRole === 'driver' ? violationDriverLabel : violationAssistantLabel,
                           v.totalViolations,
                           v.totalDelayMinutes,
                         ])
                       : filteredStaffStats.map((s) => [
                           s.full_name,
-                          s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+                          s.role === 'driver' ? attendanceDriverLabel : attendanceAssistantLabel,
                           s.present,
                           s.late,
                           s.absent,

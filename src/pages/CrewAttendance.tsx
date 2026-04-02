@@ -21,7 +21,11 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import {
+  getDepartmentClient,
+  getDepartmentTables,
+  normalizeDepartmentVehicleRow,
+} from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToCsv } from '../lib/excelExport';
@@ -102,6 +106,12 @@ interface Props {
 export default function CrewAttendance({ profile, department = 'tajhiz' }: Props) {
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
+  const isInstallation = department === 'installation';
+  const driverSingular = isInstallation ? 'فني' : 'سائق';
+  const assistantSingular = isInstallation ? 'مساعد فني' : 'مساعد سائق';
+  const driverPlural = isInstallation ? 'الفنيون' : 'السائقون';
+  const assistantPlural = isInstallation ? 'مساعدو الفنيين' : 'مساعدو السائقين';
+
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
@@ -152,7 +162,11 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
       })) as StaffMember[];
       setStaff(normalizedStaff);
     }
-    if (vehRes.data) setVehicles(vehRes.data);
+    if (vehRes.data) {
+      setVehicles(
+        (vehRes.data as Array<Record<string, unknown>>).map((v) => normalizeDepartmentVehicleRow(v)),
+      );
+    }
     if (attRes.data) setAttendance(attRes.data);
     if (exitRes.data) {
       const m: Record<number, { tracked: number; delayEvents: number; totalDelayMin: number }> = {};
@@ -172,7 +186,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
       setDriverExitAggMap({});
     }
     if (!silent) setLoading(false);
-  }, [todayStr]);
+  }, [todayStr, supabase, tables]);
 
   useEffect(() => {
     fetchData();
@@ -459,7 +473,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
     ];
     const exportRows = toExportRows.map((r) => {
       const s = staff.find((x) => Number(x.id) === r.staff_id);
-      const roleLabel = s?.role === 'driver' ? 'سائق' : 'مساعد سائق';
+      const roleLabel = s?.role === 'driver' ? driverSingular : assistantSingular;
       const typeLabel = ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label ?? r.attendance_type;
       let timeStr = '—';
       if (r.attendance_type === 'present' || r.attendance_type === 'late') timeStr = r.check_in_time;
@@ -649,7 +663,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             </div>
             <div>
               <p className="text-2xl font-bold text-stone-900 dark:text-white">{drivers.length}</p>
-              <p className="text-sm text-stone-500 dark:text-stone-400">السائقون</p>
+              <p className="text-sm text-stone-500 dark:text-stone-400">{driverPlural}</p>
             </div>
           </div>
         </motion.div>
@@ -665,7 +679,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             </div>
             <div>
               <p className="text-2xl font-bold text-stone-900 dark:text-white">{assistants.length}</p>
-              <p className="text-sm text-stone-500 dark:text-stone-400">مساعدو السائقين</p>
+              <p className="text-sm text-stone-500 dark:text-stone-400">{assistantPlural}</p>
             </div>
           </div>
         </motion.div>
@@ -702,8 +716,8 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm"
           >
             <option value="all">جميع الكادر</option>
-            <option value="driver">السائقون فقط</option>
-            <option value="assistant">مساعدو السائقين فقط</option>
+            <option value="driver">{driverPlural} فقط</option>
+            <option value="assistant">{assistantPlural} فقط</option>
           </select>
 
           {isAdmin && (
@@ -712,7 +726,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
                 onClick={() => { setShowAddDriver(true); setAddError(''); setNewName(''); }}
                 className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
               >
-                <UserPlus className="w-4 h-4" /> إضافة سائق
+                <UserPlus className="w-4 h-4" /> إضافة {driverSingular}
               </button>
               <button
                 onClick={() => { setShowAddAssistant(true); setAddError(''); setNewName(''); }}
@@ -787,7 +801,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               filterDescription:
                 [
                   searchQuery && `بحث: ${searchQuery}`,
-                  roleFilter !== 'all' && `الدور: ${roleFilter === 'driver' ? 'سائق' : 'مساعد'}`,
+                  roleFilter !== 'all' && `الدور: ${roleFilter === 'driver' ? driverSingular : assistantSingular}`,
                   sortRelevance && 'ترتيب حسب التطابق',
                 ]
                   .filter(Boolean)
@@ -806,7 +820,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             ]}
             dataRows={visibleRowsDisplayed.map((r) => {
               const s = staff.find((x) => Number(x.id) === r.staff_id);
-              const roleLabel = s?.role === 'driver' ? 'سائق' : 'مساعد سائق';
+              const roleLabel = s?.role === 'driver' ? driverSingular : assistantSingular;
               const typeLabel = ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label ?? r.attendance_type;
               let timeStr = '—';
               if (r.attendance_type === 'present' || r.attendance_type === 'late') timeStr = r.check_in_time;
@@ -887,7 +901,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               {visibleRowsDisplayed.map((r, idx) => {
                 const s = staff.find((x) => Number(x.id) === r.staff_id);
                 if (!s) return null;
-                const roleLabel = s.role === 'driver' ? 'سائق' : 'مساعد سائق';
+                const roleLabel = s.role === 'driver' ? driverSingular : assistantSingular;
                 return (
                   <tr
                     key={r.staff_id}
@@ -987,7 +1001,11 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
         </div>
         {visibleRowsDisplayed.length === 0 && (
           <div className="py-16 text-center text-stone-500 dark:text-stone-400">
-            {searchQuery ? 'لا توجد نتائج تطابق بحثك' : 'لا يوجد موظفين لعرضهم. أضف سائقاً أو مساعد سائق.'}
+            {searchQuery
+              ? 'لا توجد نتائج تطابق بحثك'
+              : isInstallation
+                ? 'لا يوجد موظفين لعرضهم. أضف فنيًا أو مساعد فني.'
+                : 'لا يوجد موظفين لعرضهم. أضف سائقاً أو مساعد سائق.'}
           </div>
         )}
       </motion.div>
@@ -1009,12 +1027,12 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               onClick={(e) => e.stopPropagation()}
               className="bg-white dark:bg-stone-800 rounded-2xl p-6 w-full max-w-md shadow-xl"
             >
-              <h3 className="text-lg font-bold mb-4">إضافة سائق جديد</h3>
+              <h3 className="text-lg font-bold mb-4">إضافة {driverSingular} جديد</h3>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="اسم السائق"
+                placeholder={isInstallation ? 'اسم الفني' : 'اسم السائق'}
                 className="w-full px-4 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 mb-3"
               />
               {addError && (
@@ -1056,7 +1074,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
                     <Package className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-stone-900 dark:text-white leading-tight">ملف تحميل السائق</h3>
+                    <h3 className="text-lg font-bold text-stone-900 dark:text-white leading-tight">ملف تحميل {driverSingular}</h3>
                     <p className="text-base font-semibold text-amber-800 dark:text-amber-200 mt-0.5 truncate">{driverLoadingModal.name}</p>
                     <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1 flex items-center gap-1">
                       <BarChart3 className="w-3 h-3" />
@@ -1153,7 +1171,11 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
                       </tbody>
                     </table>
                     {driverExitRequests.length === 0 && (
-                      <p className="text-center py-10 text-stone-500 text-sm">لا توجد طلبات إخراج باحتساب وقت التحميل لهذا السائق</p>
+                      <p className="text-center py-10 text-stone-500 text-sm">
+                        {isInstallation
+                          ? 'لا توجد طلبات إخراج باحتساب وقت التحميل لهذا الفني'
+                          : 'لا توجد طلبات إخراج باحتساب وقت التحميل لهذا السائق'}
+                      </p>
                     )}
                   </div>
                 </>
@@ -1180,7 +1202,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               onClick={(e) => e.stopPropagation()}
               className="bg-white dark:bg-stone-800 rounded-2xl p-6 w-full max-w-md shadow-xl"
             >
-              <h3 className="text-lg font-bold mb-4">إضافة مساعد سائق جديد</h3>
+              <h3 className="text-lg font-bold mb-4">إضافة {assistantSingular} جديد</h3>
               <input
                 type="text"
                 value={newName}

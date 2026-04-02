@@ -57,6 +57,10 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const maintenanceImagesBucket = department === 'installation' ? 'installation-maintenance-images' : 'maintenance-images';
+  const isInstallation = department === 'installation';
+  const driverLabel = isInstallation ? 'فني' : 'سائق';
+  const driverPluralLabel = isInstallation ? 'الفنيين' : 'السائقين';
+  const driverIssuesTitle = isInstallation ? 'بلاغات الفنيين' : 'بلاغات السائقين';
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
@@ -406,7 +410,7 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
             tab === 'issues' ? 'bg-blue-600 text-white' : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400',
           )}
         >
-          بلاغات السائقين ({driverIssues.filter(i => i.status === 'pending').length})
+          {driverIssuesTitle} ({driverIssues.filter(i => i.status === 'pending').length})
         </button>
       </div>
 
@@ -626,7 +630,7 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
           {driverIssues.length === 0 && (
             <div className="text-center py-16 text-stone-400">
               <FileWarning className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>لا توجد بلاغات من السائقين</p>
+              <p>لا توجد بلاغات من {driverPluralLabel}</p>
             </div>
           )}
           {driverIssues.map((issue, i) => {
@@ -703,13 +707,13 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {/* Driver select */}
                 <div>
-                  <label className="block text-sm font-medium mb-1.5 text-stone-700 dark:text-stone-300">اسم السائق</label>
+                  <label className="block text-sm font-medium mb-1.5 text-stone-700 dark:text-stone-300">اسم {driverLabel}</label>
                   <select
                     value={formDriverId}
                     onChange={e => setFormDriverId(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm"
                   >
-                    <option value="">اختر السائق...</option>
+                    <option value="">اختر {driverLabel}...</option>
                     {drivers.map(d => (
                       <option key={d.id} value={d.id}>
                         {d.full_name} {driverVehicleMap[d.id] ? `(${driverVehicleMap[d.id]!.plate_number})` : ''}

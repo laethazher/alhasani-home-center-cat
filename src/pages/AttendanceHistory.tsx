@@ -45,6 +45,9 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
+  const isInstallation = department === 'installation';
+  const driverLabel = isInstallation ? 'فني' : 'سائق';
+  const assistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
   const [records, setRecords] = useState<(AttendanceArchive & { staff?: StaffMember; vehicle?: Vehicle })[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -82,7 +85,7 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
       const rows = toExport.map(r => [
         new Date(r.attendance_date).toLocaleDateString('ar-IQ'),
         r.staff?.full_name ?? '—',
-        r.staff?.role === 'driver' ? 'سائق' : 'مساعد سائق',
+        r.staff?.role === 'driver' ? driverLabel : assistantLabel,
         ATTENDANCE_TYPE_LABELS[r.attendance_type] ?? r.attendance_type,
         r.attendance_type === 'time_leave' && r.check_in_time && r.check_out_time
           ? `${String(r.check_in_time).slice(0, 5)} → ${String(r.check_out_time).slice(0, 5)}`
@@ -402,8 +405,8 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
               className="w-full px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
             >
               <option value="all">الكل</option>
-              <option value="driver">سائق</option>
-              <option value="assistant">مساعد سائق</option>
+              <option value="driver">{driverLabel}</option>
+              <option value="assistant">{assistantLabel}</option>
             </select>
           </div>
           <div>
@@ -514,7 +517,7 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
                             <span className="font-medium">{r.staff?.full_name ?? '—'}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2">{r.staff?.role === 'driver' ? 'سائق' : 'مساعد سائق'}</td>
+                        <td className="px-4 py-2">{r.staff?.role === 'driver' ? driverLabel : assistantLabel}</td>
                         <td className="px-4 py-2">
                           {isEditing ? (
                             <select

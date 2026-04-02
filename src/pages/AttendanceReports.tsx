@@ -74,6 +74,11 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
+  const isInstallation = department === 'installation';
+  const driverLabel = isInstallation ? 'فني' : 'سائق';
+  const assistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
+  const driversReportTitle = isInstallation ? 'تقرير الفنيين' : 'تقرير السائقين';
+  const assistantsReportTitle = isInstallation ? 'تقرير مساعدي الفنيين' : 'تقرير مساعدي السائقين';
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
@@ -258,7 +263,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       ];
       const rows = toExport.map((s) => [
         s.full_name,
-        s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+        s.role === 'driver' ? driverLabel : assistantLabel,
         s.present,
         s.late,
         s.absent,
@@ -341,8 +346,8 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
             >
               <option value="individual">تقرير فردي (الكل)</option>
-              <option value="drivers">تقرير السائقين</option>
-              <option value="assistants">تقرير مساعدي السائقين</option>
+              <option value="drivers">{driversReportTitle}</option>
+              <option value="assistants">{assistantsReportTitle}</option>
             </select>
           </div>
           
@@ -401,7 +406,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               ]}
               dataRows={filteredStaffStats.map((s) => [
                 s.full_name,
-                s.role === 'driver' ? 'سائق' : 'مساعد سائق',
+                s.role === 'driver' ? driverLabel : assistantLabel,
                 s.present,
                 s.late,
                 s.absent,
@@ -443,11 +448,11 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
             <div className="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
               <Truck className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h3 className="font-bold text-lg">تقرير السائقين</h3>
+            <h3 className="font-bold text-lg">{driversReportTitle}</h3>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-stone-500">عدد السائقين</span>
+              <span className="text-stone-500">{isInstallation ? 'عدد الفنيين' : 'عدد السائقين'}</span>
               <span className="font-semibold">{driversSummary.count}</span>
             </div>
             <div className="flex justify-between">
@@ -489,7 +494,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
             <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
               <Users className="w-6 h-6 text-violet-600 dark:text-violet-400" />
             </div>
-            <h3 className="font-bold text-lg">تقرير مساعدي السائقين</h3>
+            <h3 className="font-bold text-lg">{assistantsReportTitle}</h3>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="flex justify-between">
@@ -602,7 +607,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-2">{s.role === 'driver' ? 'سائق' : 'مساعد سائق'}</td>
+                  <td className="px-4 py-2">{s.role === 'driver' ? driverLabel : assistantLabel}</td>
                   <td className="px-4 py-2 text-emerald-600 dark:text-emerald-400">{s.present}</td>
                   <td className="px-4 py-2 text-amber-600 dark:text-amber-400">{s.late}</td>
                   <td className="px-4 py-2 text-red-600 dark:text-red-400">{s.absent}</td>
