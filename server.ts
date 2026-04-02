@@ -53,8 +53,22 @@ function safeParse(v: any) {
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+  const startedAt = Date.now();
 
   app.use(express.json({ limit: '50mb' }));
+
+  // Lightweight keep-alive endpoint for uptime monitors (supports /ping and /PING).
+  app.get(['/ping', '/PING'], (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.status(200).json({
+      ok: true,
+      service: 'alhasani-home-center',
+      uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   // API Route to save report
   app.post("/api/reports", async (req, res) => {
