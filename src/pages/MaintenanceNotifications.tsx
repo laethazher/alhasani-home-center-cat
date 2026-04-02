@@ -5,7 +5,7 @@ import {
   Calendar, Truck, Clock, AlertTriangle, RefreshCw, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { MaintenanceNotification, Vehicle, PeriodicMaintenance } from '../lib/supabaseClient';
 
@@ -36,9 +36,13 @@ export default function MaintenanceNotifications({ department = 'tajhiz' }: Prop
       supabase.from(tables.vehicles).select('*'),
     ]);
     if (notifRes.data) setNotifications(notifRes.data);
-    if (vehRes.data) setVehicles(vehRes.data);
+    if (vehRes.data) {
+      setVehicles(
+        (vehRes.data as Array<Record<string, unknown>>).map((v) => normalizeDepartmentVehicleRow(v)),
+      );
+    }
     setLoading(false);
-  }, []);
+  }, [supabase, tables]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

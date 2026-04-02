@@ -81,7 +81,7 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
     if (partsRes.data) setParts(partsRes.data);
     if (usageRes.data) setUsage(usageRes.data);
     setLoading(false);
-  }, []);
+  }, [supabase, tables]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

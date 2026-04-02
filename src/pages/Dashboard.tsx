@@ -3,14 +3,17 @@ import { motion } from 'framer-motion';
 import {
   Truck, FileText, DoorOpen, UserCog, Settings,
   Wrench, ClipboardList, Activity, History, Package, Bell, Shield, Sparkles,
+  CalendarCheck, Users, BarChart3,
 } from 'lucide-react';
 import DashboardCard from '../components/DashboardCard';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
+import type { DepartmentCode } from '../data/department';
 
 interface DashboardProps {
   profile: UserProfile;
   onNavigate: (page: PageKey) => void;
+  department?: DepartmentCode;
 }
 
 interface CardDef {
@@ -38,6 +41,15 @@ const CARDS: CardDef[] = [
   { key:'settings',             title:'الإعدادات',           description:'ضبط إعدادات النظام والتفضيلات العامة',           icon:Settings,      gradient:'from-rose-500 to-pink-600',     roles:['admin'] },
 ];
 
+/** لوحة التركيب: اختصارات حضور الكادر مربوطة بنفس الجداول المعزولة (installation_*) */
+const INSTALLATION_ATTENDANCE_CARDS: CardDef[] = [
+  { key:'crew-attendance',         title:'الحضور اليومي',   description:'تسجيل حضور وغياب كادر التركيب يومياً',           icon:CalendarCheck, gradient:'from-emerald-500 to-teal-600',   roles:['admin','manager'] },
+  { key:'crew-staff',              title:'الكادر',            description:'عرض أعضاء كادر التركيب وسجلاتهم',                 icon:Users,         gradient:'from-sky-500 to-cyan-600',       roles:['admin','manager'] },
+  { key:'attendance-history',      title:'سجل الحضور',       description:'أرشيف أيام الحضور المؤرشفة لقسم التركيب',        icon:History,       gradient:'from-slate-500 to-zinc-600',      roles:['admin','manager'] },
+  { key:'attendance-reports',      title:'تقارير الحضور',     description:'تقارير مجمّعة عن الحضور والغياب',                icon:BarChart3,     gradient:'from-violet-500 to-purple-600',   roles:['admin','manager'] },
+  { key:'attendance-activity-log', title:'سجل النشاط',       description:'تدقيق تغييرات سجلات الحضور',                     icon:Activity,      gradient:'from-amber-500 to-orange-600',   roles:['admin','manager'] },
+];
+
 const ROLE_LABELS: Record<UserRole, string> = {
   admin:'مدير النظام', driver:'سائق', manager:'مدير',
   warehouse:'مستودع',  logistics:'لوجستيات',
@@ -63,7 +75,7 @@ function getGreeting() {
 }
 
 /* ── DARK HERO ── */
-function DarkHero({ profile, count }: { profile: UserProfile; count: number }) {
+function DarkHero({ profile, count, departmentTag }: { profile: UserProfile; count: number; departmentTag?: string | null }) {
   const { ar, emoji } = getGreeting();
   const firstName = profile.full_name?.split(' ')[0] ?? '';
   const role = ROLE_META[profile.role] ?? ROLE_META.driver;
@@ -104,6 +116,9 @@ function DarkHero({ profile, count }: { profile: UserProfile; count: number }) {
               <h2 className="text-4xl font-black tracking-tight leading-none" style={{ color:'#f1f5f9', textShadow:'0 0 40px rgba(96,165,250,0.2)' }}>
                 Alhasani Home Center Logistics
               </h2>
+              {departmentTag ? (
+                <p className="text-xs font-bold mt-2" style={{ color:'#34d399' }}>{departmentTag}</p>
+              ) : null}
               <div className="flex items-center gap-2.5 mt-3 flex-wrap">
                 <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background:role.bgDark, border:`1px solid ${role.border}` }}>
                   <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background:role.color, boxShadow:`0 0 6px ${role.color}` }}/>
@@ -145,7 +160,7 @@ function DarkHero({ profile, count }: { profile: UserProfile; count: number }) {
 }
 
 /* ── LIGHT HERO ── */
-function LightHero({ profile, count }: { profile: UserProfile; count: number }) {
+function LightHero({ profile, count, departmentTag }: { profile: UserProfile; count: number; departmentTag?: string | null }) {
   const { ar, emoji } = getGreeting();
   const firstName = profile.full_name?.split(' ')[0] ?? '';
   const role = ROLE_META[profile.role] ?? ROLE_META.driver;
@@ -182,6 +197,9 @@ function LightHero({ profile, count }: { profile: UserProfile; count: number }) 
             </div>
             <div>
               <h2 className="text-4xl font-black tracking-tight leading-none text-slate-900">Alhasani Home Center Logistics</h2>
+              {departmentTag ? (
+                <p className="text-xs font-bold text-emerald-600 mt-2">{departmentTag}</p>
+              ) : null}
               <div className="flex items-center gap-2.5 mt-3 flex-wrap">
                 <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background:role.bgLight, border:`1px solid ${role.color}40` }}>
                   <div className="w-1.5 h-1.5 rounded-full" style={{ background:role.color }}/>
@@ -224,7 +242,9 @@ function LightHero({ profile, count }: { profile: UserProfile; count: number }) 
 }
 
 /* ── SECTION LABEL ── */
-function SectionLabel({ count }: { count: number }) {
+function SectionLabel({ count, label, unit }: { count: number; label?: string; unit?: string }) {
+  const title = label ?? 'الأقسام';
+  const suffix = unit ?? 'قسم';
   return (
     <motion.div
       initial={{ opacity:0,x:12 }} animate={{ opacity:1,x:0 }}
@@ -233,23 +253,38 @@ function SectionLabel({ count }: { count: number }) {
     >
       <div className="flex items-center gap-2">
         <div className="w-1 h-5 rounded-full" style={{ background:'linear-gradient(to bottom,#3b82f6,#8b5cf6)' }}/>
-        <span className="text-[11px] font-black tracking-[0.16em] uppercase text-slate-400 dark:text-slate-600">الأقسام</span>
+        <span className="text-[11px] font-black tracking-[0.16em] uppercase text-slate-400 dark:text-slate-600">{title}</span>
       </div>
       <div className="flex-1 h-px bg-gradient-to-l from-transparent to-slate-200 dark:to-slate-800"/>
-      <span className="text-[11px] font-semibold text-slate-300 dark:text-slate-700">{count} قسم</span>
+      <span className="text-[11px] font-semibold text-slate-300 dark:text-slate-700">{count} {suffix}</span>
     </motion.div>
   );
 }
 
 /* ── MAIN ── */
-export default function Dashboard({ profile, onNavigate }: DashboardProps) {
-  const visible = CARDS.filter((c) => c.roles === 'all' || c.roles.includes(profile.role));
+export default function Dashboard({ profile, onNavigate, department = 'tajhiz' }: DashboardProps) {
+  const baseVisible = CARDS.filter((c) => c.roles === 'all' || c.roles.includes(profile.role));
+  const extraAttendance =
+    department === 'installation'
+      ? INSTALLATION_ATTENDANCE_CARDS.filter((c) => c.roles.includes(profile.role))
+      : [];
+  const seen = new Set<PageKey>();
+  const visible = [...baseVisible, ...extraAttendance].filter((c) => {
+    if (seen.has(c.key)) return false;
+    seen.add(c.key);
+    return true;
+  });
+  const departmentTag = department === 'installation' ? 'قسم التركيب — بيانات معزولة عن التجهيز' : null;
 
   return (
     <div className="space-y-8">
-      <span className="hidden dark:block"><DarkHero profile={profile} count={visible.length}/></span>
-      <span className="dark:hidden"><LightHero profile={profile} count={visible.length}/></span>
-      <SectionLabel count={visible.length}/>
+      <span className="hidden dark:block"><DarkHero profile={profile} count={visible.length} departmentTag={departmentTag}/></span>
+      <span className="dark:hidden"><LightHero profile={profile} count={visible.length} departmentTag={departmentTag}/></span>
+      <SectionLabel
+        count={visible.length}
+        label={department === 'installation' ? 'وحدات سريعة' : undefined}
+        unit={department === 'installation' ? 'وحدة' : undefined}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {visible.map((card,i) => (
           <DashboardCard

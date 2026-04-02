@@ -39,7 +39,7 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone, 
   const fetchParts = useCallback(async () => {
     const { data } = await supabase.from(tables.spareParts).select('*').gt('quantity', 0);
     if (data) setSpareParts(data);
-  }, []);
+  }, [supabase, tables]);
 
   useEffect(() => {
     if (!open) return;

@@ -5,7 +5,7 @@ import {
   Plus, X, Save, Loader2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { PeriodicMaintenance, Vehicle, PeriodicMaintenanceStatus } from '../lib/supabaseClient';
 
@@ -45,9 +45,13 @@ export default function PeriodicMaintenancePanel({ vehicleId, department = 'tajh
       supabase.from(tables.vehicles).select('*'),
     ]);
     if (itemsRes.data) setItems(itemsRes.data);
-    if (vehRes.data) setVehicles(vehRes.data);
+    if (vehRes.data) {
+      setVehicles(
+        (vehRes.data as Array<Record<string, unknown>>).map((v) => normalizeDepartmentVehicleRow(v)),
+      );
+    }
     setLoading(false);
-  }, []);
+  }, [supabase, tables]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

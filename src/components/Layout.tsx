@@ -325,6 +325,7 @@ export default function Layout({
                 </p>
                 <p className="text-[10px] font-semibold whitespace-nowrap" style={{ color: isDarkMode ? '#334155' : '#94a3b8' }}>
                   Fleet Management System
+                  {department === 'installation' ? ' · قسم التركيب' : ''}
                 </p>
               </motion.div>
             )}

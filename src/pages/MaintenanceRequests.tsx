@@ -6,7 +6,7 @@ import {
   MessageSquare, Image as ImageIcon, FileWarning, Download, Printer, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type {
   MaintenanceRequest, MaintenancePriority, Vehicle, StaffMember,
@@ -118,17 +118,9 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
       setRequests(normalized);
     }
     if (vehRes.data) {
-      const normalizedVehicles = (vehRes.data as Array<Record<string, unknown>>).map((v) => ({
-        ...v,
-        plate_number: String(v.plate_number ?? v.vehicle_number ?? ''),
-        assigned_driver_id:
-          v.assigned_driver_id != null
-            ? String(v.assigned_driver_id)
-            : v.responsible_staff_id != null
-              ? String(v.responsible_staff_id)
-              : null,
-      })) as Vehicle[];
-      setVehicles(normalizedVehicles);
+      setVehicles(
+        (vehRes.data as Array<Record<string, unknown>>).map((v) => normalizeDepartmentVehicleRow(v)),
+      );
     }
     if (drvRes.data) {
       const normalizedDrivers = (drvRes.data as Array<Record<string, unknown>>)

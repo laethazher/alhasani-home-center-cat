@@ -5,7 +5,7 @@ import {
   User, FileText, Image as ImageIcon, Download, Calendar, Check,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
@@ -42,20 +42,49 @@ export default function MaintenanceHistory({ profile, department = 'tajhiz' }: P
     const { data: { user } } = await supabase.auth.getUser();
     if (user) setCurrentUserId(user.id);
 
+    const staffQuery =
+      department === 'installation'
+        ? supabase.from(tables.staffMembers).select('*').eq('is_active', true)
+        : supabase.from(tables.staffMembers).select('*').eq('role', 'driver');
+
+    const requestsQuery =
+      department === 'installation'
+        ? supabase.from(tables.maintenanceRequests).select('id, driver_id, approved_by, staff_id')
+        : supabase.from(tables.maintenanceRequests).select('id, driver_id, approved_by');
+
     const [recRes, reqRes, imgRes, vehRes, drvRes] = await Promise.all([
       supabase.from(tables.maintenanceRecords).select('*').order('created_at', { ascending: false }),
-      supabase.from(tables.maintenanceRequests).select('id, driver_id, approved_by'),
+      requestsQuery,
       supabase.from(tables.maintenanceImages).select('*'),
       supabase.from(tables.vehicles).select('*'),
-      supabase.from(tables.staffMembers).select('*').eq('role', 'driver'),
+      staffQuery,
     ]);
     if (recRes.data) setRecords(recRes.data);
-    if (reqRes.data) setRequests(reqRes.data);
+    if (reqRes.data) {
+      setRequests(
+        (reqRes.data as Array<Record<string, unknown>>).map((r) => ({
+          id: r.id as number,
+          driver_id: (r.driver_id ?? r.staff_id ?? null) as number | null,
+          approved_by: (r.approved_by ?? null) as string | null,
+        })),
+      );
+    }
     if (imgRes.data) setImages(imgRes.data);
-    if (vehRes.data) setVehicles(vehRes.data);
-    if (drvRes.data) setDrivers(drvRes.data);
+    if (vehRes.data) {
+      setVehicles(
+        (vehRes.data as Array<Record<string, unknown>>).map((v) => normalizeDepartmentVehicleRow(v)),
+      );
+    }
+    if (drvRes.data) {
+      setDrivers(
+        (drvRes.data as Array<Record<string, unknown>>).map((d) => ({
+          ...d,
+          role: d.role === 'assistant' || d.role === 'crew' ? 'assistant' : 'driver',
+        })) as StaffMember[],
+      );
+    }
     setLoading(false);
-  }, []);
+  }, [supabase, tables, department]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

@@ -5,7 +5,7 @@ import {
   X, CheckCircle2, AlertTriangle, History, FileText, UserCheck,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type {
   MaintenanceRequest, MaintenanceRecord, MaintenanceImage,
@@ -83,7 +83,9 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
           ? supabase.from('user_profiles').select('full_name').eq('id', req.approved_by).single()
           : Promise.resolve({ data: null }),
       ]);
-      if (vRes.data) setVehicle(vRes.data);
+      if (vRes.data) {
+        setVehicle(normalizeDepartmentVehicleRow(vRes.data as Record<string, unknown>));
+      }
       if (dRes.data) setDriver(dRes.data);
       if (iRes.data) setImages(iRes.data);
       if (rRes.data) setPastRecords(rRes.data);
@@ -93,7 +95,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
       setApproverName(null);
     }
     setLoading(false);
-  }, []);
+  }, [supabase, tables]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

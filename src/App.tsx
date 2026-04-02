@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { useUserProfile } from './hooks/useUserProfile';
@@ -29,6 +29,7 @@ import ReportsHub from './pages/ReportsHub';
 import Bubbles from './pages/Bubbles';
 import AttendanceActivityLog from './pages/AttendanceActivityLog';
 import { SmartPageProvider } from './smart';
+import { resolveWorkspaceGuardedPage } from './lib/workspacePageGuard';
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
@@ -83,6 +84,12 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [role]);
+
+  /* يجب أن تبقى كل الـ hooks فوق أي return مبكر — وإلا يحدث خطأ “more hooks” وشاشة بيضاء عند دخول التجهيز */
+  const guardedPage = useMemo(
+    () => resolveWorkspaceGuardedPage(activePage, role, { department: 'tajhiz' }),
+    [activePage, role],
+  );
 
   /* ── Loading state ── */
   if (loading) {
@@ -148,34 +155,7 @@ export default function App() {
     );
   }
 
-  /* ── Authenticated ── */
-
-  /* Role-based page guard — redirect to dashboard if unauthorized */
-  const maintenancePages: PageKey[] = ['maintenance', 'maintenance-requests', 'active-maintenance', 'maintenance-history', 'spare-parts', 'notifications'];
-  const maintenanceManagerPages: PageKey[] = ['maintenance-requests', 'active-maintenance', 'maintenance-history', 'notifications'];
-  const attendancePages: PageKey[] = ['crew-attendance', 'crew-staff', 'attendance-history', 'attendance-reports', 'attendance-activity-log'];
-  const smartHubPages: PageKey[] = ['reports-hub'];
-  const guardedPage = (() => {
-    if (activePage === 'users' && role !== 'admin') return 'dashboard';
-    if (activePage === 'settings' && role !== 'admin') return 'dashboard';
-    if (
-      activePage === 'bubbles' &&
-      role !== 'admin' &&
-      role !== 'manager' &&
-      role !== 'logistics' &&
-      role !== 'gate_guard'
-    ) {
-      return 'dashboard';
-    }
-    if (maintenancePages.includes(activePage) && role !== 'admin' && role !== 'maintenance_manager') return 'dashboard';
-    if (smartHubPages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
-    if (attendancePages.includes(activePage) && role !== 'admin' && role !== 'manager') return 'dashboard';
-    if (role === 'gate_guard' && activePage !== 'dashboard' && activePage !== 'staff-exit' && activePage !== 'bubbles') {
-      return 'staff-exit';
-    }
-    if (role === 'maintenance_manager' && !maintenanceManagerPages.includes(activePage) && activePage !== 'dashboard') return 'maintenance-requests';
-    return activePage;
-  })();
+  /* ── Authenticated (قسم التجهيز) ── */
 
   const authUser = user!;
   const authProfile = profile!;
@@ -230,7 +210,7 @@ export default function App() {
   return (
     <Layout
       profile={profile}
-      activePage={activePage}
+      activePage={guardedPage}
       onNavigate={setActivePage}
       onBackToSections={() => setSystemArea(null)}
       onSignOut={signOut}

@@ -5,7 +5,7 @@ import {
   TrendingUp, ArrowLeft, Activity, Package, Bell, ChevronLeft,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRequest, MaintenanceRecord, Vehicle, PeriodicMaintenance } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
@@ -35,10 +35,14 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
     ]);
     if (reqRes.data) setRequests(reqRes.data);
     if (recRes.data) setRecords(recRes.data);
-    if (vehRes.data) setVehicles(vehRes.data);
+    if (vehRes.data) {
+      setVehicles(
+        (vehRes.data as Array<Record<string, unknown>>).map((v) => normalizeDepartmentVehicleRow(v)),
+      );
+    }
     if (perRes.data) setPeriodic(perRes.data);
     setLoading(false);
-  }, []);
+  }, [supabase, tables]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

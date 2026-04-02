@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { UserProfile } from '../lib/supabaseClient';
 import Layout, { type PageKey } from '../components/Layout';
 import { SmartPageProvider } from '../smart';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { playNotificationSound } from '../lib/notificationSound';
+import { resolveWorkspaceGuardedPage } from '../lib/workspacePageGuard';
 import InstallationVehicles from './InstallationVehicles';
 import InstallationStaffExit from './InstallationStaffExit';
 import MaintenanceDashboard from './MaintenanceDashboard';
@@ -43,6 +46,10 @@ export default function InstallationWorkspace({
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
 
   const role = profile?.role;
+  const guardedPage = useMemo(
+    () => resolveWorkspaceGuardedPage(activePage, role, { department: 'installation' }),
+    [activePage, role],
+  );
   useEffect(() => {
     if (role === 'gate_guard' && activePage === 'dashboard') {
       setActivePage('staff-exit');
@@ -52,10 +59,30 @@ export default function InstallationWorkspace({
     }
   }, [role, activePage]);
 
+  useEffect(() => {
+    if (role !== 'maintenance_manager') return;
+    const supabase = getDepartmentClient('installation');
+    const tables = getDepartmentTables('installation');
+    const channel = supabase
+      .channel('installation-maintenance-requests-insert')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: tables.maintenanceRequests },
+        (payload) => {
+          const row = payload.new as { status?: string };
+          if (row?.status === 'pending') playNotificationSound();
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [role]);
+
   function renderPage() {
-    switch (activePage) {
+    switch (guardedPage) {
       case 'dashboard':
-        return <Dashboard profile={profile} onNavigate={setActivePage} />;
+        return <Dashboard profile={profile} onNavigate={setActivePage} department="installation" />;
       case 'vehicles':
         return <InstallationVehicles isDarkMode={isDarkMode} />;
       case 'staff-exit':
@@ -93,14 +120,14 @@ export default function InstallationWorkspace({
       case 'settings':
         return <div className="text-center py-20 text-stone-500">الإعدادات — قيد التطوير</div>;
       default:
-        return <InstallationVehicles isDarkMode={isDarkMode} />;
+        return <Dashboard profile={profile} onNavigate={setActivePage} department="installation" />;
     }
   }
 
   return (
     <Layout
       profile={profile}
-      activePage={activePage}
+      activePage={guardedPage}
       onNavigate={setActivePage}
       onBackToSections={onBack}
       onSignOut={onSignOut}
@@ -109,7 +136,7 @@ export default function InstallationWorkspace({
       onToggleDark={onToggleDark}
       department="installation"
     >
-      <SmartPageProvider pageKey={activePage}>{renderPage()}</SmartPageProvider>
+      <SmartPageProvider pageKey={guardedPage}>{renderPage()}</SmartPageProvider>
     </Layout>
   );
 }
