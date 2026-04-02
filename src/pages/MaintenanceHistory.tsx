@@ -10,6 +10,7 @@ import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRecord, MaintenanceImage, Vehicle, StaffMember, UserProfile } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
+import { rpcWithInstallationFallback } from '../lib/rpcFallback';
 
 interface Props {
   profile: UserProfile | null;
@@ -133,8 +134,12 @@ export default function MaintenanceHistory({ profile, department = 'tajhiz' }: P
     setDeleting(true);
     try {
       const idsToRemove = [...selectedIds];
-      const rpcName = department === 'installation' ? 'installation_delete_maintenance_records' : 'delete_maintenance_records';
-      const { data, error } = await supabase.rpc(rpcName, { p_record_ids: idsToRemove });
+      const { data, error } = await rpcWithInstallationFallback<{ success?: boolean; error?: string }>(supabase, {
+        department,
+        installationRpc: 'installation_delete_maintenance_records',
+        defaultRpc: 'delete_maintenance_records',
+        params: { p_record_ids: idsToRemove },
+      });
       const result = data as { success?: boolean; error?: string } | null;
       if (error) {
         alert('فشل الحذف: ' + error.message);

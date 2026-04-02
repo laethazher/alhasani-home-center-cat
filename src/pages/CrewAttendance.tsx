@@ -30,6 +30,7 @@ import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToCsv } from '../lib/excelExport';
 import { logAttendanceActivity } from '../lib/attendanceActivity';
+import { rpcWithInstallationFallback } from '../lib/rpcFallback';
 import type {
   UserProfile,
   StaffMember,
@@ -428,8 +429,12 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
     if (!window.confirm('هل أنت متأكد من أرشفة يوم الحضور؟ لن يمكن تعديل البيانات إلا من قبل المدير.')) return;
     setArchiving(true);
     try {
-      const rpcName = department === 'installation' ? 'installation_archive_attendance_day' : 'archive_attendance_day';
-      const { data, error } = await supabase.rpc(rpcName, { p_date: todayStr });
+      const { data, error } = await rpcWithInstallationFallback<{ success?: boolean; error?: string; archived_count?: number }>(supabase, {
+        department,
+        installationRpc: 'installation_archive_attendance_day',
+        defaultRpc: 'archive_attendance_day',
+        params: { p_date: todayStr },
+      });
       const result = data as { success?: boolean; error?: string; archived_count?: number } | null;
       if (error) {
         alert('فشل الأرشفة: ' + error.message);

@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRequest, SparePart } from '../lib/supabaseClient';
+import { rpcWithInstallationFallback } from '../lib/rpcFallback';
 
 const MAINTENANCE_TYPES = [
   'صيانة عامة', 'تغيير زيت', 'فلتر زيت', 'فلتر هواء', 'فحص الفرامل',
@@ -83,19 +84,23 @@ export default function FinishMaintenanceForm({ request, open, onClose, onDone, 
       quantity: sp.qty,
     }));
 
-    const rpcName = department === 'installation' ? 'installation_finish_maintenance' : 'finish_maintenance';
-    const { data, error } = await supabase.rpc(rpcName, {
-      p_request_id: request.id,
-      p_maintenance_type: maintenanceType,
-      p_fault_description: faultDescription,
-      p_work_done: workDone,
-      p_inspection_only: inspectionOnly,
-      p_parts_replaced: partsReplaced || null,
-      p_technician_name: technicianName || null,
-      p_cost: Number(cost) || 0,
-      p_duration_minutes: durationMinutes,
-      p_notes: notes || null,
-      p_spare_parts: sparePartsPayload,
+    const { data, error } = await rpcWithInstallationFallback<{ success?: boolean; error?: string }>(supabase, {
+      department,
+      installationRpc: 'installation_finish_maintenance',
+      defaultRpc: 'finish_maintenance',
+      params: {
+        p_request_id: request.id,
+        p_maintenance_type: maintenanceType,
+        p_fault_description: faultDescription,
+        p_work_done: workDone,
+        p_inspection_only: inspectionOnly,
+        p_parts_replaced: partsReplaced || null,
+        p_technician_name: technicianName || null,
+        p_cost: Number(cost) || 0,
+        p_duration_minutes: durationMinutes,
+        p_notes: notes || null,
+        p_spare_parts: sparePartsPayload,
+      },
     });
 
     if (error) {

@@ -15,6 +15,7 @@ import type {
 import type { PageKey } from '../components/Layout';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
+import { rpcWithInstallationFallback } from '../lib/rpcFallback';
 import {
   SmartSearchBar,
   HighlightText,
@@ -155,8 +156,12 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
   async function handleDeleteSelected() {
     if (selectedIds.length === 0 || !window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} طلب؟ سيتم حذف كل ما يرتبط بها (السجلات، الصور، أحداث المركبة، التنبيهات) دون التأثير على النظام.`)) return;
     setDeleting(true);
-    const rpcName = department === 'installation' ? 'installation_delete_maintenance_requests' : 'delete_maintenance_requests';
-    const { data, error } = await supabase.rpc(rpcName, { p_request_ids: selectedIds });
+    const { data, error } = await rpcWithInstallationFallback<{ success?: boolean; error?: string }>(supabase, {
+      department,
+      installationRpc: 'installation_delete_maintenance_requests',
+      defaultRpc: 'delete_maintenance_requests',
+      params: { p_request_ids: selectedIds },
+    });
     const result = data as { success?: boolean; error?: string } | null;
     if (error) {
       alert('فشل الحذف: ' + error.message);
