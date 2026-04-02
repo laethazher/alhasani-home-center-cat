@@ -260,7 +260,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 shadow-sm"
+        className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-4 shadow-sm"
       >
         <div className="flex flex-wrap gap-4 items-end">
           <div>
@@ -269,7 +269,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm"
             />
           </div>
           <div>
@@ -278,7 +278,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm"
             />
           </div>
           {canManage && (

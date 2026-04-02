@@ -8,6 +8,7 @@ import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { MaintenanceNotification, Vehicle, PeriodicMaintenance } from '../lib/supabaseClient';
+import { Button } from '../components/ui/button';
 
 const TYPE_CONFIG: Record<string, { icon: typeof Bell; color: string; label: string }> = {
   maintenance_due:       { icon: Wrench,        color: 'text-amber-600',   label: 'موعد صيانة' },
@@ -146,7 +147,7 @@ export default function MaintenanceNotifications({ department = 'tajhiz' }: Prop
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -156,43 +157,35 @@ export default function MaintenanceNotifications({ department = 'tajhiz' }: Prop
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2">
-          <button
+          <Button
             onClick={() => setFilter('all')}
-            className={cn(
-              'px-4 py-2 rounded-xl text-sm font-medium transition-colors',
-              filter === 'all' ? 'bg-blue-600 text-white' : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400',
-            )}
+            variant={filter === 'all' ? 'default' : 'secondary'}
+            className={cn('font-black', filter !== 'all' && 'bg-[hsl(var(--muted))]/60')}
           >
             الكل ({notifications.length})
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => setFilter('unread')}
-            className={cn(
-              'px-4 py-2 rounded-xl text-sm font-medium transition-colors',
-              filter === 'unread' ? 'bg-blue-600 text-white' : 'bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400',
-            )}
+            variant={filter === 'unread' ? 'default' : 'secondary'}
+            className={cn('font-black', filter !== 'unread' && 'bg-[hsl(var(--muted))]/60')}
           >
             غير مقروء ({unreadCount})
-          </button>
+          </Button>
         </div>
         <div className="flex gap-2">
-          <motion.button
-            whileTap={{ scale: 0.98 }}
+          <Button
             onClick={generateAlerts}
             disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-sm font-medium border border-amber-200 dark:border-amber-800"
+            variant="outline"
+            className="font-black border-amber-200/70 dark:border-amber-800/70"
           >
             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             فحص التنبيهات
-          </motion.button>
+          </Button>
           {unreadCount > 0 && (
-            <motion.button
-              whileTap={{ scale: 0.98 }}
-              onClick={markAllAsRead}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400 text-sm font-medium"
-            >
+            <Button onClick={markAllAsRead} variant="secondary" className="font-black bg-[hsl(var(--muted))]/60">
               <CheckCheck className="w-4 h-4" /> تحديد الكل كمقروء
-            </motion.button>
+            </Button>
           )}
         </div>
       </div>
@@ -217,10 +210,10 @@ export default function MaintenanceNotifications({ department = 'tajhiz' }: Prop
               transition={{ delay: i * 0.02 }}
               onClick={() => !notif.is_read && markAsRead(notif.id)}
               className={cn(
-                'rounded-2xl border p-4 cursor-pointer transition-all',
+                'rounded-2xl border border-[hsl(var(--border))] p-4 cursor-pointer transition-all bg-[hsl(var(--card))]/70 backdrop-blur-2xl',
                 notif.is_read
-                  ? 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 opacity-60'
-                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 shadow-sm hover:shadow-md',
+                  ? 'opacity-60'
+                  : 'shadow-sm hover:shadow-md',
               )}
             >
               <div className="flex items-start gap-3">

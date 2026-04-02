@@ -599,7 +599,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
   /* ── Render ── */
   if (loading) return (
     <div className="flex items-center justify-center py-20">
-      <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
     </div>
   );
 
@@ -786,7 +786,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
         {showForm && (
           <motion.div ref={formRef} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-            <div className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-5 space-y-5 shadow-lg">
+            <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 space-y-5 shadow-lg">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold">{editingVehicle ? 'تعديل المركبة' : 'إضافة مركبة جديدة'}</h3>
                 <button onClick={() => { setShowForm(false); resetForm(); }}

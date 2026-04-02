@@ -298,9 +298,7 @@ export default function Layout({
       <div className="flex flex-col h-full">
 
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 flex-shrink-0" style={{
-          borderBottom: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.06)',
-        }}>
+        <div className="flex items-center gap-3 px-4 py-5 flex-shrink-0 border-b border-[hsl(var(--border))]">
           <div className="relative flex-shrink-0">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{
               background: 'linear-gradient(135deg,#2563eb,#4f46e5)',
@@ -344,7 +342,7 @@ export default function Layout({
           {visibleItems.map(item => <NavBtn key={item.key} item={item} mobile={mobile}/>)}
 
           {(visibleMaintenanceChildren.length > 0 || visibleAttendanceChildren.length > 0) && (
-            <div className="my-3 mx-1" style={{ height:'1px', background: isDarkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)' }}/>
+            <div className="my-3 mx-1 h-px bg-[hsl(var(--border))]/60"/>
           )}
 
           {show && (visibleMaintenanceChildren.length > 0 || visibleAttendanceChildren.length > 0) && (
@@ -374,9 +372,7 @@ export default function Layout({
         </nav>
 
         {/* User Card */}
-        <div className="px-2.5 pb-4 pt-3 flex-shrink-0" style={{
-          borderTop: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.06)',
-        }}>
+        <div className="px-2.5 pb-4 pt-3 flex-shrink-0 border-t border-[hsl(var(--border))]">
           <div className={cn('flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1.5', !show && 'justify-center')} style={{
             background: isDarkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
             border: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.05)',
@@ -437,40 +433,28 @@ export default function Layout({
     );
   }
 
-  /* ─── STYLES ─── */
-  const sidebarStyle: React.CSSProperties = {
-    background: isDarkMode ? 'transparent' : 'linear-gradient(180deg,#ffffff,#fafbfc)',
-    borderLeft: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.07)',
-    boxShadow: isDarkMode ? 'none' : '4px 0 24px rgba(0,0,0,0.04)',
-    transition: 'all 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
-  };
-
-  const headerStyle: React.CSSProperties = {
-    background: isDarkMode ? 'rgba(6, 10, 18, 0.8)' : 'rgba(255,255,255,0.85)',
-    borderBottom: isDarkMode ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(0,0,0,0.06)',
-    backdropFilter: 'blur(20px)',
-    transition: 'all 0.45s cubic-bezier(0.22, 1, 0.36, 1)',
-  };
-
   /* ─── RENDER ─── */
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: isDarkMode ? '#060a12' : '#f1f5f9' }}>
+    <div className="flex h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
 
       {/* Desktop Sidebar */}
       <motion.aside
         animate={{ width: sidebarOpen ? 256 : 68 }}
         transition={{ type:'spring', stiffness:320, damping:32 }}
-        className="hidden lg:flex flex-col relative z-30 flex-shrink-0"
-        style={sidebarStyle}
+        className={cn(
+          'hidden lg:flex flex-col relative z-30 flex-shrink-0',
+          'border-l border-[hsl(var(--border))]',
+          'bg-[hsl(var(--card))]/70 backdrop-blur-2xl'
+        )}
       >
         <SidebarContent/>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="absolute -left-3 top-[88px] w-6 h-6 rounded-full flex items-center justify-center hover:scale-110 transition-transform"
           style={{
-            background: isDarkMode ? '#1e293b' : '#ffffff',
-            border: isDarkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
-            boxShadow: isDarkMode ? '0 2px 12px rgba(0,0,0,0.4)' : '0 2px 12px rgba(0,0,0,0.1)',
+            background: isDarkMode ? 'rgba(2,6,23,0.8)' : 'rgba(255,255,255,0.9)',
+            border: '1px solid rgba(148,163,184,0.25)',
+            boxShadow: isDarkMode ? '0 10px 28px rgba(0,0,0,0.45)' : '0 10px 24px rgba(15,23,42,0.12)',
           }}
         >
           <ChevronLeft className={cn('w-3 h-3 transition-transform duration-300', !sidebarOpen && 'rotate-180')}
@@ -491,8 +475,11 @@ export default function Layout({
             <motion.aside
               initial={{ x:300 }} animate={{ x:0 }} exit={{ x:300 }}
               transition={{ type:'spring', stiffness:320, damping:32 }}
-              className="fixed right-0 inset-y-0 w-72 z-50 lg:hidden flex flex-col"
-              style={sidebarStyle}
+              className={cn(
+                'fixed right-0 inset-y-0 w-72 z-50 lg:hidden flex flex-col',
+                'border-l border-[hsl(var(--border))]',
+                'bg-[hsl(var(--card))]/80 backdrop-blur-2xl'
+              )}
             >
               <button
                 onClick={() => setMobileOpen(false)}
@@ -511,7 +498,11 @@ export default function Layout({
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Header */}
-        <header className="h-14 flex items-center justify-between px-4 md:px-5 z-20 flex-shrink-0" style={headerStyle}>
+        <header className={cn(
+          'h-14 flex items-center justify-between px-4 md:px-5 z-20 flex-shrink-0',
+          'border-b border-[hsl(var(--border))]',
+          'bg-[hsl(var(--background))]/75 backdrop-blur-2xl'
+        )}>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileOpen(true)}

@@ -306,7 +306,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-[hsl(var(--primary))]" />
       </div>
     );
   }
@@ -317,7 +317,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-4 shadow-sm"
+        className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-4 shadow-sm"
       >
         <div className="flex flex-wrap gap-4 items-end">
           <div>
@@ -326,7 +326,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm"
             />
           </div>
           <div>
@@ -335,7 +335,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm"
             />
           </div>
           <div>
@@ -343,7 +343,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
             <select
               value={reportMode}
               onChange={(e) => setReportMode(e.target.value as typeof reportMode)}
-              className="px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm"
+              className="px-3 py-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] text-sm"
             >
               <option value="individual">تقرير فردي (الكل)</option>
               <option value="drivers">{driversReportTitle}</option>

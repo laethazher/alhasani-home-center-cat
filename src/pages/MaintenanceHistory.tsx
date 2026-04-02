@@ -255,7 +255,7 @@ export default function MaintenanceHistory({ profile, department = 'tajhiz' }: P
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }

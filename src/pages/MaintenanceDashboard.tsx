@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Wrench, ClipboardList, CheckCircle2, Clock, DollarSign, AlertTriangle,
-  TrendingUp, ArrowLeft, Activity, Package, Bell, ChevronLeft,
+  TrendingUp, Activity, Package, Bell, ChevronLeft,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables, normalizeDepartmentVehicleRow } from '../data/supabaseSource';
@@ -10,6 +10,8 @@ import type { DepartmentCode } from '../data/department';
 import type { MaintenanceRequest, MaintenanceRecord, Vehicle, PeriodicMaintenance } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
 import PeriodicMaintenancePanel from '../components/PeriodicMaintenancePanel';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 
 interface Props {
   onNavigate: (page: PageKey) => void;
@@ -105,7 +107,7 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -131,14 +133,14 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
             transition={{ delay: i * 0.05 }}
             onClick={card.onClick}
             className={cn(
-              'relative overflow-hidden rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm',
+              'relative overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm',
               card.onClick && 'cursor-pointer hover:shadow-md transition-shadow',
             )}
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-stone-500 dark:text-stone-400 mb-1">{card.label}</p>
-                <p className="text-2xl font-bold text-stone-900 dark:text-white">{card.value}</p>
+                <p className="text-sm text-muted-foreground mb-1">{card.label}</p>
+                <p className="text-2xl font-black">{card.value}</p>
               </div>
               <div className={cn('w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-lg', card.color)}>
                 <card.icon className="w-6 h-6 text-white" />
@@ -154,14 +156,14 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+          className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
         >
           <div className="flex items-center gap-3 mb-2">
             <TrendingUp className="w-5 h-5 text-rose-500" />
-            <h3 className="font-semibold text-stone-900 dark:text-white">أكثر المركبات تعرضاً للأعطال</h3>
+            <h3 className="font-black">أكثر المركبات تعرضاً للأعطال</h3>
           </div>
-          <p className="text-stone-600 dark:text-stone-400">
-            المركبة <span className="font-bold text-stone-900 dark:text-white">{stats.topVehicle.plate_number}</span>
+          <p className="text-muted-foreground">
+            المركبة <span className="font-black text-[hsl(var(--foreground))]">{stats.topVehicle.plate_number}</span>
             {stats.topVehicle.model && <span> ({stats.topVehicle.model})</span>}
             {' — '}
             <span className="text-rose-600 dark:text-rose-400 font-bold">{stats.topVehicleCount}</span> طلب صيانة
@@ -175,13 +177,13 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35 }}
-          className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+          className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
         >
-          <h3 className="font-semibold text-stone-900 dark:text-white mb-4">تكاليف الصيانة الشهرية</h3>
+          <h3 className="font-black mb-4">تكاليف الصيانة الشهرية</h3>
           <div className="flex items-end gap-2 h-40">
             {monthlyData.map((m, i) => (
               <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <span className="text-[10px] text-stone-500 dark:text-stone-400">
+                <span className="text-[10px] text-muted-foreground">
                   {m.cost > 0 ? `${(m.cost / 1000).toFixed(0)}k` : '0'}
                 </span>
                 <motion.div
@@ -190,7 +192,7 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
                   transition={{ delay: 0.4 + i * 0.05, duration: 0.5 }}
                   className="w-full rounded-t-lg bg-gradient-to-t from-blue-600 to-indigo-500 min-h-[4px]"
                 />
-                <span className="text-[10px] text-stone-500 dark:text-stone-400 mt-1">{m.label}</span>
+                <span className="text-[10px] text-muted-foreground mt-1">{m.label}</span>
               </div>
             ))}
           </div>
@@ -201,33 +203,33 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+          className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
         >
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-stone-900 dark:text-white">آخر طلبات الصيانة</h3>
-            <button
-              onClick={() => onNavigate('maintenance-requests')}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-            >
+            <h3 className="font-black">آخر طلبات الصيانة</h3>
+            <Button variant="link" className="px-0 font-black" onClick={() => onNavigate('maintenance-requests')}>
               عرض الكل <ChevronLeft className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
           <div className="space-y-2">
             {recentRequests.length === 0 && (
-              <p className="text-sm text-stone-400 text-center py-4">لا توجد طلبات صيانة بعد</p>
+              <p className="text-sm text-muted-foreground text-center py-4">لا توجد طلبات صيانة بعد</p>
             )}
             {recentRequests.map(req => {
               const vehicle = vehicles.find(v => v.id === req.vehicle_id);
               const sc = statusConfig[req.status];
               return (
-                <div key={req.id} className="flex items-center justify-between p-3 rounded-xl bg-stone-50 dark:bg-stone-800/50">
+                <div
+                  key={req.id}
+                  className="flex items-center justify-between p-3 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/40"
+                >
                   <div className="flex items-center gap-3 min-w-0">
                     <Wrench className="w-4 h-4 text-stone-400 flex-shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-stone-900 dark:text-white truncate">
+                      <p className="text-sm font-bold truncate">
                         {vehicle?.plate_number ?? `#${req.vehicle_id}`} — {req.maintenance_type}
                       </p>
-                      <p className="text-xs text-stone-500 dark:text-stone-400">
+                      <p className="text-xs text-muted-foreground">
                         {new Date(req.created_at).toLocaleDateString('ar-IQ')}
                       </p>
                     </div>
@@ -247,9 +249,9 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.45 }}
-        className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+        className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
       >
-        <h3 className="font-semibold text-stone-900 dark:text-white mb-4">الصيانة الدورية</h3>
+        <h3 className="font-black mb-4">الصيانة الدورية</h3>
         <PeriodicMaintenancePanel department={department} />
       </motion.div>
 
@@ -266,10 +268,10 @@ export default function MaintenanceDashboard({ onNavigate, department = 'tajhiz'
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onNavigate(link.page)}
-            className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm hover:shadow-md transition-shadow"
+            className="flex flex-col items-center gap-2 p-4 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl shadow-sm hover:shadow-md transition-shadow"
           >
             <link.icon className={cn('w-6 h-6', link.color)} />
-            <span className="text-sm font-medium text-stone-700 dark:text-stone-300">{link.label}</span>
+            <span className="text-sm font-bold">{link.label}</span>
           </motion.button>
         ))}
       </div>

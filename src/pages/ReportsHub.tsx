@@ -1698,7 +1698,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-[hsl(var(--primary))]" />
       </div>
     );
   }

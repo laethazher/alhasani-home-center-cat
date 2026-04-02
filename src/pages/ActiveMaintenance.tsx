@@ -13,6 +13,8 @@ import type {
 } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
 import FinishMaintenanceForm from '../components/FinishMaintenanceForm';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
 
 const IMAGE_TYPES = [
   { key: 'before', label: 'قبل الإصلاح', color: 'text-amber-600' },
@@ -167,7 +169,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
-        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-4 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -178,13 +180,9 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
         <Wrench className="w-16 h-16 mx-auto mb-4 text-stone-300 dark:text-stone-600" />
         <h2 className="text-xl font-bold text-stone-900 dark:text-white mb-2">لا توجد صيانة نشطة</h2>
         <p className="text-stone-500 dark:text-stone-400 mb-6">لا يوجد طلب صيانة قيد التنفيذ حالياً</p>
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={() => onNavigate('maintenance-requests')}
-          className="px-6 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium"
-        >
+        <Button onClick={() => onNavigate('maintenance-requests')} className="font-black">
           عرض طلبات الصيانة
-        </motion.button>
+        </Button>
       </div>
     );
   }
@@ -224,7 +222,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+            className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
           >
             <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
               <Truck className="w-4 h-4 text-blue-500" /> معلومات المركبة
@@ -258,7 +256,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.15 }}
-              className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+              className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
             >
               <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
                 <User className="w-4 h-4 text-emerald-500" /> {driverLabel} المسؤول
@@ -272,7 +270,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.17 }}
-              className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+              className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
             >
               <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
                 <UserCheck className="w-4 h-4 text-indigo-500" /> مسؤول الصيانة
@@ -286,7 +284,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+            className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
           >
             <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
               <Wrench className="w-4 h-4 text-amber-500" /> تفاصيل المشكلة
@@ -320,7 +318,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25 }}
-            className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+            className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
           >
             <h3 className="font-semibold text-stone-900 dark:text-white mb-4 flex items-center gap-2">
               <Camera className="w-4 h-4 text-indigo-500" /> التقاط صور الصيانة
@@ -344,7 +342,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
                       {typeImages.length > 0 ? (
                         <img src={typeImages[typeImages.length - 1].image_url} className="absolute inset-0 w-full h-full object-cover" />
                       ) : isUploading ? (
-                        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-6 h-6 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <>
                           <ImageIcon className="w-6 h-6 text-stone-300" />
@@ -411,7 +409,7 @@ export default function ActiveMaintenance({ profile, onNavigate, department = 't
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 p-5 shadow-sm"
+            className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-5 shadow-sm"
           >
             <h3 className="font-semibold text-stone-900 dark:text-white mb-3 flex items-center gap-2">
               <History className="w-4 h-4 text-stone-400" /> سجل الصيانات السابقة

@@ -1,5 +1,9 @@
 import { motion } from 'framer-motion';
 import { Building2, LogOut, Moon, Shield, Sun, Truck, Wrench } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { cn } from '../lib/utils';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 
 interface SystemHomeProps {
   profileName: string;
@@ -24,140 +28,171 @@ export default function SystemHome({
   onSignOut,
   signingOut = false,
 }: SystemHomeProps) {
+  const managerImages = useMemo(
+    () => ({
+      installation: '/%D9%85%D8%B3%D8%A4%D9%88%D9%84%20%D9%82%D8%B3%D9%85%20%D8%A7%D9%84%D8%AA%D8%B1%D9%83%D9%8A%D8%A8.jpeg',
+      tajhiz: '/section-managers/tajhiz-manager.png',
+    }),
+    []
+  );
+
+  function ManagerPortrait({
+    src,
+    label,
+    accent,
+  }: {
+    src: string;
+    label: string;
+    accent: 'emerald' | 'blue';
+  }) {
+    const [hidden, setHidden] = useState(false);
+    if (hidden) return null;
+    return (
+      <div className="hidden lg:block">
+        <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
+          <div
+            className={cn(
+              'h-1.5 w-full',
+              accent === 'emerald' ? 'bg-emerald-500' : 'bg-blue-500'
+            )}
+          />
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{label}</CardTitle>
+            <CardDescription>واجهة اختيار الأقسام</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted))]">
+              <img
+                src={src}
+                alt={label}
+                className="h-full w-full object-cover"
+                onError={() => setHidden(true)}
+                loading="lazy"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="min-h-screen p-5 md:p-8"
+      className="min-h-screen p-5 md:p-8 bg-[radial-gradient(1200px_700px_at_15%_20%,rgba(59,130,246,0.14),transparent_55%),radial-gradient(1000px_600px_at_85%_35%,rgba(16,185,129,0.16),transparent_55%)]"
       dir="rtl"
-      style={{
-        background: isDarkMode
-          ? 'linear-gradient(150deg, #060a12 0%, #090f1d 60%, #070c16 100%)'
-          : 'linear-gradient(150deg, #eef2ff 0%, #f8fafc 50%, #f0f9ff 100%)',
-      }}
     >
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between gap-3 mb-8">
-          <div>
-            <p className="text-sm font-semibold" style={{ color: isDarkMode ? '#64748b' : '#64748b' }}>
-              أهلاً بك
-            </p>
-            <h1 className="text-2xl md:text-3xl font-black" style={{ color: isDarkMode ? '#f1f5f9' : '#0f172a' }}>
+        <div className="flex items-start justify-between gap-3 mb-8">
+          <div className="space-y-2">
+            <p className="text-sm font-bold text-muted-foreground">أهلاً بك</p>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight">
               الواجهة الرئيسية للسستم
             </h1>
-            <p className="text-sm mt-1" style={{ color: isDarkMode ? '#475569' : '#94a3b8' }}>
-              {profileName}
-            </p>
+            <p className="text-sm text-muted-foreground">{profileName}</p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="outline"
+              size="icon"
               onClick={onToggleDark}
-              className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{
-                background: isDarkMode ? 'rgba(251,191,36,0.12)' : 'rgba(99,102,241,0.1)',
-                border: isDarkMode ? '1px solid rgba(251,191,36,0.25)' : '1px solid rgba(99,102,241,0.2)',
-              }}
+              aria-label="تبديل الوضع الليلي"
+              className="bg-[hsl(var(--card))]/70 backdrop-blur-2xl"
             >
-              {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
-            </button>
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
 
-            <button
+            <Button
+              variant="destructive"
               onClick={onSignOut}
               disabled={signingOut}
-              className="h-10 px-3 rounded-xl flex items-center gap-2 text-sm font-bold"
-              style={{
-                background: isDarkMode ? 'rgba(239,68,68,0.12)' : 'rgba(220,38,38,0.08)',
-                color: isDarkMode ? '#fca5a5' : '#dc2626',
-                border: isDarkMode ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(220,38,38,0.2)',
-              }}
+              className="font-black"
             >
               <LogOut className="w-4 h-4" />
               تسجيل الخروج
-            </button>
+            </Button>
           </div>
         </div>
 
-        <div className={`grid grid-cols-1 ${isGateGuard ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-5`}>
+        <div
+          className={
+            isGateGuard
+              ? 'grid grid-cols-1 gap-5'
+              : 'grid grid-cols-1 lg:grid-cols-[260px,1fr,260px] gap-5 items-start'
+          }
+        >
           {isGateGuard ? (
-            <motion.button
-              whileHover={{ y: -4 }}
-              whileTap={{ scale: 0.99 }}
-              onClick={onSelectGate}
-              className="text-right rounded-2xl p-6 md:p-7 border"
-              style={{
-                background: isDarkMode ? 'rgba(15, 23, 31, 0.82)' : '#ffffff',
-                borderColor: isDarkMode ? 'rgba(244,114,182,0.25)' : 'rgba(244,114,182,0.22)',
-                boxShadow: isDarkMode ? '0 12px 30px rgba(2,6,23,0.5)' : '0 12px 28px rgba(15,23,42,0.08)',
-              }}
-            >
-              <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-pink-600/10 border border-pink-500/20">
-                <Shield className="w-6 h-6 text-pink-500" />
-              </div>
-              <h2 className="text-xl font-black mb-2" style={{ color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
-                بوابة الحارس الموحدة
-              </h2>
-              <p className="text-sm leading-7 mb-5" style={{ color: isDarkMode ? '#64748b' : '#64748b' }}>
-                واجهة واحدة فقط تشمل طلبات قسم التجهيز وقسم التركيب مع تمييز واضح لمصدر كل طلب.
-              </p>
-              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-pink-600 text-white">
-                دخول بوابة الحارس
-              </div>
-            </motion.button>
+            <motion.div whileHover={{ y: -4 }} whileTap={{ scale: 0.99 }}>
+              <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
+                <div className="h-1.5 bg-pink-500" />
+                <CardHeader>
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-pink-600/10 border border-pink-500/20">
+                    <Shield className="w-6 h-6 text-pink-500" />
+                  </div>
+                  <CardTitle>بوابة الحارس الموحدة</CardTitle>
+                  <CardDescription className="leading-7">
+                    واجهة واحدة فقط تشمل طلبات قسم التجهيز وقسم التركيب مع تمييز واضح لمصدر كل طلب.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button onClick={onSelectGate} className="w-full font-black">
+                    دخول بوابة الحارس
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
           ) : (
             <>
-          <motion.button
-            whileHover={{ y: -4 }}
-            whileTap={{ scale: 0.99 }}
-            onClick={onSelectTajhiz}
-            className="text-right rounded-2xl p-6 md:p-7 border"
-            style={{
-              background: isDarkMode ? 'rgba(14, 23, 41, 0.8)' : '#ffffff',
-              borderColor: isDarkMode ? 'rgba(59,130,246,0.25)' : 'rgba(59,130,246,0.2)',
-              boxShadow: isDarkMode ? '0 12px 30px rgba(2,6,23,0.5)' : '0 12px 28px rgba(15,23,42,0.08)',
-            }}
-          >
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-blue-600/10 border border-blue-500/20">
-              <Truck className="w-6 h-6 text-blue-500" />
-            </div>
-            <h2 className="text-xl font-black mb-2" style={{ color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
-              قسم التجهيز
-            </h2>
-            <p className="text-sm leading-7 mb-5" style={{ color: isDarkMode ? '#64748b' : '#64748b' }}>
-              النظام الحالي الكامل كما هو، بكل المحتويات والواجهات والخصائص الموجودة حالياً.
-            </p>
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-blue-600 text-white">
-              دخول قسم التجهيز
-            </div>
-          </motion.button>
+              <ManagerPortrait src={managerImages.installation} label="مسؤول قسم التركيب" accent="emerald" />
 
-          <motion.button
-            whileHover={{ y: -4 }}
-            whileTap={{ scale: 0.99 }}
-            onClick={onSelectInstallation}
-            className="text-right rounded-2xl p-6 md:p-7 border"
-            style={{
-              background: isDarkMode ? 'rgba(15, 23, 31, 0.82)' : '#ffffff',
-              borderColor: isDarkMode ? 'rgba(16,185,129,0.25)' : 'rgba(16,185,129,0.22)',
-              boxShadow: isDarkMode ? '0 12px 30px rgba(2,6,23,0.5)' : '0 12px 28px rgba(15,23,42,0.08)',
-            }}
-          >
-            <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-4 bg-emerald-600/10 border border-emerald-500/20">
-              <Wrench className="w-6 h-6 text-emerald-500" />
-            </div>
-            <h2 className="text-xl font-black mb-2" style={{ color: isDarkMode ? '#e2e8f0' : '#0f172a' }}>
-              قسم التركيب
-            </h2>
-            <p className="text-sm leading-7 mb-5" style={{ color: isDarkMode ? '#64748b' : '#64748b' }}>
-              واجهة القسم الجديد المخصص لإضافات التركيب، مع بنية بيانات مفصولة وجاهزة للتوسعة.
-            </p>
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white">
-              دخول قسم التركيب
-            </div>
-          </motion.button>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <motion.div whileHover={{ y: -4 }} whileTap={{ scale: 0.99 }}>
+                  <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
+                    <div className="h-1.5 bg-blue-500" />
+                    <CardHeader>
+                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-blue-600/10 border border-blue-500/20">
+                        <Truck className="w-6 h-6 text-blue-500" />
+                      </div>
+                      <CardTitle>قسم التجهيز</CardTitle>
+                      <CardDescription className="leading-7">
+                        النظام الحالي الكامل كما هو، بكل المحتويات والواجهات والخصائص الموجودة حالياً.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button onClick={onSelectTajhiz} className="w-full font-black">
+                        دخول قسم التجهيز
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+
+                <motion.div whileHover={{ y: -4 }} whileTap={{ scale: 0.99 }}>
+                  <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
+                    <div className="h-1.5 bg-emerald-500" />
+                    <CardHeader>
+                      <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-emerald-600/10 border border-emerald-500/20">
+                        <Wrench className="w-6 h-6 text-emerald-500" />
+                      </div>
+                      <CardTitle>قسم التركيب</CardTitle>
+                      <CardDescription className="leading-7">
+                        واجهة القسم الجديد المخصص لإضافات التركيب، مع بنية بيانات مفصولة وجاهزة للتوسعة.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Button onClick={onSelectInstallation} className="w-full font-black">
+                        دخول قسم التركيب
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              </div>
+
+              <ManagerPortrait src={managerImages.tajhiz} label="مسؤول قسم التجهيز" accent="blue" />
             </>
           )}
         </div>
 
-        <div className="mt-8 flex items-center justify-center gap-2 text-xs" style={{ color: isDarkMode ? '#334155' : '#94a3b8' }}>
+        <div className="mt-8 flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <Building2 className="w-3.5 h-3.5" />
           <span>واجهة اختيار الأقسام</span>
         </div>
