@@ -1,7 +1,9 @@
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Building2, LogOut, Moon, Shield, Sun, Truck, Wrench } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { HomeCenterShowcase, CityMarquee } from '../components/landing/HomeCenterShowcase';
+import { cn } from '../lib/utils';
 
 interface SystemHomeProps {
   profileName: string;
@@ -15,6 +17,103 @@ interface SystemHomeProps {
   signingOut?: boolean;
 }
 
+const TILE_BG = {
+  tajhiz:
+    'https://images.unsplash.com/photo-1519003722824-cd8abd566faa?w=1000&q=80&auto=format&fit=crop',
+  installation:
+    'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=1000&q=80&auto=format&fit=crop',
+  gate:
+    'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1000&q=80&auto=format&fit=crop',
+} as const;
+
+function DepartmentTile({
+  title,
+  description,
+  accentClass,
+  icon: Icon,
+  imageUrl,
+  onClick,
+  reduceMotion,
+}: {
+  title: string;
+  description: string;
+  accentClass: string;
+  icon: typeof Truck;
+  imageUrl: string;
+  onClick: () => void;
+  reduceMotion: boolean | null;
+}) {
+  return (
+    <motion.div
+      variants={{
+        hidden: { opacity: 0, y: reduceMotion ? 0 : 20 },
+        show: { opacity: 1, y: 0 },
+      }}
+      whileHover={reduceMotion ? undefined : { y: -6 }}
+      whileTap={reduceMotion ? undefined : { scale: 0.992 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+    >
+      <Card
+        className={cn(
+          'overflow-hidden border-0 shadow-xl bg-[hsl(var(--card))]/80 backdrop-blur-xl cursor-pointer group h-full',
+          'ring-1 ring-black/5 dark:ring-white/10',
+        )}
+        onClick={onClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+      >
+        <div className="relative h-44 sm:h-48 overflow-hidden">
+          <div
+            className="absolute inset-0 bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
+            style={{ backgroundImage: `url(${imageUrl})` }}
+          />
+          <div
+            className={cn(
+              'absolute inset-0 opacity-90 mix-blend-multiply dark:mix-blend-soft-light',
+              accentClass,
+            )}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
+          <div className="absolute bottom-4 right-5 left-5 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black tracking-[0.28em] uppercase text-white/70 mb-1">
+                Department
+              </p>
+              <CardTitle className="text-xl sm:text-2xl text-white font-black border-0 p-0 shadow-none">
+                {title}
+              </CardTitle>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center flex-shrink-0">
+              <Icon className="w-6 h-6 text-white" />
+            </div>
+          </div>
+        </div>
+        <CardHeader className="pb-2 pt-4">
+          <CardDescription className="text-sm leading-relaxed text-muted-foreground">
+            {description}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0 pb-5">
+          <div
+            className={cn(
+              'w-full flex items-center justify-center py-2.5 rounded-xl text-sm font-black',
+              'bg-secondary text-secondary-foreground border border-border/60',
+            )}
+          >
+            متابعة الدخول
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
 export default function SystemHome({
   profileName,
   isDarkMode,
@@ -26,22 +125,43 @@ export default function SystemHome({
   onSignOut,
   signingOut = false,
 }: SystemHomeProps) {
+  const reduceMotion = useReducedMotion();
+
+  const listVariants = {
+    hidden: {},
+    show: {
+      transition: { staggerChildren: reduceMotion ? 0 : 0.11, delayChildren: reduceMotion ? 0 : 0.06 },
+    },
+  };
+
   return (
     <div
-      className="min-h-screen p-5 md:p-8 bg-[radial-gradient(1200px_700px_at_15%_20%,rgba(59,130,246,0.14),transparent_55%),radial-gradient(1000px_600px_at_85%_35%,rgba(16,185,129,0.16),transparent_55%)]"
+      className="min-h-screen min-h-[100dvh] flex flex-col bg-[radial-gradient(1200px_700px_at_15%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(1000px_600px_at_85%_35%,rgba(16,185,129,0.12),transparent_55%)]"
       dir="rtl"
     >
-      <div className="max-w-6xl mx-auto">
-        <div className="flex items-start justify-between gap-3 mb-8">
-          <div className="space-y-2">
-            <p className="text-sm font-bold text-muted-foreground">أهلاً بك</p>
-            <h1 className="text-2xl md:text-3xl font-black tracking-tight">
-              الواجهة الرئيسية للسستم
-            </h1>
-            <p className="text-sm text-muted-foreground">{profileName}</p>
+      <div className="relative h-[100dvh] min-h-[100dvh] w-full shrink-0 overflow-hidden">
+        <motion.div
+          className="absolute inset-0 h-full w-full"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <HomeCenterShowcase variant="home-hero" dark={isDarkMode} className="h-full w-full" />
+        </motion.div>
+      </div>
+
+      <div className="flex-1 w-full p-5 md:p-8 pb-10">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="space-y-2 text-center sm:text-right">
+            <p className="text-xs font-black tracking-[0.35em] text-muted-foreground uppercase">
+              أهلاً بك
+            </p>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tight">الواجهة الرئيسية للنظام</h1>
+            <p className="text-sm font-semibold text-muted-foreground">{profileName}</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center sm:justify-end gap-2 flex-wrap">
             <Button
               variant="outline"
               size="icon"
@@ -52,89 +172,77 @@ export default function SystemHome({
               {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </Button>
 
-            <Button
-              variant="destructive"
-              onClick={onSignOut}
-              disabled={signingOut}
-              className="font-black"
-            >
+            <Button variant="destructive" onClick={onSignOut} disabled={signingOut} className="font-black">
               <LogOut className="w-4 h-4" />
               تسجيل الخروج
             </Button>
           </div>
         </div>
 
-        <div className={`grid grid-cols-1 ${isGateGuard ? 'lg:grid-cols-1' : 'lg:grid-cols-2'} gap-5`}>
+        <div className="text-center py-1 space-y-1">
+          <p className="text-[10px] md:text-xs font-black tracking-[0.45em] text-muted-foreground">
+            اختر القسم
+          </p>
+          <h2 className="text-base md:text-lg font-black tracking-[0.22em] text-foreground/90">
+            مسارات التشغيل
+          </h2>
+        </div>
+
+        <motion.div
+          className={cn(
+            'grid gap-5',
+            isGateGuard ? 'grid-cols-1 max-w-xl mx-auto' : 'grid-cols-1 lg:grid-cols-2',
+          )}
+          variants={listVariants}
+          initial="hidden"
+          animate="show"
+        >
           {isGateGuard ? (
-            <motion.div whileHover={{ y: -4 }} whileTap={{ scale: 0.99 }}>
-              <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
-                <div className="h-1.5 bg-pink-500" />
-                <CardHeader>
-                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-pink-600/10 border border-pink-500/20">
-                    <Shield className="w-6 h-6 text-pink-500" />
-                  </div>
-                  <CardTitle>بوابة الحارس الموحدة</CardTitle>
-                  <CardDescription className="leading-7">
-                    واجهة واحدة فقط تشمل طلبات قسم التجهيز وقسم التركيب مع تمييز واضح لمصدر كل طلب.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button onClick={onSelectGate} className="w-full font-black">
-                    دخول بوابة الحارس
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
+            <DepartmentTile
+              title="بوابة الحارس الموحدة"
+              description="واجهة واحدة تشمل طلبات قسم التجهيز وقسم التركيب مع تمييز واضح لمصدر كل طلب."
+              accentClass="bg-gradient-to-br from-pink-600 via-rose-700 to-purple-900"
+              icon={Shield}
+              imageUrl={TILE_BG.gate}
+              onClick={() => onSelectGate?.()}
+              reduceMotion={reduceMotion}
+            />
           ) : (
             <>
-              <motion.div whileHover={{ y: -4 }} whileTap={{ scale: 0.99 }}>
-                <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
-                  <div className="h-1.5 bg-blue-500" />
-                  <CardHeader>
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-blue-600/10 border border-blue-500/20">
-                      <Truck className="w-6 h-6 text-blue-500" />
-                    </div>
-                    <CardTitle>قسم التجهيز</CardTitle>
-                    <CardDescription className="leading-7">
-                      النظام الحالي الكامل كما هو، بكل المحتويات والواجهات والخصائص الموجودة حالياً.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button onClick={onSelectTajhiz} className="w-full font-black">
-                      دخول قسم التجهيز
-                    </Button>
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              <motion.div whileHover={{ y: -4 }} whileTap={{ scale: 0.99 }}>
-                <Card className="overflow-hidden bg-[hsl(var(--card))]/70 backdrop-blur-2xl">
-                  <div className="h-1.5 bg-emerald-500" />
-                  <CardHeader>
-                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-emerald-600/10 border border-emerald-500/20">
-                      <Wrench className="w-6 h-6 text-emerald-500" />
-                    </div>
-                    <CardTitle>قسم التركيب</CardTitle>
-                    <CardDescription className="leading-7">
-                      واجهة القسم الجديد المخصص لإضافات التركيب، مع بنية بيانات مفصولة وجاهزة للتوسعة.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button onClick={onSelectInstallation} className="w-full font-black">
-                      دخول قسم التركيب
-                    </Button>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              <DepartmentTile
+                title="قسم التجهيز"
+                description="النظام الكامل للتجهيز: لوحة التحكم، المركبات، الصيانة، الحضور، التقارير، والمزيد."
+                accentClass="bg-gradient-to-br from-blue-600 via-blue-700 to-slate-900"
+                icon={Truck}
+                imageUrl={TILE_BG.tajhiz}
+                onClick={onSelectTajhiz}
+                reduceMotion={reduceMotion}
+              />
+              <DepartmentTile
+                title="قسم التركيب"
+                description="واجهة التركيب مع بيانات مفصولة وجاهزة للتوسعة، بنفس معايير التشغيل والصيانة."
+                accentClass="bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900"
+                icon={Wrench}
+                imageUrl={TILE_BG.installation}
+                onClick={onSelectInstallation}
+                reduceMotion={reduceMotion}
+              />
             </>
           )}
-        </div>
+        </motion.div>
 
-        <div className="mt-8 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: reduceMotion ? 0 : 0.35 }}
+          className="flex items-center justify-center gap-2 text-xs text-muted-foreground pt-4"
+        >
           <Building2 className="w-3.5 h-3.5" />
-          <span>واجهة اختيار الأقسام</span>
-        </div>
+          <span>Alhasani Home Center Logistics · واجهة اختيار الأقسام</span>
+        </motion.div>
       </div>
+      </div>
+      <CityMarquee dark={isDarkMode} />
     </div>
   );
 }

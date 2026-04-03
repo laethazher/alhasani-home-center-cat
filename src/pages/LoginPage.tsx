@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2, Eye, EyeOff, Truck, ArrowLeft, ShieldCheck, Mail, Lock } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { HomeCenterShowcase, CityMarquee } from '../components/landing/HomeCenterShowcase';
 
 function translateError(msg: string): string {
   if (msg.includes('Invalid login credentials')) return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
@@ -121,12 +122,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative" dir="rtl"
-      style={{ background: dark
-        ? 'linear-gradient(145deg,#05080f 0%,#080d1a 60%,#060b16 100%)'
-        : 'linear-gradient(145deg,#eef2ff 0%,#f8f7ff 50%,#f0fdf9 100%)' }}>
+    <div className="relative min-h-screen min-h-[100dvh] flex flex-col" dir="rtl">
+      <div className="fixed inset-0 z-0">
+        <HomeCenterShowcase variant="login-bg" dark={dark} className="h-full w-full min-h-[100dvh]" />
+      </div>
 
-      <Background dark={dark}/>
+      <div className="relative z-10 flex flex-1 flex-col items-center justify-center p-4 min-h-[100dvh] min-h-screen">
+        <div
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40 dark:from-black/35 dark:via-black/10 dark:to-black/55"
+          aria-hidden
+        />
+        <Background dark={dark} />
 
       <motion.div
         initial={{ opacity:0, y:28, scale:0.96 }}
@@ -134,12 +140,12 @@ export default function LoginPage() {
         transition={{ type:'spring', stiffness:260, damping:26 }}
         className="w-full max-w-[390px] relative z-10"
       >
-        <div className="rounded-2xl overflow-hidden" style={{
-          background: dark ? 'linear-gradient(160deg,#0e1521 0%,#0a1019 100%)' : '#ffffff',
-          border: dark ? '1px solid rgba(255,255,255,0.07)' : '1px solid rgba(0,0,0,0.08)',
+        <div className="rounded-2xl overflow-hidden backdrop-blur-xl" style={{
+          background: dark ? 'rgba(14,21,33,0.78)' : 'rgba(255,255,255,0.88)',
+          border: dark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(0,0,0,0.08)',
           boxShadow: dark
-            ? '0 40px 80px rgba(0,0,0,0.7),inset 0 1px 0 rgba(255,255,255,0.05)'
-            : '0 20px 60px rgba(0,0,0,0.09),0 4px 16px rgba(0,0,0,0.05)',
+            ? '0 40px 80px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.06)'
+            : '0 20px 60px rgba(0,0,0,0.12),0 4px 16px rgba(0,0,0,0.06)',
         }}>
 
           {/* Top bar */}
@@ -270,8 +276,8 @@ export default function LoginPage() {
                   }}/>
                 )}
                 {loading
-                  ? <><Loader2 className="w-4 h-4 animate-spin z-10"/><span className="z-10">Logging in...</span></>
-                  : <><span className="z-10">Login</span><ArrowLeft className="w-4 h-4 z-10"/></>
+                  ? <><Loader2 className="w-4 h-4 animate-spin z-10"/><span className="z-10">جاري الدخول…</span></>
+                  : <><span className="z-10">تسجيل الدخول</span><ArrowLeft className="w-4 h-4 z-10"/></>
                 }
               </motion.button>
             </div>
@@ -291,12 +297,16 @@ export default function LoginPage() {
 
         <motion.p
           initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:0.45 }}
-          className="text-center mt-5 text-[11px]"
-          style={{ color: dark ? '#1e293b' : '#cbd5e1' }}
+          className="text-center mt-5 text-[11px] font-semibold drop-shadow-sm"
+          style={{
+            color: dark ? 'rgba(248,250,252,0.92)' : 'rgba(15,23,42,0.88)',
+            textShadow: dark ? '0 1px 8px rgba(0,0,0,0.8)' : '0 1px 3px rgba(255,255,255,0.9)',
+          }}
         >
           Fleet Management System · v2.0
         </motion.p>
       </motion.div>
+      </div>
 
       <style>{`
         @keyframes shimmer {
@@ -304,6 +314,7 @@ export default function LoginPage() {
           100% { background-position:-200% center; }
         }
       `}</style>
+    <CityMarquee dark={dark} className="relative z-20" />
     </div>
   );
 }
