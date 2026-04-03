@@ -10,6 +10,7 @@ import {
   XCircle,
   Package,
   X,
+  Check,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -32,6 +33,8 @@ import {
 } from '../smart';
 import { rowMatchesHubQuery } from '../smart/utils/hubSearchMatch';
 import { getBaghdadDateKey } from '../lib/loadingTime';
+import { deleteBubblesRecordsByUiIds } from '../lib/bubblesBulkDelete';
+import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
 
 const ChartsPanelLazy = lazy(() =>
   import('../smart/components/ChartsPanel').then((m) => ({ default: m.ChartsPanel }))
@@ -185,8 +188,16 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
   const [gateIssueReason, setGateIssueReason] = useState('');
   const [gateBusy, setGateBusy] = useState(false);
   const [detailModal, setDetailModal] = useState<BubblesDetailModalState | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedBubbleIds, setSelectedBubbleIds] = useState<string[]>([]);
+  const [bubbleBulkDeleting, setBubbleBulkDeleting] = useState(false);
 
   const debouncedSearch = useDebouncedValue(search, 250);
+
+  useEffect(() => {
+    setSelectedBubbleIds([]);
+    setIsSelectionMode(false);
+  }, [sourceTab, tab, archiveTab]);
 
   const fetchRecords = useCallback(async () => {
     const { data, error } = await supabase
@@ -653,6 +664,36 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
   const displayBarData = sourceTab === 'archive' ? archiveBarData : barData;
   const displayLineData = sourceTab === 'archive' ? archiveLineData : lineData;
   const displayRows = sourceTab === 'archive' ? archiveFilteredDisplay : filteredDisplay;
+
+  const toggleSelectAllBubbles = () => {
+    setSelectedBubbleIds((prev) => {
+      const ids = displayRows.map((r) => r.id);
+      if (ids.length === 0) return [];
+      const allSelected = ids.every((id) => prev.includes(id));
+      return allSelected ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])];
+    });
+  };
+
+  const toggleBubbleRowSelection = (id: string) => {
+    setSelectedBubbleIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  };
+
+  const handleBubbleBulkDelete = async () => {
+    if (!isAdmin || selectedBubbleIds.length === 0) return;
+    setBubbleBulkDeleting(true);
+    try {
+      const res = await deleteBubblesRecordsByUiIds(supabase, selectedBubbleIds);
+      if (!res.ok) {
+        alert('تعذر الحذف: ' + res.message);
+        return;
+      }
+      setSelectedBubbleIds([]);
+      setIsSelectionMode(false);
+      await Promise.all([fetchRecords(), fetchArchiveData()]);
+    } finally {
+      setBubbleBulkDeleting(false);
+    }
+  };
 
   const onUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1233,6 +1274,45 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
             فتح أرشيف الببلز في التقارير الذكية
           </button>
         ) : null}
+        {isAdmin ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSelectionMode((v) => !v);
+                setSelectedBubbleIds([]);
+              }}
+              className={cn(
+                'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors',
+                isSelectionMode
+                  ? 'bg-stone-200 dark:bg-stone-700 border-stone-300 dark:border-stone-600'
+                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-800'
+              )}
+            >
+              <Check className="w-4 h-4" />
+              {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+            </button>
+            {isSelectionMode && displayRows.length > 0 ? (
+              <button
+                type="button"
+                onClick={toggleSelectAllBubbles}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border border-stone-200 dark:border-stone-600 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700"
+              >
+                {displayRows.length > 0 && displayRows.every((r) => selectedBubbleIds.includes(r.id))
+                  ? 'إلغاء الكل'
+                  : 'تحديد الكل'}
+              </button>
+            ) : null}
+            <BulkDeleteSelectedButton
+              selectedCount={isSelectionMode ? selectedBubbleIds.length : 0}
+              deleting={bubbleBulkDeleting}
+              confirmMessage={(n) =>
+                `حذف ${n} سجل Bubbles من قاعدة البيانات (تشغيل حالي أو أرشيف حسب السجلات المحددة)؟ لا يمكن التراجع.`
+              }
+              onDelete={handleBubbleBulkDelete}
+            />
+          </div>
+        ) : null}
         <ExportMenu
           meta={{
             title: sourceTab === 'archive' ? 'Bubbles Archive' : 'Bubbles Tracking',
@@ -1280,6 +1360,11 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                       <table className="w-full text-sm text-right min-w-[720px]">
                         <thead>
                           <tr className="bg-stone-100 dark:bg-stone-800/80 text-stone-600 dark:text-stone-300">
+                            {isAdmin && isSelectionMode ? (
+                              <th className="p-2 w-10 text-center">
+                                <span className="sr-only">تحديد</span>
+                              </th>
+                            ) : null}
                             <th className="p-2">العميل</th>
                             <th className="p-2">المنتج</th>
                             <th className="p-2">الكمية</th>
@@ -1292,6 +1377,17 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                         <tbody>
                           {c.items.map((r) => (
                             <tr key={r.id} className="border-t border-stone-100 dark:border-stone-800">
+                              {isAdmin && isSelectionMode ? (
+                                <td className="p-2 w-10 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-stone-300 text-violet-600 focus:ring-violet-500"
+                                    checked={selectedBubbleIds.includes(r.id)}
+                                    onChange={() => toggleBubbleRowSelection(r.id)}
+                                    aria-label="تحديد السجل"
+                                  />
+                                </td>
+                              ) : null}
                               <td className="p-2">
                                 <HighlightText text={r.customer_name} query={debouncedSearch} />
                               </td>

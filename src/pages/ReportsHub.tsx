@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart3,
@@ -50,6 +50,8 @@ import {
   type ReportsHubDomain,
   type StructuredSearchFilters,
 } from '../smart';
+import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
+import { deleteBubblesRecordsByUiIds } from '../lib/bubblesBulkDelete';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import { buildHubViolationStaffRows, type HubViolationStaffRow } from './reportsHubViolationsAggregate';
@@ -275,6 +277,8 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   const [selectedAttendanceKeys, setSelectedAttendanceKeys] = useState<Set<string>>(() => new Set());
   const [selectedVehicleKeys, setSelectedVehicleKeys] = useState<Set<string>>(() => new Set());
   const [selectedViolationKeys, setSelectedViolationKeys] = useState<Set<string>>(() => new Set());
+  const [selectedBubbleKeys, setSelectedBubbleKeys] = useState<Set<string>>(() => new Set());
+  const [bubbleBulkDeleting, setBubbleBulkDeleting] = useState(false);
 
   const showViolationsTab = profile?.role === 'admin';
   const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department !== 'installation';
@@ -292,6 +296,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     setSelectedAttendanceKeys(new Set());
     setSelectedVehicleKeys(new Set());
     setSelectedViolationKeys(new Set());
+    setSelectedBubbleKeys(new Set());
   }, [activeDomain]);
   useEffect(() => {
     if (activeDomain !== 'bubbles') setBubbleDrillModal(null);
@@ -472,6 +477,27 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  const selectedBubbleKeysRef = useRef(selectedBubbleKeys);
+  selectedBubbleKeysRef.current = selectedBubbleKeys;
+
+  const handleBulkDeleteBubbles = useCallback(async () => {
+    if (!showBubblesTab) return;
+    const ids = Array.from(selectedBubbleKeysRef.current);
+    if (ids.length === 0) return;
+    setBubbleBulkDeleting(true);
+    try {
+      const res = await deleteBubblesRecordsByUiIds(supabase, ids);
+      if (!res.ok) {
+        alert('تعذر حذف سجلات Bubbles: ' + res.message);
+        return;
+      }
+      setSelectedBubbleKeys(new Set());
+      await fetchData(true);
+    } finally {
+      setBubbleBulkDeleting(false);
+    }
+  }, [showBubblesTab, supabase, fetchData]);
 
   useAutoRefresh(30_000, () => {
     void fetchData(true);
@@ -2333,6 +2359,19 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       ) : null}
 
       {activeDomain === 'bubbles' && showBubblesTab ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 px-1">
+          <BulkDeleteSelectedButton
+            selectedCount={selectedBubbleKeys.size}
+            deleting={bubbleBulkDeleting}
+            confirmMessage={(n) =>
+              `حذف ${n} سجل Bubbles من قاعدة البيانات (تشغيلي أو أرشيف)؟ لا يمكن التراجع.`
+            }
+            onDelete={handleBulkDeleteBubbles}
+          />
+        </div>
+      ) : null}
+
+      {activeDomain === 'bubbles' && showBubblesTab ? (
         <button
           type="button"
           onClick={() => setBubbleDrillModal('follow_up')}
@@ -2557,6 +2596,9 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
               pageSizeOptions={[10, 25, 50, 100]}
               emptyLabel="لا توجد سجلات Bubbles تطابق الفلاتر الحالية"
               className="bg-white dark:bg-stone-800 border-0 rounded-none"
+              selectionEnabled={showBubblesTab}
+              selectedKeys={selectedBubbleKeys}
+              onSelectedKeysChange={setSelectedBubbleKeys}
             />
           ) : activeDomain === 'violations' ? (
             <DataTableEnhanced
