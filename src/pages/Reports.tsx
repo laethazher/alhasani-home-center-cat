@@ -273,8 +273,19 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
     if (!canManageReports || selectedReportIds.length === 0) return;
     setDeletingReportsBulk(true);
     try {
-      const { error } = await supabase.from(tables.reports).delete().in('id', selectedReportIds);
+      const { data: deletedRows, error } = await supabase
+        .from(tables.reports)
+        .delete()
+        .in('id', selectedReportIds)
+        .select('id');
       if (error) throw error;
+      const deletedCount = deletedRows?.length ?? 0;
+      if (deletedCount === 0 && selectedReportIds.length > 0) {
+        alert(
+          'لم يُحذف أي تقرير. غالباً سياسات الأمان (RLS) لا تسمح بالحذف بعد — نفّذ ترحيل قاعدة البيانات الأخير (reports_delete_rls) أو راجع صلاحية الحساب في Supabase.'
+        );
+        return;
+      }
       setSelectedStaffIds([]);
       setIsSelectionMode(false);
       await fetchReports();
