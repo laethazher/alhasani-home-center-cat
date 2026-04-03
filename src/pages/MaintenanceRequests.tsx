@@ -79,6 +79,8 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  /** طلب واحد بـ in_progress كحد أقصى عبر تجهيز + تركيب (للمسؤول/الأدمن). */
+  const [globalMaintenanceInProgress, setGlobalMaintenanceInProgress] = useState(false);
 
   // Form state
   const [formDriverId, setFormDriverId] = useState('');
@@ -103,12 +105,25 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
       ? supabase.from(tables.staffMembers).select('*').eq('is_active', true)
       : supabase.from(tables.staffMembers).select('*').eq('role', 'driver').eq('is_active', true);
 
-    const [reqRes, vehRes, drvRes, issRes, recRes] = await Promise.all([
+    const tajhizClient = getDepartmentClient('tajhiz');
+    const installationClient = getDepartmentClient('installation');
+    const tajhizTables = getDepartmentTables('tajhiz');
+    const installationTables = getDepartmentTables('installation');
+
+    const [reqRes, vehRes, drvRes, issRes, recRes, tProgRes, iProgRes] = await Promise.all([
       supabase.from(tables.maintenanceRequests).select('*').order('created_at', { ascending: false }),
       supabase.from(tables.vehicles).select('*'),
       staffQuery,
       supabase.from(tables.driverIssueReports).select('*').order('created_at', { ascending: false }),
       supabase.from(tables.maintenanceRecords).select('*').order('created_at', { ascending: false }),
+      tajhizClient
+        .from(tajhizTables.maintenanceRequests)
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'in_progress'),
+      installationClient
+        .from(installationTables.maintenanceRequests)
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'in_progress'),
     ]);
     if (reqRes.data) {
       const normalized = (reqRes.data as Array<Record<string, unknown>>).map((r) => ({
@@ -144,6 +159,24 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
       setDriverIssues(normalizedIssues);
     }
     if (recRes.data) setPastRecords(recRes.data);
+
+    const tProgCount = tProgRes.error ? null : (tProgRes.count ?? 0);
+    const iProgCount = iProgRes.error ? null : (iProgRes.count ?? 0);
+    if (tProgRes.error) console.error('MaintenanceRequests: global in_progress check (tajhiz):', tProgRes.error);
+    if (iProgRes.error) console.error('MaintenanceRequests: global in_progress check (installation):', iProgRes.error);
+    if (tProgCount !== null && iProgCount !== null) {
+      setGlobalMaintenanceInProgress(tProgCount > 0 || iProgCount > 0);
+    } else {
+      const localActive = (reqRes.data as Array<{ status?: string }> | null)?.some(
+        (r) => r.status === 'in_progress',
+      );
+      setGlobalMaintenanceInProgress(
+        (tProgCount !== null && tProgCount > 0) ||
+          (iProgCount !== null && iProgCount > 0) ||
+          (!!tProgRes.error && !!iProgRes.error && Boolean(localActive)),
+      );
+    }
+
     if (!silent) setLoading(false);
   }, [department, supabase, tables.maintenanceRequests, tables.vehicles, tables.staffMembers, tables.driverIssueReports, tables.maintenanceRecords]);
 
@@ -247,10 +280,6 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
     }
   }, [formDriverId, driverVehicleMap]);
 
-  const hasActiveRequest = useMemo(() =>
-    requests.some(r => r.status === 'in_progress'),
-  [requests]);
-
   const filteredRequests = useMemo(() => {
     let list = requests;
     if (filterStatus !== 'all') list = list.filter(r => r.status === filterStatus);
@@ -312,16 +341,22 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
     if (!formVehicleId) return;
     setSubmitting(true);
     setFormError('');
-    const { error } = await supabase.from(tables.maintenanceRequests).insert({
+    const uid = (await supabase.auth.getUser()).data.user?.id;
+    const driverIdNum = formDriverId ? Number(formDriverId) : null;
+    const baseRow = {
       vehicle_id: Number(formVehicleId),
-      driver_id: formDriverId ? Number(formDriverId) : null,
+      driver_id: driverIdNum,
       maintenance_type: formType,
-      description: formDescription,
+      description: formDescription || null,
       priority: formPriority,
-      admin_notes: formNotes,
-      images: formImages,
-      requested_by: (await supabase.auth.getUser()).data.user?.id,
-    });
+      admin_notes: formNotes.trim() ? formNotes.trim() : null,
+      images: formImages.length > 0 ? formImages : [],
+      requested_by: uid,
+    };
+    const insertRow = isInstallation
+      ? { ...baseRow, staff_id: driverIdNum }
+      : baseRow;
+    const { error } = await supabase.from(tables.maintenanceRequests).insert(insertRow);
     if (error) {
       console.error('Maintenance request insert error:', error);
       setFormError('فشل في إرسال الطلب: ' + error.message);
@@ -346,24 +381,40 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
   }
 
   async function handleApprove(req: MaintenanceRequest) {
-    if (hasActiveRequest) return;
+    if (globalMaintenanceInProgress) return;
     const now = new Date().toISOString();
-    await supabase.from(tables.maintenanceRequests).update({
-      status: 'in_progress',
-      approved_by: (await supabase.auth.getUser()).data.user?.id,
-      approved_at: now,
-      started_at: now,
-    }).eq('id', req.id);
+    const uid = (await supabase.auth.getUser()).data.user?.id;
+    const { error } = await supabase
+      .from(tables.maintenanceRequests)
+      .update({
+        status: 'in_progress',
+        approved_by: uid,
+        approved_at: now,
+        started_at: now,
+      })
+      .eq('id', req.id);
+    if (error) {
+      alert('تعذر الموافقة وبدء الصيانة: ' + error.message);
+      return;
+    }
     setShowDetail(null);
     fetchData();
   }
 
   async function handleReject(req: MaintenanceRequest) {
-    await supabase.from(tables.maintenanceRequests).update({
-      status: 'rejected',
-      approved_by: (await supabase.auth.getUser()).data.user?.id,
-      approved_at: new Date().toISOString(),
-    }).eq('id', req.id);
+    const uid = (await supabase.auth.getUser()).data.user?.id;
+    const { error } = await supabase
+      .from(tables.maintenanceRequests)
+      .update({
+        status: 'rejected',
+        approved_by: uid,
+        approved_at: new Date().toISOString(),
+      })
+      .eq('id', req.id);
+    if (error) {
+      alert('تعذر رفض الطلب: ' + error.message);
+      return;
+    }
     setShowDetail(null);
     fetchData();
   }
@@ -373,15 +424,20 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
     const vehicle = vehicles.find(v => v.id === issue.vehicle_id);
     if (!vehicle) return;
 
-    await supabase.from(tables.maintenanceRequests).insert({
+    const uid = (await supabase.auth.getUser()).data.user?.id;
+    const convDriverId = issue.driver_id != null ? Number(issue.driver_id) : null;
+    const convBase = {
       vehicle_id: vehicle.id,
-      driver_id: issue.driver_id,
+      driver_id: convDriverId,
       maintenance_type: 'صيانة عامة',
       description: issue.description,
-      priority: 'medium',
-      images: issue.images,
-      requested_by: (await supabase.auth.getUser()).data.user?.id,
-    });
+      priority: 'medium' as const,
+      admin_notes: null as string | null,
+      images: Array.isArray(issue.images) ? issue.images : [],
+      requested_by: uid,
+    };
+    const convRow = isInstallation ? { ...convBase, staff_id: convDriverId } : convBase;
+    await supabase.from(tables.maintenanceRequests).insert(convRow);
 
     await supabase.from(tables.driverIssueReports).update({ status: 'converted' }).eq('id', issue.id);
     fetchData();
@@ -542,11 +598,11 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
           <ChartsPanel barData={maintInsights.bar} pieData={maintInsights.pie} />
 
           {/* Active maintenance warning */}
-          {hasActiveRequest && (isManager || isAdmin) && (
+          {globalMaintenanceInProgress && (isManager || isAdmin) && (
             <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
               <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
               <p className="text-sm text-amber-700 dark:text-amber-400">
-                يوجد طلب صيانة نشط حالياً. يجب إنهاء الصيانة الحالية قبل الموافقة على طلب جديد.
+                يوجد طلب صيانة قيد التنفيذ في النظام (قسم التجهيز أو التركيب). يجب إنهاؤه قبل الموافقة على طلب آخر.
               </p>
             </div>
           )}
@@ -986,7 +1042,7 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
                         <motion.button
                           whileTap={{ scale: 0.98 }}
                           onClick={() => handleApprove(req)}
-                          disabled={hasActiveRequest}
+                          disabled={globalMaintenanceInProgress}
                           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
                         >
                           <Check className="w-4 h-4" /> موافقة وبدء الصيانة
