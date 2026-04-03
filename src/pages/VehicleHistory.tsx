@@ -22,6 +22,8 @@ import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus, MaintenanceRecord, MaintenanceImage } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel, exportSheetsToExcel } from '../lib/excelExport';
+import { parseReportIdFromVehicleEventNewValue } from '../lib/savedReportFromRow';
+import SavedReportDetailModal from '../components/SavedReportDetailModal';
 
 /* ── Constants ── */
 const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgColor: string; icon: React.ElementType }> = {
@@ -84,6 +86,8 @@ interface TimelineItem {
   oldValue?: string | null;
   newValue?: string | null;
   images?: { url: string; type: string }[];
+  /** معرّف التقرير عند event_type === report_created (من new_value مثل report:7) */
+  reportId?: number | null;
 }
 
 export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProps) {
@@ -96,6 +100,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('timeline');
   const [timelineLimit, setTimelineLimit] = useState(30);
+  const [timelineReportId, setTimelineReportId] = useState<number | null>(null);
 
   /* ── Fetch everything ── */
   const fetchAll = useCallback(async () => {
@@ -132,6 +137,8 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
         description: ev.description,
         oldValue: ev.old_value,
         newValue: ev.new_value,
+        reportId:
+          ev.event_type === 'report_created' ? parseReportIdFromVehicleEventNewValue(ev.new_value) : undefined,
       });
     }
 
@@ -771,8 +778,31 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
               <div className="divide-y divide-stone-100 dark:divide-stone-700">
                 {timeline.slice(0, timelineLimit).map((item, idx) => {
                   const cfg = EVENT_CONFIG[item.type] || EVENT_CONFIG.note_added;
+                  const openReport =
+                    item.type === 'report_created' && item.reportId != null && !Number.isNaN(item.reportId);
                   return (
-                    <div key={item.id} className="flex gap-3 p-4 hover:bg-stone-50/50 dark:hover:bg-stone-700/30 transition-colors">
+                    <div
+                      key={item.id}
+                      role={openReport ? 'button' : undefined}
+                      tabIndex={openReport ? 0 : undefined}
+                      onClick={openReport ? () => setTimelineReportId(item.reportId!) : undefined}
+                      onKeyDown={
+                        openReport
+                          ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setTimelineReportId(item.reportId!);
+                              }
+                            }
+                          : undefined
+                      }
+                      className={cn(
+                        'flex gap-3 p-4 transition-colors rounded-xl -mx-1',
+                        openReport
+                          ? 'cursor-pointer hover:bg-rose-50/60 dark:hover:bg-rose-950/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400'
+                          : 'hover:bg-stone-50/50 dark:hover:bg-stone-700/30',
+                      )}
+                    >
                       {/* Timeline dot */}
                       <div className="flex flex-col items-center pt-0.5">
                         <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', cfg.bgColor)}>
@@ -784,12 +814,15 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                       </div>
                       {/* Content */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className={cn('text-sm font-semibold', cfg.color)}>{item.title}</span>
                             <span className={cn('px-2 py-0.5 rounded-md text-[10px] font-medium', cfg.bgColor, cfg.color)}>
                               {cfg.label}
                             </span>
+                            {openReport && (
+                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">اضغط لعرض التقرير كاملاً</span>
+                            )}
                           </div>
                           <span className="text-[10px] text-stone-400 dark:text-stone-500 whitespace-nowrap">{fmtDateTime(item.date)}</span>
                         </div>
@@ -797,7 +830,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                           <p className="text-xs text-stone-600 dark:text-stone-300 mt-1">{item.description}</p>
                         )}
                         {(item.oldValue || item.newValue) && (
-                          <div className="flex items-center gap-2 mt-1 text-xs">
+                          <div className="flex items-center gap-2 mt-1 text-xs flex-wrap">
                             {item.oldValue && <span className="px-2 py-0.5 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 line-through">{item.oldValue}</span>}
                             {item.oldValue && item.newValue && <ArrowRight className="w-3 h-3 text-stone-400" />}
                             {item.newValue && <span className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400">{item.newValue}</span>}
@@ -814,6 +847,7 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                           <div className="flex flex-wrap gap-2 mt-2">
                             {item.images.map((img, i) => (
                               <a key={i} href={img.url} target="_blank" rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-700 text-[11px] text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-600">
                                 <ImageIcon className="w-3 h-3" />
                                 {img.type === 'before' ? 'قبل' : img.type === 'during' ? 'أثناء' : img.type === 'after' ? 'بعد' : img.type === 'invoice' ? 'فاتورة' : img.type}
@@ -1086,6 +1120,12 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
           </motion.div>
         )}
       </AnimatePresence>
+
+      <SavedReportDetailModal
+        department="tajhiz"
+        reportId={timelineReportId}
+        onClose={() => setTimelineReportId(null)}
+      />
     </div>
   );
 }

@@ -47,6 +47,7 @@ import type {
   ExitType,
   Vehicle,
 } from '../lib/supabaseClient';
+import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
 import {
   SmartSearchBar,
   HighlightText,
@@ -608,16 +609,27 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
    ██  MAIN COMPONENT
    ════════════════════════════════════════════ */
 
-interface StaffExitProps {
+interface InstallationStaffExitProps {
   profile: UserProfile;
   userId: string;
+  /**
+   * بوابة الحارس الموحدة فقط: إخفاء احتساب التحميل والقواطع والرؤى السريعة والرسوم
+   * لقسم التركيب (يبقى السلوك كاملاً داخل مساحة عمل التركيب العادية).
+   */
+  unifiedGatePortal?: boolean;
 }
 
-export default function StaffExit({ profile, userId }: StaffExitProps) {
+export default function InstallationStaffExit({
+  profile,
+  userId,
+  unifiedGatePortal = false,
+}: InstallationStaffExitProps) {
   const supabase = getDepartmentClient('installation');
   const role = profile.role;
   const isAdmin = role === 'admin';
   const isGateGuard = role === 'gate_guard';
+  /** واجهة مبسّطة للحارس في البوابة الموحدة — بدون تحميل/قواطع/إنفوجرافيك */
+  const hideLoadingBreakersUi = Boolean(unifiedGatePortal);
 
   /* ── State ── */
   const [requests, setRequests] = useState<ExitRequest[]>([]);
@@ -663,6 +675,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [archiveSelectedDateKey, setArchiveSelectedDateKey] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [deletingExitBulk, setDeletingExitBulk] = useState(false);
 
   const toggleRequestSelection = (id: string) => {
     setSelectedRequestIds((prev) =>
@@ -738,7 +751,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             : ''),
         assistant_ids: [],
         assistant_names: Array.isArray(r.technician_names) ? r.technician_names : [],
-        assistant_returns: null,
+        assistant_returns:
+          r.assistant_returns != null &&
+          typeof r.assistant_returns === 'object' &&
+          !Array.isArray(r.assistant_returns)
+            ? { ...(r.assistant_returns as Record<string, string>) }
+            : null,
         vehicle_id: r.vehicle_id != null ? Number(r.vehicle_id) : null,
         vehicle_plate: r.vehicle_plate || r.vehicle_number || null,
         vehicle_cbm: null,
@@ -843,7 +861,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
 
     const finalReason = formExitReason === 'أخرى' ? formCustomReason : formExitReason;
 
-    const trackLoading = Boolean(formDriverId && formTrackLoadingTime);
+    const trackLoading = Boolean(formDriverId && formTrackLoadingTime && !hideLoadingBreakersUi);
 
     /* لا نرسل أعمدة احتساب التحميل في INSERT حتى يبقى الطلب يُنشأ حتى لو لم يُطبَّق ترحيل قاعدة البيانات بعد؛ نُكمّلها بـ UPDATE اختياري */
     const { data: insertedRequest, error } = await supabase.from('installation_exit_requests').insert({
@@ -990,26 +1008,34 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
     resetClampModal();
   };
 
+  const confirmExitAsGateGuard = async (requestId: string): Promise<boolean> => {
+    setClampSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('installation_exit_requests')
+        .update({
+          loading_verified: true,
+          status: 'exited',
+          gate_guard_id: userId,
+          exited_at: new Date().toISOString(),
+        })
+        .eq('id', requestId);
+      if (error) {
+        console.error(error);
+        alert('تعذر تأكيد المغادرة: ' + (error.message || 'خطأ غير معروف'));
+        return false;
+      }
+      await fetchRequests();
+      return true;
+    } finally {
+      setClampSubmitting(false);
+    }
+  };
+
   const submitClampVerifiedYes = async () => {
     if (!clampExitId) return;
-    setClampSubmitting(true);
-    const { error } = await supabase
-      .from('installation_exit_requests')
-      .update({
-        loading_verified: true,
-        status: 'exited',
-        gate_guard_id: userId,
-        exited_at: new Date().toISOString(),
-      })
-      .eq('id', clampExitId);
-    setClampSubmitting(false);
-    if (error) {
-      console.error(error);
-      alert('تعذر تأكيد المغادرة: ' + (error.message || 'خطأ غير معروف'));
-      return;
-    }
-    resetClampModal();
-    await fetchRequests();
+    const ok = await confirmExitAsGateGuard(clampExitId);
+    if (ok) resetClampModal();
   };
 
   const submitClampIssueReason = async () => {
@@ -1056,19 +1082,52 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('installation_exit_requests').delete().eq('id', id);
+    const { error } = await supabase.from('installation_exit_requests').delete().eq('id', id);
+    if (error) {
+      console.error(error);
+      alert('تعذر حذف الطلب: ' + (error.message || 'خطأ غير معروف'));
+      return;
+    }
     await fetchRequests();
   };
 
+  const handleBulkDeleteExitRequests = async () => {
+    if (!isAdmin || selectedRequestIds.length === 0) return;
+    setDeletingExitBulk(true);
+    try {
+      const { error } = await supabase
+        .from('installation_exit_requests')
+        .delete()
+        .in('id', selectedRequestIds);
+      if (error) throw error;
+      setSelectedRequestIds([]);
+      setIsSelectionMode(false);
+      await fetchRequests();
+    } catch (e) {
+      console.error(e);
+      alert('تعذر حذف الطلبات المحددة: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    } finally {
+      setDeletingExitBulk(false);
+    }
+  };
+
   const handleConfirmReturn = async (requestId: string, staffId: string) => {
-    const request = requests.find((r) => r.id === requestId);
+    const request = requests.find((r) => String(r.id) === String(requestId));
     if (!request) return;
-    const currentReturns = request.assistant_returns || {};
+    const currentReturns =
+      request.assistant_returns && typeof request.assistant_returns === 'object'
+        ? { ...request.assistant_returns }
+        : {};
     const updatedReturns = { ...currentReturns, [String(staffId)]: new Date().toISOString() };
-    await supabase
+    const { error } = await supabase
       .from('installation_exit_requests')
       .update({ assistant_returns: updatedReturns })
       .eq('id', requestId);
+    if (error) {
+      console.error('confirm return:', error);
+      alert('تعذر تأكيد العودة: ' + (error.message || 'خطأ غير معروف'));
+      return;
+    }
     await fetchRequests();
   };
 
@@ -1510,6 +1569,17 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             </button>
           )}
 
+          {isAdmin && isSelectionMode && (
+            <BulkDeleteSelectedButton
+              selectedCount={selectedRequestIds.length}
+              deleting={deletingExitBulk}
+              confirmMessage={(n) =>
+                `هل أنت متأكد من حذف ${n} طلب خروج (تركيب) من قاعدة البيانات؟ لا يمكن التراجع.`
+              }
+              onDelete={handleBulkDeleteExitRequests}
+            />
+          )}
+
           {/* Export Buttons */}
           {isAdmin && (
             <>
@@ -1907,8 +1977,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         )}
       </div>
 
-      <InsightsPanel metrics={exitInsightsBundle.metrics} alerts={exitInsightsBundle.alerts} />
-      <ChartsPanel barData={exitInsightsBundle.bar} pieData={exitInsightsBundle.pie} />
+      {!hideLoadingBreakersUi && (
+        <>
+          <InsightsPanel metrics={exitInsightsBundle.metrics} alerts={exitInsightsBundle.alerts} />
+          <ChartsPanel barData={exitInsightsBundle.bar} pieData={exitInsightsBundle.pie} />
+        </>
+      )}
 
       {/* ── Create New Request (Admin) ── */}
       {isAdmin && (
@@ -2076,7 +2150,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                 </div>
               )}
 
-              {formDriverId && (
+              {formDriverId && !hideLoadingBreakersUi && (
                 <div className="mt-4 rounded-xl border border-amber-200/80 dark:border-amber-800/60 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3 space-y-2">
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input
@@ -2378,7 +2452,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                               دائم
                             </span>
                           )}
-                          {req.track_driver_loading_time && (
+                          {req.track_driver_loading_time && !hideLoadingBreakersUi && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/90 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border border-amber-300/60 dark:border-amber-700/60">
                               <Package className="w-3 h-3 shrink-0" />
                               احتساب تحميل
@@ -2417,7 +2491,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             )}
                           </div>
                         )}
-                        {req.loading_issue_reason && (
+                        {req.loading_issue_reason && !hideLoadingBreakersUi && (
                           <div className="text-sm text-orange-800 dark:text-orange-200 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 px-3 py-2 rounded-lg">
                             <span className="text-xs font-bold text-orange-700 dark:text-orange-300">سبب عدم استخدام القواطع:</span>{' '}
                             <HighlightText text={req.loading_issue_reason} query={searchTerm} />
@@ -2441,7 +2515,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                             غادر بتاريخ: {new Date(req.exited_at).toLocaleString('ar-IQ', { dateStyle: 'medium', timeStyle: 'short' })}
                           </div>
                         )}
-                        <DriverLoadingDetails req={req} />
+                        {!hideLoadingBreakersUi && <DriverLoadingDetails req={req} />}
                         {/* Archive: show return summary — temporary only */}
                         {req.status === 'exited' && req.exit_type === 'temporary' && req.assistant_returns && Object.keys(req.assistant_returns).length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-1">
@@ -2550,7 +2624,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                         دائم
                       </span>
                     )}
-                    {req.track_driver_loading_time && (
+                    {req.track_driver_loading_time && !hideLoadingBreakersUi && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/90 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border border-amber-300/60 dark:border-amber-700/60">
                         <Package className="w-3 h-3 shrink-0" />
                         احتساب تحميل
@@ -2616,7 +2690,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     </div>
                   )}
 
-                  {req.loading_issue_reason && (
+                  {req.loading_issue_reason && !hideLoadingBreakersUi && (
                     <div className="text-sm text-orange-800 dark:text-orange-200 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 px-3 py-2 rounded-lg">
                       <span className="text-xs font-bold text-orange-700 dark:text-orange-300">سبب عدم استخدام القواطع:</span>{' '}
                       <HighlightText text={req.loading_issue_reason} query={searchTerm} />
@@ -2644,7 +2718,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     </div>
                   )}
 
-                  <DriverLoadingDetails req={req} />
+                  {!hideLoadingBreakersUi && <DriverLoadingDetails req={req} />}
 
                   {/* ── Technician Return Confirmation (Gate Guard + Admin view) — temporary only ── */}
                   {req.status === 'exited' && req.exit_type === 'temporary' && req.driver_id && (
@@ -2775,11 +2849,16 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => openClampModal(req.id)}
-                      className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold shadow-lg shadow-blue-600/30 text-base"
+                      disabled={clampSubmitting}
+                      onClick={() => {
+                        if (clampSubmitting) return;
+                        if (hideLoadingBreakersUi) void confirmExitAsGateGuard(req.id);
+                        else openClampModal(req.id);
+                      }}
+                      className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold shadow-lg shadow-blue-600/30 text-base disabled:opacity-50"
                     >
                       <LogOutIcon className="w-5 h-5" />
-                      تأكيد المغادرة
+                      {clampSubmitting ? 'جاري التأكيد...' : 'تأكيد المغادرة'}
                     </motion.button>
                   )}
 
@@ -2804,7 +2883,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
       )}
 
       <AnimatePresence>
-        {clampExitId && (
+        {!hideLoadingBreakersUi && clampExitId && (
           <motion.div
             key="clamp-exit-overlay"
             role="dialog"

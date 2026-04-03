@@ -47,6 +47,7 @@ import type {
   ExitType,
   Vehicle,
 } from '../lib/supabaseClient';
+import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
 import {
   SmartSearchBar,
   HighlightText,
@@ -611,9 +612,12 @@ function SingleSelect({ label, items, selectedId, onChange, placeholder = 'اخ�
 interface StaffExitProps {
   profile: UserProfile;
   userId: string;
+  /** بوابة الحارس الموحدة: إخفاء الرؤى السريعة والرسوم البيانية */
+  unifiedGatePortal?: boolean;
 }
 
-export default function StaffExit({ profile, userId }: StaffExitProps) {
+export default function StaffExit({ profile, userId, unifiedGatePortal = false }: StaffExitProps) {
+  const hideGatePortalInsightsCharts = Boolean(unifiedGatePortal);
   const role = profile.role;
   const isAdmin = role === 'admin';
   const isGateGuard = role === 'gate_guard';
@@ -662,6 +666,7 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   const [archiveSelectedDateKey, setArchiveSelectedDateKey] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [deletingExitBulk, setDeletingExitBulk] = useState(false);
 
   const toggleRequestSelection = (id: string) => {
     setSelectedRequestIds((prev) =>
@@ -1022,8 +1027,30 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('exit_requests').delete().eq('id', id);
+    const { error } = await supabase.from('exit_requests').delete().eq('id', id);
+    if (error) {
+      console.error(error);
+      alert('تعذر حذف الطلب: ' + (error.message || 'خطأ غير معروف'));
+      return;
+    }
     await fetchRequests();
+  };
+
+  const handleBulkDeleteExitRequests = async () => {
+    if (!isAdmin || selectedRequestIds.length === 0) return;
+    setDeletingExitBulk(true);
+    try {
+      const { error } = await supabase.from('exit_requests').delete().in('id', selectedRequestIds);
+      if (error) throw error;
+      setSelectedRequestIds([]);
+      setIsSelectionMode(false);
+      await fetchRequests();
+    } catch (e) {
+      console.error(e);
+      alert('تعذر حذف الطلبات المحددة: ' + (e instanceof Error ? e.message : 'خطأ غير معروف'));
+    } finally {
+      setDeletingExitBulk(false);
+    }
   };
 
   const handleConfirmReturn = async (requestId: string, staffId: string) => {
@@ -1484,6 +1511,17 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
             </button>
           )}
 
+          {isAdmin && isSelectionMode && (
+            <BulkDeleteSelectedButton
+              selectedCount={selectedRequestIds.length}
+              deleting={deletingExitBulk}
+              confirmMessage={(n) =>
+                `هل أنت متأكد من حذف ${n} طلب خروج من قاعدة البيانات؟ لا يمكن التراجع.`
+              }
+              onDelete={handleBulkDeleteExitRequests}
+            />
+          )}
+
           {/* Export Buttons */}
           {isAdmin && (
             <>
@@ -1885,8 +1923,12 @@ export default function StaffExit({ profile, userId }: StaffExitProps) {
         )}
       </div>
 
-      <InsightsPanel metrics={exitInsightsBundle.metrics} alerts={exitInsightsBundle.alerts} />
-      <ChartsPanel barData={exitInsightsBundle.bar} pieData={exitInsightsBundle.pie} />
+      {!hideGatePortalInsightsCharts && (
+        <>
+          <InsightsPanel metrics={exitInsightsBundle.metrics} alerts={exitInsightsBundle.alerts} />
+          <ChartsPanel barData={exitInsightsBundle.bar} pieData={exitInsightsBundle.pie} />
+        </>
+      )}
 
       {/* ── Create New Request (Admin) ── */}
       {isAdmin && (

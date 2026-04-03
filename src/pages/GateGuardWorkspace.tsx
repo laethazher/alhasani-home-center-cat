@@ -126,8 +126,10 @@ export default function GateGuardWorkspace({
         </motion.div>
 
         <div>
-          {tab === 'tajhiz' && <StaffExit profile={profile} userId={userId} />}
-          {tab === 'installation' && <InstallationStaffExit profile={profile} userId={userId} />}
+          {tab === 'tajhiz' && <StaffExit profile={profile} userId={userId} unifiedGatePortal />}
+          {tab === 'installation' && (
+            <InstallationStaffExit profile={profile} userId={userId} unifiedGatePortal />
+          )}
         </div>
       </div>
     </div>

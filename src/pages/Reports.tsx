@@ -32,6 +32,7 @@ import {
   GripVertical,
   X,
 } from 'lucide-react';
+import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
 import { DamageMap } from '../components/DamageMap';
 import { InspectionForm } from '../components/InspectionForm';
 import { ToolInventory } from '../components/ToolInventory';
@@ -40,33 +41,17 @@ import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
+import { mapDbRowToSavedReportView, type SavedReportView } from '../lib/savedReportFromRow';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
+import { useUserProfile } from '../hooks/useUserProfile';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
 
 interface ReportsProps {
   userId: string;
   department?: DepartmentCode;
-}
-
-interface SavedReportView {
-  id: number;
-  vehicleId: number | null;
-  driverName: string;
-  truckNumber: string;
-  vehicleType?: string;
-  date: string;
-  damagePoints: any[];
-  inspectionValues: Record<number, boolean>;
-  toolValues: Record<number, number>;
-  toolImages: Record<number, string[]>;
-  driverSignature: string;
-  equipmentManagerSignature: string;
-  logisticsManagerSignature: string;
-  warehouseManagerSignature: string;
-  createdAt: string;
 }
 
 interface InventoryItemView {
@@ -236,6 +221,8 @@ function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap, staff
 }
 
 export default function Reports({ userId, department = 'tajhiz' }: ReportsProps) {
+  const { profile } = useUserProfile();
+  const canManageReports = profile?.role === 'admin' || profile?.role === 'manager';
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const [activeTab, setActiveTab] = useState<Tab>('damage');
@@ -266,6 +253,7 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedReportIds, setSelectedStaffIds] = useState<number[]>([]);
   const [exportingSelected, setExportingSelected] = useState(false);
+  const [deletingReportsBulk, setDeletingReportsBulk] = useState(false);
 
   const toggleSelectAll = () => {
     if (selectedReportIds.length === savedReports.length) {
@@ -279,6 +267,23 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
     setSelectedStaffIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
+
+  const handleDeleteSelectedReports = async () => {
+    if (!canManageReports || selectedReportIds.length === 0) return;
+    setDeletingReportsBulk(true);
+    try {
+      const { error } = await supabase.from(tables.reports).delete().in('id', selectedReportIds);
+      if (error) throw error;
+      setSelectedStaffIds([]);
+      setIsSelectionMode(false);
+      await fetchReports();
+    } catch (e) {
+      console.error(e);
+      alert('تعذر حذف التقارير المحددة: ' + getErrorMessage(e));
+    } finally {
+      setDeletingReportsBulk(false);
+    }
   };
 
   const exportSelectedExcel = () => {
@@ -391,53 +396,14 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
       if (error) throw error;
       if (isTajhiz) {
         setSavedReports(
-          ((data ?? []) as Report[]).map((r) => ({
-            id: r.id,
-            vehicleId: r.vehicle_id,
-            driverName: r.driver_name || '',
-            truckNumber: r.truck_number || '',
-            vehicleType: '',
-            date: r.date || '',
-            damagePoints: Array.isArray(r.damage_points) ? r.damage_points : [],
-            inspectionValues: (r.inspection_values as Record<number, boolean>) || {},
-            toolValues: (r.tool_values as Record<number, number>) || {},
-            toolImages: (r.tool_images as Record<number, string[]>) || {},
-            driverSignature: r.driver_signature || '',
-            equipmentManagerSignature: r.equipment_manager || '',
-            logisticsManagerSignature: r.logistics_manager || '',
-            warehouseManagerSignature: r.warehouse_manager || '',
-            createdAt: r.created_at,
-          }))
+          ((data ?? []) as Report[]).map((r) =>
+            mapDbRowToSavedReportView(r as unknown as Record<string, unknown>, false),
+          ),
         );
         return;
       }
       setSavedReports(
-        ((data ?? []) as Array<Record<string, unknown>>).map((row) => {
-          const payload = (row.payload && typeof row.payload === 'object'
-            ? (row.payload as Record<string, unknown>)
-            : {}) as Record<string, unknown>;
-          return {
-            id: Number(row.id),
-            vehicleId: row.vehicle_id == null ? null : Number(row.vehicle_id),
-            driverName: String(row.driver_name ?? payload.driver_name ?? ''),
-            truckNumber: String(row.truck_number ?? row.vehicle_number ?? payload.truck_number ?? ''),
-            vehicleType: String(row.vehicle_type ?? payload.vehicle_type ?? ''),
-            date: String(row.date ?? payload.date ?? ''),
-            damagePoints: Array.isArray(row.damage_points)
-              ? (row.damage_points as any[])
-              : Array.isArray(payload.damage_points)
-                ? (payload.damage_points as any[])
-                : [],
-            inspectionValues: (row.inspection_values as Record<number, boolean>) || (payload.inspection_values as Record<number, boolean>) || {},
-            toolValues: (row.tool_values as Record<number, number>) || (payload.tool_values as Record<number, number>) || {},
-            toolImages: (row.tool_images as Record<number, string[]>) || (payload.tool_images as Record<number, string[]>) || {},
-            driverSignature: String(row.driver_signature ?? payload.driver_signature ?? ''),
-            equipmentManagerSignature: String(row.equipment_manager ?? payload.equipment_manager ?? ''),
-            logisticsManagerSignature: String(row.logistics_manager ?? payload.logistics_manager ?? ''),
-            warehouseManagerSignature: String(row.warehouse_manager ?? payload.warehouse_manager ?? ''),
-            createdAt: String(row.created_at ?? new Date().toISOString()),
-          } as SavedReportView;
-        })
+        ((data ?? []) as Array<Record<string, unknown>>).map((row) => mapDbRowToSavedReportView(row, true)),
       );
     } catch (error) {
       console.error("Failed to fetch reports:", error);
@@ -725,10 +691,13 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
       });
       if (eventError) {
         console.error('Failed to log report event:', eventError);
+        if (isInstallation) {
+          alert('تم حفظ التقرير لكن تعذّر تسجيل الحدث في سجل المركبة. طبّق ترحيل قاعدة البيانات الأخير أو أبلغ المسؤول.');
+        }
       }
 
       setSubmitted(true);
-      await fetchReports();
+      void fetchReports();
     } catch (error: unknown) {
       console.error("Submission error:", error);
       const msg = getErrorMessage(error);
@@ -830,6 +799,27 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                 >
                   {isSelectionMode ? 'إلغاء التحديد' : 'تحديد'}
                 </button>
+
+                {isSelectionMode && savedReports.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="px-4 py-2 rounded-xl text-sm font-bold border border-stone-200 dark:border-stone-700 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors"
+                  >
+                    {selectedReportIds.length === savedReports.length ? 'إلغاء الكل' : 'تحديد الكل'}
+                  </button>
+                )}
+
+                {canManageReports && isSelectionMode && (
+                  <BulkDeleteSelectedButton
+                    selectedCount={selectedReportIds.length}
+                    deleting={deletingReportsBulk}
+                    confirmMessage={(n) =>
+                      `هل أنت متأكد من حذف ${n} تقرير من قاعدة البيانات؟ لا يمكن التراجع.`
+                    }
+                    onDelete={handleDeleteSelectedReports}
+                  />
+                )}
 
                 {isSelectionMode && selectedReportIds.length > 0 && (
                   <>

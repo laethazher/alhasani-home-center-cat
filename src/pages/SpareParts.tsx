@@ -5,6 +5,7 @@ import {
   Save, Loader2, Hash, Building2, DollarSign, Layers,
   Download, Printer,
 } from 'lucide-react';
+import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
 import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
@@ -33,6 +34,7 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
   // Selection state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const toggleSelectAll = () => {
     if (selectedIds.length === filteredParts.length) {
@@ -50,17 +52,17 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
 
   async function handleDeleteSelected() {
     if (selectedIds.length === 0) return;
-    if (!window.confirm(`هل أنت متأكد من حذف ${selectedIds.length} قطعة؟`)) return;
-    setLoading(true);
+    setBulkDeleting(true);
     try {
-      await supabase.from(tables.spareParts).delete().in('id', selectedIds);
+      const { error } = await supabase.from(tables.spareParts).delete().in('id', selectedIds);
+      if (error) throw error;
       setSelectedIds([]);
       setIsSelectionMode(false);
       await fetchData();
     } catch (e) {
-      alert('فشل الحذف');
+      alert('فشل الحذف: ' + (e instanceof Error ? e.message : 'خطأ'));
     } finally {
-      setLoading(false);
+      setBulkDeleting(false);
     }
   }
 
@@ -296,14 +298,13 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
                 {selectedIds.length === filteredParts.length ? 'إلغاء الكل' : 'تحديد الكل'}
               </button>
               
-              {selectedIds.length > 0 && (
-                <button
-                  onClick={handleDeleteSelected}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium shadow-lg hover:bg-red-700"
-                >
-                  <Trash2 className="w-4 h-4" /> حذف ({selectedIds.length})
-                </button>
-              )}
+              <BulkDeleteSelectedButton
+                selectedCount={selectedIds.length}
+                deleting={bulkDeleting}
+                confirmMessage={(n) => `هل أنت متأكد من حذف ${n} قطعة من قاعدة البيانات؟`}
+                onDelete={handleDeleteSelected}
+                label={(n) => `حذف (${n})`}
+              />
             </>
           )}
 

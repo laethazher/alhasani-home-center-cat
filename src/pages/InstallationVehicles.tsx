@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Truck, Plus, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
-  CheckCircle2, Clock, AlertTriangle, Save, User, MapPin, Gauge,
+  CheckCircle2, Clock, AlertTriangle, Save, User, MapPin, Gauge, History,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getDepartmentClient } from '../data/supabaseSource';
@@ -12,6 +12,7 @@ import {
   ChartsPanel,
   insightsFromVehicles,
 } from '../smart';
+import InstallationVehicleHistory from './InstallationVehicleHistory';
 
 type InstallationStatus = 'available' | 'maintenance' | 'broken' | 'reserved';
 type InstallationVehicleType = 'starex' | 'nissan';
@@ -82,6 +83,7 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
   const [formError, setFormError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const [historyVehicleId, setHistoryVehicleId] = useState<number | null>(null);
 
   const [showMaintenanceForm, setShowMaintenanceForm] = useState<number | null>(null);
   const [savingMaintenance, setSavingMaintenance] = useState(false);
@@ -334,6 +336,12 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
       <div className="flex items-center justify-center py-20">
         <div className="w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin" />
       </div>
+    );
+  }
+
+  if (historyVehicleId !== null) {
+    return (
+      <InstallationVehicleHistory vehicleId={historyVehicleId} onBack={() => setHistoryVehicleId(null)} />
     );
   }
 
@@ -594,14 +602,22 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
                     )}
                   </div>
 
-                  <div className="flex items-center border-t border-stone-100 dark:border-stone-700">
-                    <button onClick={() => openEditForm(v)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
+                  <div className="flex items-center border-t border-stone-100 dark:border-stone-700 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryVehicleId(v.id)}
+                      className="flex-1 min-w-[4.5rem] flex items-center justify-center gap-1.5 py-2.5 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
+                    >
+                      <History className="w-3.5 h-3.5" /> السجل
+                    </button>
+                    <div className="w-px h-6 bg-stone-100 dark:bg-stone-700 hidden sm:block" />
+                    <button onClick={() => openEditForm(v)} className="flex-1 min-w-[4.5rem] flex items-center justify-center gap-1.5 py-2.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
                       <Edit3 className="w-3.5 h-3.5" /> تعديل
                     </button>
                     <div className="w-px h-6 bg-stone-100 dark:bg-stone-700" />
                     <button
                       onClick={() => setShowMaintenanceForm(v.id)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                      className="flex-1 min-w-[4.5rem] flex items-center justify-center gap-1.5 py-2.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
                     >
                       <Wrench className="w-3.5 h-3.5" /> صيانة
                     </button>
