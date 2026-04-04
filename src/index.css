@@ -127,42 +127,23 @@ html.dark .input-field {
   height: 100% !important;
 }
 
+/* أقسام التقرير — بدون فرض فواصل صفحات على الشاشة */
+.pdf-section {
+  position: relative;
+  display: block;
+  width: 100%;
+  margin-bottom: 1.25rem;
+}
+
 @media print {
   body * {
     visibility: hidden;
   }
-  #print-section, #print-section * {
+  #print-section,
+  #print-section * {
     visibility: visible;
   }
-  #print-section {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-  }
-  .no-print {
-    display: none !important;
-  }
-}
 
-.pdf-section {
-  page-break-inside: avoid !important;
-  break-inside: avoid !important;
-  position: relative;
-  margin-bottom: 2rem !important;
-  padding-bottom: 2rem !important;
-  display: block !important;
-  width: 100% !important;
-}
-
-.pdf-section + .pdf-section {
-  page-break-before: always !important;
-}
-
-/* PDF-specific optimizations */
-@media print {
   body {
     margin: 0;
     padding: 0;
@@ -170,67 +151,98 @@ html.dark .input-field {
   }
 
   #print-section {
+    position: absolute;
+    left: 0;
+    top: 0;
     margin: 0;
-    padding: 50px;
+    padding: 12px 16px !important;
     width: 100%;
     display: block;
     background: white;
   }
 
-  img {
+  /* تقليل فراغ space-y-12 بين أقسام التقرير في الطباعة (كان يدفع عناوين لصفحات منفردة) */
+  #print-section > *:not(:first-child) {
+    margin-top: 0.625rem !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  #print-section img {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    color-adjust: exact;
     max-width: 100% !important;
     height: auto !important;
+    min-height: 0 !important;
     display: block !important;
-    width: 100% !important;
-    min-height: 350px !important;
     object-fit: contain !important;
   }
 
-  .pdf-section {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    margin-bottom: 3rem !important;
-    padding-bottom: 3rem !important;
-    display: block !important;
+  #print-section img.report-embed-photo {
     width: 100% !important;
-    page-break-before: always !important;
+    max-height: 300px !important;
   }
 
-  .pdf-section > div,
-  .pdf-section > div > div {
+  /* vh في معاينة الطباعة يسبب مساحات ضخمة؛ ارتفاع ثابت يقرّب المخطط من النص التالي */
+  #print-section .pdf-vehicle-map img {
+    width: 100% !important;
+    max-height: 11cm !important;
+    height: auto !important;
+  }
+
+  /* تدفق طبيعي — تجنّب صفحات فارغة كثيرة كانت بسبب break-before و min-height السابقة */
+  .pdf-section {
+    page-break-before: auto !important;
+    break-before: auto !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    margin-bottom: 0.5rem !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* يمنع بقاء عنوان القسم وحده في أسفل صفحة بعيدة عن المحتوى */
+  #print-section .pdf-section > h3 {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .pdf-damage-stack {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  .pdf-damage-stack > .pdf-section {
+    margin-bottom: 0.35rem !important;
+  }
+
+  .pdf-damage-stack > .pdf-section + .pdf-section {
+    margin-top: 0.25rem !important;
+  }
+
+  .pdf-section-signatures {
+    page-break-before: always !important;
+    break-before: page !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
 
-  /* Ensure image containers are properly sized */
+  .pdf-print-flow-row {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  /* بطاقة بها عدة صور كانت تُجبر المتصفح على صفحة شبه فارغة + عنوان يتيم */
+  .pdf-damage-card {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
   div[style*="flexDirection"] {
     width: 100% !important;
     display: flex !important;
     flex-direction: column !important;
-  }
-
-  .pdf-section:first-child {
-    page-break-before: avoid !important;
-  }
-
-  /* Force page breaks for specific sections */
-  .pdf-section:nth-of-type(1):not(:first-child) {
-    page-break-before: always !important;
-  }
-  
-  .pdf-section:nth-of-type(2):not(:first-child) {
-    page-break-before: always !important;
-  }
-  
-  .pdf-section:nth-of-type(3):not(:first-child) {
-    page-break-before: always !important;
-  }
-  
-  .pdf-section:nth-of-type(4):not(:first-child) {
-    page-break-before: always !important;
   }
 }
 

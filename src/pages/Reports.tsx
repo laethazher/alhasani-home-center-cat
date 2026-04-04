@@ -42,7 +42,8 @@ import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource
 import type { DepartmentCode } from '../data/department';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
 import { mapDbRowToSavedReportView, type SavedReportView } from '../lib/savedReportFromRow';
-import { exportHtmlToPdf } from '../lib/pdfExport';
+import { getVehicleInspectionMapUrl } from '../lib/vehicleInspectionMapUrl';
+import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
 import { useUserProfile } from '../hooks/useUserProfile';
@@ -68,23 +69,6 @@ function getErrorMessage(error: unknown): string {
     if (typeof message === 'string' && message.trim()) return message;
   }
   return 'خطأ غير معروف';
-}
-
-function resolveInstallationVehicleType(raw: unknown): 'starex' | 'nissan' | null {
-  const value = String(raw ?? '').trim().toLowerCase();
-  if (!value) return null;
-  if (value.includes('starex') || value.includes('star') || value.includes('ستار')) return 'starex';
-  if (value.includes('nissan') || value.includes('نيس')) return 'nissan';
-  return null;
-}
-
-function getVehicleMapImage(department: DepartmentCode, vehicleType?: unknown): string {
-  if (department !== 'installation') return '/truck-collage.jpg?v=1';
-  const normalized = resolveInstallationVehicleType(vehicleType);
-  if (normalized === 'starex') return '/صورة ستاركس.png';
-  if (normalized === 'nissan') return '/صورة نيسان.png';
-  // For installation, never fallback to tajhiz collage image.
-  return '/صورة ستاركس.png';
 }
 
 interface VehicleSelectProps {
@@ -393,9 +377,9 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
   const selectedVehicleDriver = selectedVehicle?.assigned_driver_id
     ? (driverMap.get(String(selectedVehicle.assigned_driver_id)) || '')
     : '';
-  const selectedVehicleImage = getVehicleMapImage(
+  const selectedVehicleImage = getVehicleInspectionMapUrl(
     department,
-    (selectedVehicle as unknown as { vehicle_type?: unknown } | null)?.vehicle_type
+    (selectedVehicle as unknown as { vehicle_type?: unknown } | null)?.vehicle_type,
   );
 
   const fetchReports = useCallback(async () => {
@@ -635,6 +619,23 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
     await persistTemplateOrder(normalized);
   };
 
+  const resetNewReportForm = useCallback(() => {
+    setSubmitted(false);
+    setActiveTab('damage');
+    setSelectedVehicleId('');
+    setDriverName('');
+    setTruckNumber('');
+    setDate(new Date().toISOString().split('T')[0]);
+    setDamagePoints([]);
+    setInspectionValues({});
+    setToolValues({});
+    setToolImages({});
+    setDriverSignature('');
+    setEquipmentManagerSignature('');
+    setLogisticsManagerSignature('');
+    setWarehouseManagerSignature('');
+  }, []);
+
   const handleSubmit = async () => {
     if (!selectedVehicle || !driverName.trim()) {
       alert(`يرجى اختيار المركبة وتأكيد اسم ${staffLabel}`);
@@ -642,7 +643,7 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
     }
 
     setIsSubmitting(true);
-    
+
     try {
       const reportPayload = {
         user_id: userId,
@@ -659,9 +660,9 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
         logistics_manager: logisticsManagerSignature,
         warehouse_manager: warehouseManagerSignature,
       };
-      let insertedId: number | null = null;
+
+      let insertedRow: Record<string, unknown> | null = null;
       if (isInstallation) {
-        // Strict isolation: installation writes only to installation_reports payload schema.
         const installationInsert = {
           user_id: userId,
           vehicle_id: selectedVehicle.id,
@@ -676,41 +677,56 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
         const { data, error } = await supabase
           .from('installation_reports')
           .insert(installationInsert)
-          .select('id')
+          .select('*')
           .single();
         if (error) throw error;
-        insertedId = data?.id ?? null;
+        insertedRow = data as Record<string, unknown>;
       } else {
         const { data, error } = await supabase
           .from('reports')
           .insert(reportPayload)
-          .select('id')
+          .select('*')
           .single();
         if (error) throw error;
-        insertedId = data?.id ?? null;
+        insertedRow = data as Record<string, unknown>;
       }
+
+      const newView = mapDbRowToSavedReportView(insertedRow, isInstallation);
+      setSavedReports((prev) => {
+        const rest = prev.filter((r) => r.id !== newView.id);
+        return [newView, ...rest];
+      });
+
+      setSubmitted(true);
 
       const completedInspectionCount = Object.values(inspectionValues).filter(Boolean).length;
       const reportSummary = `تم إنشاء تقرير فحص للمركبة ${selectedVehicle.plate_number} للـ${staffLabel} ${driverName.trim()}`;
       const reportDetails = `الأضرار: ${damagePoints.length} | الفحص السليم: ${completedInspectionCount}/${WEEKLY_INSPECTION_ITEMS.length}`;
-      const { error: eventError } = await supabase.from(tables.vehicleEvents).insert({
-        vehicle_id: selectedVehicle.id,
-        event_type: 'report_created',
-        description: `${reportSummary} - ${reportDetails}`,
-        old_value: null,
-        new_value: insertedId ? `report:${insertedId}` : reportDetails,
-      });
-      if (eventError) {
-        console.error('Failed to log report event:', eventError);
-        if (isInstallation) {
-          alert('تم حفظ التقرير لكن تعذّر تسجيل الحدث في سجل المركبة. طبّق ترحيل قاعدة البيانات الأخير أو أبلغ المسؤول.');
-        }
-      }
 
-      setSubmitted(true);
-      void fetchReports();
+      void (async () => {
+        try {
+          const { error: eventError } = await supabase.from(tables.vehicleEvents).insert({
+            vehicle_id: selectedVehicle.id,
+            event_type: 'report_created',
+            description: `${reportSummary} - ${reportDetails}`,
+            old_value: null,
+            new_value: newView.id ? `report:${newView.id}` : reportDetails,
+          });
+          if (eventError) {
+            console.error('Failed to log report event:', eventError);
+            if (isInstallation) {
+              alert(
+                'تم حفظ التقرير لكن تعذّر تسجيل الحدث في سجل المركبة. طبّق ترحيل قاعدة البيانات الأخير أو أبلغ المسؤول.',
+              );
+            }
+          }
+        } catch (e) {
+          console.error('vehicle event after report:', e);
+        }
+        await fetchReports();
+      })();
     } catch (error: unknown) {
-      console.error("Submission error:", error);
+      console.error('Submission error:', error);
       const msg = getErrorMessage(error);
       alert('فشل في حفظ التقرير: ' + msg);
     } finally {
@@ -722,20 +738,19 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
 
   const exportPDF = async () => {
     if (!reportRef.current || !viewingReport) return;
-    
+
     setIsExporting(true);
     try {
-      // Small pause for layout stability
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      const html = reportRef.current.innerHTML;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const raw = reportRef.current.innerHTML;
+      const html = wrapReportHtmlForPdf(raw, window.location.origin);
       const truck = String(viewingReport.truckNumber || 'truck').replace(/[^a-zA-Z0-9\u0600-\u06FF_-]/g, '-');
       const dt = String(viewingReport.date || new Date().toISOString().slice(0, 10));
-      
-      await exportHtmlToPdf(html, `report-${truck}-${dt}.pdf`);
-    } catch (error: any) {
-      console.error('PDF Export failed:', error?.message || error);
-      alert('فشل في تصدير ملف PDF: ' + (error?.message || 'خطأ غير معروف'));
+
+      await exportHtmlToPdf(html, `report-${truck}-${dt}.pdf`, { reportInspectionLayout: true });
+    } catch (error: unknown) {
+      console.error('PDF Export failed:', error);
+      alert('فشل في تصدير ملف PDF: ' + getErrorMessage(error));
     } finally {
       setIsExporting(false);
     }
@@ -755,8 +770,9 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
           <h1 className="text-2xl font-bold text-stone-900 dark:text-stone-100">تم حفظ التقرير بنجاح!</h1>
           <p className="text-stone-500 dark:text-stone-400">تم تخزين التقرير في قاعدة بيانات الموقع ويمكنك الرجوع إليه في أي وقت.</p>
           <div className="flex flex-col gap-3">
-            <button 
-              onClick={() => window.location.reload()}
+            <button
+              type="button"
+              onClick={resetNewReportForm}
               className="btn-primary w-full"
             >
               تقديم جرد جديد
@@ -1421,42 +1437,50 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                   </div>
                 </div>
 
-                {/* Vehicle Damage Map */}
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
-                  <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
-                    <img 
-                      src={getVehicleMapImage(department, viewingReport.vehicleType)}
-                      alt="Truck Map" 
-                      className="w-full h-auto object-cover"
-                      crossOrigin="anonymous"
-                    />
-                    {viewingReport.damagePoints.map((point: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="absolute w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center"
-                        style={{ 
-                          left: `${point.x}%`, 
-                          top: `${point.y}%`, 
-                          transform: 'translate(-50%, -50%)',
-                          backgroundColor: point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15'
-                        }}
-                      >
-                        <span className="text-[10px] font-bold text-white">{idx + 1}</span>
-                      </div>
-                    ))}
+                <div className="pdf-damage-stack">
+                  {/* Vehicle Damage Map */}
+                  <div className="space-y-4 pdf-section">
+                    <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
+                    <div className="pdf-vehicle-map relative rounded-2xl overflow-hidden border-2 border-stone-100">
+                      <img
+                        src={getVehicleInspectionMapUrl(department, viewingReport.vehicleType)}
+                        alt="مخطط المركبة"
+                        className="w-full h-auto object-contain"
+                      />
+                      {viewingReport.damagePoints.map((point: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="absolute w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center"
+                          style={{
+                            left: `${point.x}%`,
+                            top: `${point.y}%`,
+                            transform: 'translate(-50%, -50%)',
+                            backgroundColor:
+                              point.severity === 'high'
+                                ? '#dc2626'
+                                : point.severity === 'medium'
+                                  ? '#f97316'
+                                  : '#facc15',
+                          }}
+                        >
+                          <span className="text-[10px] font-bold text-white">{idx + 1}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Damage Summary */}
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
-                  <h3 className="text-xl font-bold border-r-4 border-red-700 pr-4">أضرار المركبة الموثقة</h3>
+                  {/* Damage Summary */}
+                  <div className="space-y-4 pdf-section">
+                    <h3 className="text-xl font-bold border-r-4 border-red-700 pr-4">أضرار المركبة الموثقة</h3>
                   {viewingReport.damagePoints.length === 0 ? (
                     <p className="text-stone-400 dark:text-stone-500 italic">لا توجد أضرار مسجلة</p>
                   ) : (
                     <div className="space-y-4">
                       {viewingReport.damagePoints.map((p: any, idx: number) => (
-                        <div key={idx} className="border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                        <div
+                          key={idx}
+                          className="pdf-damage-card border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden"
+                        >
                           <div className="flex items-center gap-4 p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
                             <span className="font-mono font-bold text-stone-300 dark:text-stone-500">#{idx + 1}</span>
                             <span className={`px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap ${
@@ -1473,11 +1497,22 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                               <p className="text-xs font-bold text-stone-600 dark:text-stone-300 mb-4">صور الضرر ({p.images.length}):</p>
                               <div className="space-y-4">
                                 {p.images.map((image: string, imgIdx: number) => (
-                                  <div key={imgIdx} className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
-                                    <img 
-                                      src={image} 
+                                  <div
+                                    key={imgIdx}
+                                    className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700 flex flex-col w-full h-auto"
+                                  >
+                                    <img
+                                      src={image}
                                       alt={`صورة الضرر ${imgIdx + 1}`}
-                                      style={{ width: '100%', height: 'auto', display: 'block', minHeight: '350px', maxHeight: '600px', objectFit: 'contain', backgroundColor: '#ffffff' }}
+                                      className="report-embed-photo"
+                                      style={{
+                                        width: '100%',
+                                        height: 'auto',
+                                        display: 'block',
+                                        maxHeight: '600px',
+                                        objectFit: 'contain',
+                                        backgroundColor: '#ffffff',
+                                      }}
                                     />
                                   </div>
                                 ))}
@@ -1488,14 +1523,18 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                       ))}
                     </div>
                   )}
+                  </div>
                 </div>
 
                 {/* Inspection Results */}
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
+                <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">نتائج الفحص الأسبوعي</h3>
                   <div className="space-y-2">
                     {WEEKLY_INSPECTION_ITEMS.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-3 border-b border-stone-100 dark:border-stone-700 bg-white dark:bg-stone-800 rounded-lg text-sm" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                      <div
+                        key={item.id}
+                        className="pdf-print-flow-row flex items-center justify-between p-3 border-b border-stone-100 dark:border-stone-700 bg-white dark:bg-stone-800 rounded-lg text-sm"
+                      >
                         <div className="flex items-center gap-3">
                           <span className="text-stone-400 dark:text-stone-500 font-mono text-xs">{item.id.toString().padStart(2, '0')}</span>
                           <span className="font-medium">{item.label}</span>
@@ -1509,11 +1548,11 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                 </div>
 
                 {/* Tool Inventory */}
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
+                <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">جرد العدة والمواد</h3>
                   <div className="space-y-4">
                     {inventoryItems.map((item) => (
-                      <div key={item.id} className="border border-stone-200 rounded-lg overflow-hidden" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                      <div key={item.id} className="pdf-print-flow-row border border-stone-200 rounded-lg overflow-hidden">
                         <div className="flex items-center justify-between p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
                           <div className="flex items-center gap-3">
                             <Package className="w-4 h-4 text-stone-400 dark:text-stone-500" />
@@ -1535,11 +1574,22 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                             <p className="text-xs font-bold text-stone-600 dark:text-stone-300 mb-4">الصور المرتبطة ({viewingReport.toolImages[item.id].length}):</p>
                             <div className="space-y-4">
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
-                                <div key={imgIdx} className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700" style={{ breakInside: 'avoid', pageBreakInside: 'avoid', display: 'flex', flexDirection: 'column', width: '100%', height: 'auto' }}>
-                                  <img 
-                                    src={image} 
+                                <div
+                                  key={imgIdx}
+                                  className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700 flex flex-col w-full h-auto"
+                                >
+                                  <img
+                                    src={image}
                                     alt={`${item.name} - الصورة ${imgIdx + 1}`}
-                                    style={{ width: '100%', height: 'auto', display: 'block', minHeight: '350px', maxHeight: '600px', objectFit: 'contain', backgroundColor: '#ffffff' }}
+                                    className="report-embed-photo"
+                                    style={{
+                                      width: '100%',
+                                      height: 'auto',
+                                      display: 'block',
+                                      maxHeight: '600px',
+                                      objectFit: 'contain',
+                                      backgroundColor: '#ffffff',
+                                    }}
                                   />
                                 </div>
                               ))}
@@ -1552,27 +1602,27 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                 </div>
 
                 {/* Signatures */}
-                <div className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 dark:border-stone-700 pdf-section" style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                <div className="pdf-section pdf-section-signatures flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 dark:border-stone-700">
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{`اسم وتوقيع ${staffLabel}`}</p>
                     <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.driverSignature && <img src={viewingReport.driverSignature} className="max-h-full" />}
                     </div>
                     <p className="text-xs font-bold text-stone-400 dark:text-stone-500">{viewingReport.driverName}</p>
                   </div>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{departmentManagerText}</p>
                     <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.equipmentManagerSignature && <img src={viewingReport.equipmentManagerSignature} className="max-h-full" />}
                     </div>
                   </div>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500">مدير قسم اللوجستك</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.logisticsManagerSignature && <img src={viewingReport.logisticsManagerSignature} className="max-h-full" />}
                     </div>
                   </div>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500">مدير المخازن</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.warehouseManagerSignature && <img src={viewingReport.warehouseManagerSignature} className="max-h-full" />}

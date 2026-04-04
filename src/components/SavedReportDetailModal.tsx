@@ -4,30 +4,15 @@ import { Download, Loader2, ArrowRight, Printer, Package } from 'lucide-react';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
-import { exportHtmlToPdf } from '../lib/pdfExport';
+import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../lib/pdfExport';
 import { mapDbRowToSavedReportView, type SavedReportView } from '../lib/savedReportFromRow';
+import { getVehicleInspectionMapUrl } from '../lib/vehicleInspectionMapUrl';
 
 interface InventoryItemView {
   id: number;
   name: string;
   quantity: number;
   sortOrder: number;
-}
-
-function resolveInstallationVehicleType(raw: unknown): 'starex' | 'nissan' | null {
-  const value = String(raw ?? '').trim().toLowerCase();
-  if (!value) return null;
-  if (value.includes('starex') || value.includes('star') || value.includes('ستار')) return 'starex';
-  if (value.includes('nissan') || value.includes('نيس')) return 'nissan';
-  return null;
-}
-
-function getVehicleMapImage(department: DepartmentCode, vehicleType?: unknown): string {
-  if (department !== 'installation') return '/truck-collage.jpg?v=1';
-  const normalized = resolveInstallationVehicleType(vehicleType);
-  if (normalized === 'starex') return '/صورة ستاركس.png';
-  if (normalized === 'nissan') return '/صورة نيسان.png';
-  return '/صورة ستاركس.png';
 }
 
 interface SavedReportDetailModalProps {
@@ -120,11 +105,12 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
     if (!reportRef.current || !viewingReport) return;
     setIsExporting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const html = reportRef.current.innerHTML;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const raw = reportRef.current.innerHTML;
+      const html = wrapReportHtmlForPdf(raw, window.location.origin);
       const truck = String(viewingReport.truckNumber || 'truck').replace(/[^a-zA-Z0-9\u0600-\u06FF_-]/g, '-');
       const dt = String(viewingReport.date || new Date().toISOString().slice(0, 10));
-      await exportHtmlToPdf(html, `report-${truck}-${dt}.pdf`);
+      await exportHtmlToPdf(html, `report-${truck}-${dt}.pdf`, { reportInspectionLayout: true });
     } catch (e) {
       console.error(e);
     } finally {
@@ -249,35 +235,35 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                   </div>
                 </div>
 
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
-                  <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-stone-100">
-                    <img
-                      src={getVehicleMapImage(department, viewingReport.vehicleType)}
-                      alt="Truck Map"
-                      className="w-full h-auto object-cover"
-                      crossOrigin="anonymous"
-                    />
-                    {(viewingReport.damagePoints as Array<{ x: number; y: number; severity?: string }>).map((point, idx) => (
-                      <div
-                        key={idx}
-                        className="absolute w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center"
-                        style={{
-                          left: `${point.x}%`,
-                          top: `${point.y}%`,
-                          transform: 'translate(-50%, -50%)',
-                          backgroundColor:
-                            point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15',
-                        }}
-                      >
-                        <span className="text-[10px] font-bold text-white">{idx + 1}</span>
-                      </div>
-                    ))}
+                <div className="pdf-damage-stack">
+                  <div className="space-y-4 pdf-section">
+                    <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">مخطط أضرار المركبة</h3>
+                    <div className="pdf-vehicle-map relative rounded-2xl overflow-hidden border-2 border-stone-100">
+                      <img
+                        src={getVehicleInspectionMapUrl(department, viewingReport.vehicleType)}
+                        alt="مخطط المركبة"
+                        className="w-full h-auto object-contain"
+                      />
+                      {(viewingReport.damagePoints as Array<{ x: number; y: number; severity?: string }>).map((point, idx) => (
+                        <div
+                          key={idx}
+                          className="absolute w-6 h-6 rounded-full border-2 border-white shadow-lg flex items-center justify-center"
+                          style={{
+                            left: `${point.x}%`,
+                            top: `${point.y}%`,
+                            transform: 'translate(-50%, -50%)',
+                            backgroundColor:
+                              point.severity === 'high' ? '#dc2626' : point.severity === 'medium' ? '#f97316' : '#facc15',
+                          }}
+                        >
+                          <span className="text-[10px] font-bold text-white">{idx + 1}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
-                  <h3 className="text-xl font-bold border-r-4 border-red-700 pr-4">أضرار المركبة الموثقة</h3>
+                  <div className="space-y-4 pdf-section">
+                    <h3 className="text-xl font-bold border-r-4 border-red-700 pr-4">أضرار المركبة الموثقة</h3>
                   {viewingReport.damagePoints.length === 0 ? (
                     <p className="text-stone-400 dark:text-stone-500 italic">لا توجد أضرار مسجلة</p>
                   ) : (
@@ -286,8 +272,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                         (p, idx) => (
                           <div
                             key={idx}
-                            className="border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden"
-                            style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                            className="pdf-damage-card border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden"
                           >
                             <div className="flex items-center gap-4 p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
                               <span className="font-mono font-bold text-stone-300 dark:text-stone-500">#{idx + 1}</span>
@@ -311,24 +296,16 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                                   {p.images.map((image: string, imgIdx: number) => (
                                     <div
                                       key={imgIdx}
-                                      className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700"
-                                      style={{
-                                        breakInside: 'avoid',
-                                        pageBreakInside: 'avoid',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        width: '100%',
-                                        height: 'auto',
-                                      }}
+                                      className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700 flex flex-col w-full h-auto"
                                     >
                                       <img
                                         src={image}
                                         alt={`صورة الضرر ${imgIdx + 1}`}
+                                        className="report-embed-photo"
                                         style={{
                                           width: '100%',
                                           height: 'auto',
                                           display: 'block',
-                                          minHeight: '350px',
                                           maxHeight: '600px',
                                           objectFit: 'contain',
                                           backgroundColor: '#ffffff',
@@ -345,15 +322,15 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                     </div>
                   )}
                 </div>
+                </div>
 
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
+                <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">نتائج الفحص الأسبوعي</h3>
                   <div className="space-y-2">
                     {WEEKLY_INSPECTION_ITEMS.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-center justify-between p-3 border-b border-stone-100 dark:border-stone-700 bg-white dark:bg-stone-800 rounded-lg text-sm"
-                        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                        className="pdf-print-flow-row flex items-center justify-between p-3 border-b border-stone-100 dark:border-stone-700 bg-white dark:bg-stone-800 rounded-lg text-sm"
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-stone-400 dark:text-stone-500 font-mono text-xs">{item.id.toString().padStart(2, '0')}</span>
@@ -373,15 +350,11 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                   </div>
                 </div>
 
-                <div className="space-y-4 pdf-section" style={{ pageBreakBefore: 'always' }}>
+                <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">{toolsSectionTitle}</h3>
                   <div className="space-y-4">
                     {inventoryItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className="border border-stone-200 rounded-lg overflow-hidden"
-                        style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
-                      >
+                      <div key={item.id} className="pdf-print-flow-row border border-stone-200 rounded-lg overflow-hidden">
                         <div className="flex items-center justify-between p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
                           <div className="flex items-center gap-3">
                             <Package className="w-4 h-4 text-stone-400 dark:text-stone-500" />
@@ -409,24 +382,16 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                               {viewingReport.toolImages[item.id].map((image: string, imgIdx: number) => (
                                 <div
                                   key={imgIdx}
-                                  className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700"
-                                  style={{
-                                    breakInside: 'avoid',
-                                    pageBreakInside: 'avoid',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    width: '100%',
-                                    height: 'auto',
-                                  }}
+                                  className="bg-white dark:bg-stone-800 rounded border border-stone-200 dark:border-stone-700 flex flex-col w-full h-auto"
                                 >
                                   <img
                                     src={image}
                                     alt={`${item.name} - الصورة ${imgIdx + 1}`}
+                                    className="report-embed-photo"
                                     style={{
                                       width: '100%',
                                       height: 'auto',
                                       display: 'block',
-                                      minHeight: '350px',
                                       maxHeight: '600px',
                                       objectFit: 'contain',
                                       backgroundColor: '#ffffff',
@@ -442,18 +407,15 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                   </div>
                 </div>
 
-                <div
-                  className="flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 dark:border-stone-700 pdf-section"
-                  style={{ pageBreakBefore: 'always', pageBreakInside: 'avoid' }}
-                >
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                <div className="pdf-section pdf-section-signatures flex flex-wrap gap-x-8 gap-y-12 pt-12 border-t border-stone-100 dark:border-stone-700">
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{`اسم وتوقيع ${staffLabel}`}</p>
                     <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.driverSignature && <img src={viewingReport.driverSignature} className="max-h-full" alt="" />}
                     </div>
                     <p className="text-xs font-bold text-stone-400 dark:text-stone-500">{viewingReport.driverName}</p>
                   </div>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500 dark:text-stone-400">{departmentManagerText}</p>
                     <div className="h-24 border-b border-stone-200 dark:border-stone-700 flex items-center justify-center bg-white dark:bg-stone-800">
                       {viewingReport.equipmentManagerSignature && (
@@ -461,7 +423,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                       )}
                     </div>
                   </div>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500">مدير قسم اللوجستك</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.logisticsManagerSignature && (
@@ -469,7 +431,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                       )}
                     </div>
                   </div>
-                  <div className="text-center space-y-4 flex-1 min-w-[200px]" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div className="text-center space-y-4 flex-1 min-w-[200px]">
                     <p className="text-sm font-bold text-stone-500">مدير المخازن</p>
                     <div className="h-24 border-b border-stone-200 flex items-center justify-center">
                       {viewingReport.warehouseManagerSignature && (

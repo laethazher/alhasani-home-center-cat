@@ -68,11 +68,10 @@ export const DamageMap: React.FC<{
           className="relative rounded-xl cursor-crosshair border-2 border-stone-200 dark:border-stone-700 shadow-inner group overflow-visible"
           onClick={handleImageClick}
         >
-          <img 
-            src={imageSrc} 
-            alt="Truck Angles" 
-            className="w-full h-auto select-none opacity-95 object-cover rounded-xl"
-            crossOrigin="anonymous"
+          <img
+            src={imageSrc}
+            alt="مخطط المركبة"
+            className="w-full h-auto select-none opacity-95 object-contain rounded-xl"
           />
           
           {points.map((point) => (
