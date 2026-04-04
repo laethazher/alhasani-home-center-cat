@@ -41,7 +41,12 @@ import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
-import { mapDbRowToSavedReportView, type SavedReportView } from '../lib/savedReportFromRow';
+import {
+  assignReportDisplaySequences,
+  formatReportInventoryNo,
+  mapDbRowToSavedReportView,
+  type SavedReportView,
+} from '../lib/savedReportFromRow';
 import { getVehicleInspectionMapUrl } from '../lib/vehicleInspectionMapUrl';
 import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
@@ -285,9 +290,9 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
     const toExport = savedReports.filter(r => selectedReportIds.includes(r.id));
     if (toExport.length === 0) return;
 
-    const headers = ['المعرف', `اسم ${staffLabel}`, 'رقم المركبة', 'التاريخ', 'عدد الأضرار', 'اكتمال الفحص', 'تاريخ الإنشاء'];
-    const rows = toExport.map(r => [
-      r.id,
+    const headers = ['رقم الجرد', `اسم ${staffLabel}`, 'رقم المركبة', 'التاريخ', 'عدد الأضرار', 'اكتمال الفحص', 'تاريخ الإنشاء'];
+    const rows = toExport.map((r) => [
+      r.displaySequence,
       r.driverName,
       r.truckNumber,
       r.date,
@@ -390,16 +395,16 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
         .order('created_at', { ascending: false });
       if (error) throw error;
       if (isTajhiz) {
-        setSavedReports(
-          ((data ?? []) as Report[]).map((r) =>
-            mapDbRowToSavedReportView(r as unknown as Record<string, unknown>, false),
-          ),
+        const mapped = ((data ?? []) as Report[]).map((r) =>
+          mapDbRowToSavedReportView(r as unknown as Record<string, unknown>, false),
         );
+        setSavedReports(assignReportDisplaySequences(mapped));
         return;
       }
-      setSavedReports(
-        ((data ?? []) as Array<Record<string, unknown>>).map((row) => mapDbRowToSavedReportView(row, true)),
+      const mapped = ((data ?? []) as Array<Record<string, unknown>>).map((row) =>
+        mapDbRowToSavedReportView(row, true),
       );
+      setSavedReports(assignReportDisplaySequences(mapped));
     } catch (error) {
       console.error("Failed to fetch reports:", error);
     }
@@ -694,7 +699,7 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
       const newView = mapDbRowToSavedReportView(insertedRow, isInstallation);
       setSavedReports((prev) => {
         const rest = prev.filter((r) => r.id !== newView.id);
-        return [newView, ...rest];
+        return assignReportDisplaySequences([newView, ...rest]);
       });
 
       setSubmitted(true);
@@ -918,9 +923,14 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                           <p className="text-xs text-stone-400 dark:text-stone-500 mt-1">مرتبطة بالمركبة #{report.vehicleId}</p>
                         )}
                       </div>
-                      <span className="text-xs font-mono bg-stone-100 dark:bg-stone-700 px-2 py-1 rounded text-stone-500 dark:text-stone-300">
-                        {new Date(report.createdAt).toLocaleDateString('ar-EG')}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[10px] font-mono font-bold bg-rose-50 dark:bg-rose-900/40 text-rose-700 dark:text-rose-200 px-2 py-0.5 rounded">
+                          جرد #{formatReportInventoryNo(report)}
+                        </span>
+                        <span className="text-xs font-mono bg-stone-100 dark:bg-stone-700 px-2 py-1 rounded text-stone-500 dark:text-stone-300">
+                          {new Date(report.createdAt).toLocaleDateString('ar-EG')}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-stone-100 dark:border-stone-700">
                       <div className="flex gap-2">
@@ -1413,7 +1423,7 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
                   </div>
                   <div className="text-left">
                     <h2 className="text-3xl font-bold text-rose-500">تقرير فحص المركبة</h2>
-                    <p className="text-stone-500 font-mono text-lg">#{viewingReport.id.toString().padStart(5, '0')}</p>
+                    <p className="text-stone-500 font-mono text-lg">#{formatReportInventoryNo(viewingReport)}</p>
                     <div className="mt-6 text-right">
                       <h3 className="text-xl font-black text-stone-900">الحسني هوم سنتر</h3>
                       <p className="text-xs font-bold text-stone-500">ALHASANI HOME CENTER</p>

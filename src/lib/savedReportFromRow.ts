@@ -17,6 +17,11 @@ export interface SavedReportView {
   logisticsManagerSignature: string;
   warehouseManagerSignature: string;
   createdAt: string;
+  /**
+   * رقم الجرد المعروض: 1 = أقدم تقرير في السجل (حسب created_at)، N = الأحدث.
+   * يُعاد احتسابه عند كل تحميل للقائمة؛ لا يعتمد على id قاعدة البيانات.
+   */
+  displaySequence: number;
 }
 
 /** يستخرج معرف التقرير من حقل new_value في vehicle_events (مثل report:7) */
@@ -24,6 +29,56 @@ export function parseReportIdFromVehicleEventNewValue(newValue: string | null | 
   if (newValue == null || newValue === '') return null;
   const m = String(newValue).trim().match(/^report:(\d+)$/i);
   return m ? Number(m[1]) : null;
+}
+
+/** تنسيق رقم الجرد للعرض (مثل #00007) — يعتمد على displaySequence بعد assignReportDisplaySequences */
+export function formatReportInventoryNo(report: Pick<SavedReportView, 'id' | 'displaySequence'>): string {
+  const seq = report.displaySequence > 0 ? report.displaySequence : report.id;
+  return String(seq).padStart(5, '0');
+}
+
+/**
+ * يملأ displaySequence لكل تقرير: الأقدم created_at = 1، الأحدث = طول القائمة.
+ * ترتيب القائمة الناتجة يبقى كما هو (لا يُعاد ترتيبها).
+ */
+/** يحسب رقم الجرد من قائمة id + created_at (نفس منطق assignReportDisplaySequences) */
+export function computeReportDisplaySequence(
+  reportId: number,
+  rows: Array<{ id: unknown; created_at?: unknown }>,
+): number {
+  const normalized = rows
+    .map((row) => ({
+      id: Number(row.id),
+      createdAt: String(row.created_at ?? ''),
+    }))
+    .filter((r) => Number.isFinite(r.id));
+  normalized.sort((a, b) => {
+    const ta = new Date(a.createdAt).getTime();
+    const tb = new Date(b.createdAt).getTime();
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return a.id - b.id;
+  });
+  const idx = normalized.findIndex((r) => r.id === reportId);
+  return idx >= 0 ? idx + 1 : 1;
+}
+
+export function assignReportDisplaySequences(reports: SavedReportView[]): SavedReportView[] {
+  if (reports.length === 0) return [];
+  const withIndex = reports.map((r, listIndex) => ({ r, listIndex }));
+  withIndex.sort((a, b) => {
+    const ta = new Date(a.r.createdAt).getTime();
+    const tb = new Date(b.r.createdAt).getTime();
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return a.r.id - b.r.id;
+  });
+  const idToSeq = new Map<number, number>();
+  withIndex.forEach((item, order) => {
+    idToSeq.set(item.r.id, order + 1);
+  });
+  return reports.map((r) => ({
+    ...r,
+    displaySequence: idToSeq.get(r.id) ?? 1,
+  }));
 }
 
 export function mapDbRowToSavedReportView(row: Record<string, unknown>, isInstallation: boolean): SavedReportView {
@@ -45,6 +100,7 @@ export function mapDbRowToSavedReportView(row: Record<string, unknown>, isInstal
       logisticsManagerSignature: r.logistics_manager || '',
       warehouseManagerSignature: r.warehouse_manager || '',
       createdAt: r.created_at,
+      displaySequence: 0,
     };
   }
   const payload = (row.payload && typeof row.payload === 'object'
@@ -72,5 +128,6 @@ export function mapDbRowToSavedReportView(row: Record<string, unknown>, isInstal
     logisticsManagerSignature: String(row.logistics_manager ?? payload.logistics_manager ?? ''),
     warehouseManagerSignature: String(row.warehouse_manager ?? payload.warehouse_manager ?? ''),
     createdAt: String(row.created_at ?? new Date().toISOString()),
+    displaySequence: 0,
   };
 }

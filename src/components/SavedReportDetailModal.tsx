@@ -5,7 +5,12 @@ import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource
 import type { DepartmentCode } from '../data/department';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
 import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../lib/pdfExport';
-import { mapDbRowToSavedReportView, type SavedReportView } from '../lib/savedReportFromRow';
+import {
+  computeReportDisplaySequence,
+  formatReportInventoryNo,
+  mapDbRowToSavedReportView,
+  type SavedReportView,
+} from '../lib/savedReportFromRow';
 import { getVehicleInspectionMapUrl } from '../lib/vehicleInspectionMapUrl';
 
 interface InventoryItemView {
@@ -47,7 +52,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
     setViewingReport(null);
 
     (async () => {
-      const [repRes, invRes] = await Promise.all([
+      const [repRes, invRes, seqRes] = await Promise.all([
         supabase.from(tables.reports).select('*').eq('id', reportId).maybeSingle(),
         supabase
           .from(tables.inventoryTemplates)
@@ -56,6 +61,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
           .eq('category', 'tools')
           .eq('is_active', true)
           .order('sort_order'),
+        supabase.from(tables.reports).select('id, created_at').order('created_at', { ascending: true }),
       ]);
 
       if (cancelled) return;
@@ -71,7 +77,12 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
       }
 
       const mapped = mapDbRowToSavedReportView(repRes.data as Record<string, unknown>, isInstallation);
-      setViewingReport(mapped);
+      const seqRows = (seqRes.data ?? []) as Array<{ id: unknown; created_at?: unknown }>;
+      if (seqRes.error) {
+        console.warn('[SavedReportDetailModal] sequence fetch:', seqRes.error);
+      }
+      const displaySequence = seqRes.error ? 0 : computeReportDisplaySequence(reportId, seqRows);
+      setViewingReport({ ...mapped, displaySequence });
 
       const rows = (invRes.data ?? []) as Array<Record<string, unknown>>;
       if (rows.length === 0) {
@@ -212,7 +223,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                   </div>
                   <div className="text-left">
                     <h2 className="text-3xl font-bold text-rose-500">تقرير فحص المركبة</h2>
-                    <p className="text-stone-500 font-mono text-lg">#{viewingReport.id.toString().padStart(5, '0')}</p>
+                    <p className="text-stone-500 font-mono text-lg">#{formatReportInventoryNo(viewingReport)}</p>
                     <div className="mt-6 text-right">
                       <h3 className="text-xl font-black text-stone-900">الحسني هوم سنتر</h3>
                       <p className="text-xs font-bold text-stone-500">ALHASANI HOME CENTER</p>
