@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Truck, Plus, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
-  CheckCircle2, Clock, AlertTriangle, Save, User, MapPin, Gauge, History,
+  CheckCircle2, Clock, AlertTriangle, Save, User, MapPin, Gauge, History, Shield,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getDepartmentClient } from '../data/supabaseSource';
@@ -62,6 +62,10 @@ const VEHICLE_TYPE_LABEL: Record<InstallationVehicleType, string> = {
   nissan: 'نيسان',
 };
 
+/** مطابقة سلوك التجهيز: متاحة وبدون فني مسؤول = احتياط */
+const isInstallationReserveVehicle = (v: InstallationVehicle) =>
+  v.status === 'available' && v.responsible_staff_id == null;
+
 interface InstallationVehiclesProps {
   isDarkMode: boolean;
 }
@@ -74,7 +78,7 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
   const [maintenance, setMaintenance] = useState<InstallationMaintenance[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<InstallationStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<InstallationStatus | 'all' | 'reserve'>('all');
   const [typeFilter, setTypeFilter] = useState<InstallationVehicleType | 'all'>('all');
 
   const [showForm, setShowForm] = useState(false);
@@ -131,7 +135,14 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
 
   const filtered = useMemo(() => {
     let list = vehicles;
-    if (statusFilter !== 'all') list = list.filter((v) => v.status === statusFilter);
+    if (statusFilter === 'reserve') {
+      list = list.filter(isInstallationReserveVehicle);
+    } else if (statusFilter !== 'all') {
+      list = list.filter((v) => v.status === statusFilter);
+      if (statusFilter === 'available') {
+        list = list.filter((v) => !isInstallationReserveVehicle(v));
+      }
+    }
     if (typeFilter !== 'all') list = list.filter((v) => v.vehicle_type === typeFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -140,7 +151,9 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
         (v.location || '').toLowerCase().includes(q) ||
         (v.model || '').toLowerCase().includes(q) ||
         (v.chassis_number || '').toLowerCase().includes(q) ||
-        (staffMap.get(v.responsible_staff_id || -1) || '').toLowerCase().includes(q)
+        (staffMap.get(v.responsible_staff_id || -1) || '').toLowerCase().includes(q) ||
+        (isInstallationReserveVehicle(v) &&
+          ('احتياط'.includes(q) || 'بدون مسؤول'.includes(q) || 'بدون تعيين'.includes(q) || 'غير معين'.includes(q)))
       );
     }
     return list;
@@ -148,7 +161,8 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
 
   const stats = useMemo(() => ({
     total: vehicles.length,
-    available: vehicles.filter((v) => v.status === 'available').length,
+    available: vehicles.filter((v) => v.status === 'available' && !isInstallationReserveVehicle(v)).length,
+    reserve: vehicles.filter(isInstallationReserveVehicle).length,
     maintenance: vehicles.filter((v) => v.status === 'maintenance').length,
     broken: vehicles.filter((v) => v.status === 'broken').length,
     reserved: vehicles.filter((v) => v.status === 'reserved').length,
@@ -359,17 +373,19 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
         </motion.button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         {[
-          { label: 'الإجمالي', value: stats.total, cls: 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300' },
-          { label: 'متاحة', value: stats.available, cls: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' },
-          { label: 'صيانة', value: stats.maintenance, cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' },
-          { label: 'معطلة', value: stats.broken, cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' },
-          { label: 'محجوزة', value: stats.reserved, cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' },
-          { label: 'ستاركس', value: stats.starex, cls: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300' },
-          { label: 'نيسان', value: stats.nissan, cls: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300' },
+          { label: 'الإجمالي', value: stats.total, cls: 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300', icon: Truck },
+          { label: 'متاحة', value: stats.available, cls: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300', icon: CheckCircle2 },
+          { label: 'احتياط', value: stats.reserve, cls: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300', icon: Shield },
+          { label: 'صيانة', value: stats.maintenance, cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300', icon: Wrench },
+          { label: 'معطلة', value: stats.broken, cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300', icon: AlertTriangle },
+          { label: 'محجوزة', value: stats.reserved, cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300', icon: Shield },
+          { label: 'ستاركس', value: stats.starex, cls: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300', icon: Truck },
+          { label: 'نيسان', value: stats.nissan, cls: 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300', icon: Truck },
         ].map((s) => (
           <div key={s.label} className={cn('rounded-xl p-3 text-center', s.cls)}>
+            <s.icon className="w-5 h-5 mx-auto mb-1 opacity-90" aria-hidden />
             <p className="text-2xl font-bold">{s.value}</p>
             <p className="text-xs text-stone-500 dark:text-stone-400">{s.label}</p>
           </div>
@@ -382,17 +398,18 @@ export default function InstallationVehicles({ isDarkMode }: InstallationVehicle
             pageKey="vehicles"
             value={search}
             onChange={setSearch}
-            placeholder="بحث برقم المركبة، الفني، الموقع..."
+            placeholder="بحث برقم المركبة، الفني، الموقع، احتياط..."
             dataSuggestions={vehicleDataSuggestions}
             showPredictiveChips={false}
           />
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as InstallationStatus | 'all')}
+          onChange={(e) => setStatusFilter(e.target.value as InstallationStatus | 'all' | 'reserve')}
           className="px-3 py-2.5 rounded-xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm cursor-pointer"
         >
           <option value="all">كل الحالات</option>
+          <option value="reserve">احتياط</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => (
             <option key={k} value={k}>{v.label}</option>
           ))}
