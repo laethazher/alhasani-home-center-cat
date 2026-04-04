@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -143,7 +143,13 @@ function SlideCaptionPanel({
 }
 
 const AUTO_MS = 4200;
-const CROSSFADE_S = 0.45;
+
+/** أقصر اتجاه على الدائرة (للمعاينات والنقاط) — يحدد اتجاه الحركة البصرية */
+function carouselDirection(from: number, to: number, len: number): number {
+  if (len <= 1 || from === to) return 1;
+  const forward = (to - from + len) % len;
+  return forward <= len / 2 ? 1 : -1;
+}
 
 function PremiumCarousel({
   dark,
@@ -156,23 +162,78 @@ function PremiumCarousel({
 }) {
   const reduceMotion = useReducedMotion();
   const [index, setIndex] = useState(0);
+  const [direction, setDirection] = useState(1);
+  const indexRef = useRef(0);
   const slideCount = HOME_SLIDES.length;
 
+  indexRef.current = index;
+
   const goPrev = useCallback(() => {
+    setDirection(-1);
     setIndex((i) => (i - 1 + slideCount) % slideCount);
   }, [slideCount]);
 
   const goNext = useCallback(() => {
+    setDirection(1);
     setIndex((i) => (i + 1) % slideCount);
   }, [slideCount]);
+
+  const goToIndex = useCallback(
+    (target: number) => {
+      const current = indexRef.current;
+      if (target === current) return;
+      setDirection(carouselDirection(current, target, slideCount));
+      setIndex(target);
+    },
+    [slideCount],
+  );
 
   useEffect(() => {
     if (reduceMotion) return;
     const t = window.setInterval(() => {
+      setDirection(1);
       setIndex((i) => (i + 1) % slideCount);
     }, AUTO_MS);
     return () => window.clearInterval(t);
   }, [reduceMotion, slideCount]);
+
+  const slideVariants = useMemo(
+    () => ({
+      enter: (dir: number) =>
+        reduceMotion
+          ? { opacity: 0 }
+          : {
+              x: dir >= 0 ? '2.75%' : '-2.75%',
+              opacity: 0,
+              scale: 1.02,
+            },
+      center: {
+        x: 0,
+        opacity: 1,
+        scale: 1,
+      },
+      exit: (dir: number) =>
+        reduceMotion
+          ? { opacity: 0 }
+          : {
+              x: dir >= 0 ? '-2.25%' : '2.25%',
+              opacity: 0,
+              scale: 0.988,
+            },
+    }),
+    [reduceMotion],
+  );
+
+  const slideTransition = useMemo(
+    () =>
+      reduceMotion
+        ? { duration: 0 }
+        : {
+            duration: 0.52,
+            ease: [0.32, 0.72, 0, 1] as const,
+          },
+    [reduceMotion],
+  );
 
   const slide = HOME_SLIDES[index];
   const fileKey = slide.fileBase;
@@ -183,14 +244,16 @@ function PremiumCarousel({
 
   return (
     <div className={cn('relative h-full w-full min-h-full overflow-hidden bg-stone-950', className)}>
-      <AnimatePresence mode="wait">
+      <AnimatePresence initial={false} custom={direction} mode="sync">
         <motion.div
           key={fileKey}
-          initial={reduceMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={reduceMotion ? undefined : { opacity: 0 }}
-          transition={{ duration: reduceMotion ? 0 : CROSSFADE_S, ease: [0.22, 1, 0.36, 1] }}
-          className="absolute inset-0"
+          custom={direction}
+          variants={slideVariants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={slideTransition}
+          className="absolute inset-0 will-change-[transform,opacity]"
         >
           <ContainSlideImage fileBase={slide.fileBase} dark={dark} />
         </motion.div>
@@ -240,7 +303,7 @@ function PremiumCarousel({
               key={s.fileBase}
               fileBase={s.fileBase}
               active={i === index}
-              onSelect={() => setIndex(i)}
+              onSelect={() => goToIndex(i)}
             />
           ))}
         </div>
@@ -257,7 +320,7 @@ function PremiumCarousel({
             key={i}
             type="button"
             aria-label={`شريحة ${i + 1}`}
-            onClick={() => setIndex(i)}
+            onClick={() => goToIndex(i)}
             className={cn(
               'h-1.5 rounded-full transition-all duration-300 ease-out',
               i === index
