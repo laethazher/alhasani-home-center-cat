@@ -51,7 +51,7 @@ import {
   insightsFromAttendanceRows,
 } from '../smart';
 import { WORK_TIMEZONE } from '../lib/loadingTime';
-import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
+import { departmentStaffRoleForInsert, normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 
 const ATTENDANCE_TYPES: { value: AttendanceType; label: string }[] = [
   { value: 'present', label: 'حاضر' },
@@ -113,6 +113,9 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
   const assistantSingular = isInstallation ? 'مساعد فني' : 'مساعد سائق';
   const driverPlural = isInstallation ? 'الفنيون' : 'السائقون';
   const assistantPlural = isInstallation ? 'مساعدو الفنيين' : 'مساعدو السائقين';
+  /** التركيب: دور العرض الموحّد «فني» لجميع الصفوف */
+  const displayRoleLabel = (normalizedRole: 'driver' | 'assistant') =>
+    isInstallation ? driverSingular : normalizedRole === 'driver' ? driverSingular : assistantSingular;
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -193,6 +196,10 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (isInstallation && roleFilter === 'assistant') setRoleFilter('all');
+  }, [isInstallation, roleFilter]);
 
   useEffect(() => {
     if (!driverLoadingModal) {
@@ -481,12 +488,12 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
     ];
     const exportRows = toExportRows.map((r) => {
       const s = staff.find((x) => Number(x.id) === r.staff_id);
-      const roleLabel = s?.role === 'driver' ? driverSingular : assistantSingular;
+      const roleLabel = displayRoleLabel(s?.role === 'driver' ? 'driver' : 'assistant');
       const typeLabel = ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label ?? r.attendance_type;
       let timeStr = '—';
       if (r.attendance_type === 'present' || r.attendance_type === 'late') timeStr = r.check_in_time;
       else if (r.attendance_type === 'time_leave') timeStr = `${r.check_in_time} → ${r.check_out_time}`;
-      const agg = s?.role === 'driver' ? driverExitAggMap[r.staff_id] : undefined;
+      const agg = (isInstallation || s?.role === 'driver') ? driverExitAggMap[r.staff_id] : undefined;
       return [
         s?.full_name ?? '',
         roleLabel,
@@ -535,7 +542,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
     try {
       const { error } = await supabase.from(tables.staffMembers).insert({
         full_name: name,
-        role,
+        role: departmentStaffRoleForInsert(role, department),
         is_active: true,
       });
       if (error) throw error;
@@ -595,7 +602,12 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
       </AnimatePresence>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <div
+        className={cn(
+          'grid grid-cols-2 md:grid-cols-4 gap-4',
+          isInstallation ? 'lg:grid-cols-5' : 'lg:grid-cols-6',
+        )}
+      >
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -675,22 +687,24 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             </div>
           </div>
         </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-4 shadow-sm"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-              <Users className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+        {!isInstallation && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card))]/70 backdrop-blur-2xl p-4 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                <Users className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-stone-900 dark:text-white">{assistants.length}</p>
+                <p className="text-sm text-stone-500 dark:text-stone-400">{assistantPlural}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-bold text-stone-900 dark:text-white">{assistants.length}</p>
-              <p className="text-sm text-stone-500 dark:text-stone-400">{assistantPlural}</p>
-            </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
       </div>
 
       {/* Toolbar */}
@@ -725,7 +739,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
           >
             <option value="all">جميع الكادر</option>
             <option value="driver">{driverPlural} فقط</option>
-            <option value="assistant">{assistantPlural} فقط</option>
+            {!isInstallation && <option value="assistant">{assistantPlural} فقط</option>}
           </select>
 
           {isAdmin && (
@@ -736,12 +750,14 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               >
                 <UserPlus className="w-4 h-4" /> إضافة {driverSingular}
               </button>
-              <button
-                onClick={() => { setShowAddAssistant(true); setAddError(''); setNewName(''); }}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700"
-              >
-                <UserPlus className="w-4 h-4" /> إضافة مساعد
-              </button>
+              {!isInstallation && (
+                <button
+                  onClick={() => { setShowAddAssistant(true); setAddError(''); setNewName(''); }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-600 text-white text-sm font-medium hover:bg-violet-700"
+                >
+                  <UserPlus className="w-4 h-4" /> إضافة مساعد
+                </button>
+              )}
               <button
                 onClick={() => setIsSelectionMode(!isSelectionMode)}
                 className={cn(
@@ -809,7 +825,8 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               filterDescription:
                 [
                   searchQuery && `بحث: ${searchQuery}`,
-                  roleFilter !== 'all' && `الدور: ${roleFilter === 'driver' ? driverSingular : assistantSingular}`,
+                  roleFilter !== 'all' &&
+                    `الدور: ${roleFilter === 'driver' ? driverPlural : assistantPlural}`,
                   sortRelevance && 'ترتيب حسب التطابق',
                 ]
                   .filter(Boolean)
@@ -828,12 +845,12 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             ]}
             dataRows={visibleRowsDisplayed.map((r) => {
               const s = staff.find((x) => Number(x.id) === r.staff_id);
-              const roleLabel = s?.role === 'driver' ? driverSingular : assistantSingular;
+              const roleLabel = displayRoleLabel(s?.role === 'driver' ? 'driver' : 'assistant');
               const typeLabel = ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label ?? r.attendance_type;
               let timeStr = '—';
               if (r.attendance_type === 'present' || r.attendance_type === 'late') timeStr = r.check_in_time;
               else if (r.attendance_type === 'time_leave') timeStr = `${r.check_in_time} → ${r.check_out_time}`;
-              const agg = s?.role === 'driver' ? driverExitAggMap[r.staff_id] : undefined;
+              const agg = (isInstallation || s?.role === 'driver') ? driverExitAggMap[r.staff_id] : undefined;
               return [
                 s?.full_name ?? '',
                 roleLabel,
@@ -909,7 +926,8 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
               {visibleRowsDisplayed.map((r, idx) => {
                 const s = staff.find((x) => Number(x.id) === r.staff_id);
                 if (!s) return null;
-                const roleLabel = s.role === 'driver' ? driverSingular : assistantSingular;
+                const roleLabel = displayRoleLabel(s.role === 'driver' ? 'driver' : 'assistant');
+                const canOpenLoadingProfile = isInstallation || s.role === 'driver';
                 return (
                   <tr
                     key={r.staff_id}
@@ -937,7 +955,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
                           )}
                           title={ATTENDANCE_TYPES.find((t) => t.value === r.attendance_type)?.label}
                         />
-                        {s.role === 'driver' ? (
+                        {canOpenLoadingProfile ? (
                           <button
                             type="button"
                             onClick={() => setDriverLoadingModal({ staffId: r.staff_id, name: s.full_name })}
@@ -1012,7 +1030,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             {searchQuery
               ? 'لا توجد نتائج تطابق بحثك'
               : isInstallation
-                ? 'لا يوجد موظفين لعرضهم. أضف فنيًا أو مساعد فني.'
+                ? 'لا يوجد موظفين لعرضهم. أضف فنيًا من «إضافة فني».'
                 : 'لا يوجد موظفين لعرضهم. أضف سائقاً أو مساعد سائق.'}
           </div>
         )}

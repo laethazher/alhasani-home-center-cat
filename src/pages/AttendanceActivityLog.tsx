@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity,
@@ -15,6 +15,14 @@ import { cn } from '../lib/utils';
 import { getDepartmentClient } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { UserProfile, AttendanceActivityLog } from '../lib/supabaseClient';
+import {
+  isServerTablePageSize,
+  readServerTablePageSizeFromStorage,
+  serverTablePageSizeStorageKey,
+  SERVER_TABLE_PAGE_SIZE_OPTIONS,
+  writeServerTablePageSizeToStorage,
+  type ServerTablePageSize,
+} from '../lib/serverTablePagination';
 
 const ACTION_LABELS: Record<string, { label: string; icon: typeof Plus }> = {
   add: { label: 'إضافة', icon: Plus },
@@ -22,8 +30,6 @@ const ACTION_LABELS: Record<string, { label: string; icon: typeof Plus }> = {
   archive: { label: 'أرشفة', icon: Archive },
   export: { label: 'تصدير', icon: Download },
 };
-
-const PAGE_SIZE = 25;
 
 interface Props {
   profile: UserProfile | null;
@@ -33,6 +39,17 @@ interface Props {
 export default function AttendanceActivityLog({ profile, department = 'tajhiz' }: Props) {
   const supabase = getDepartmentClient(department);
   const activityTable = department === 'installation' ? 'installation_attendance_activity_log' : 'attendance_activity_log';
+  const pageSizeStorageKey = useMemo(
+    () => serverTablePageSizeStorageKey('attendance-activity-log', department),
+    [department]
+  );
+  const [pageSize, setPageSize] = useState<ServerTablePageSize>(() =>
+    readServerTablePageSizeFromStorage(serverTablePageSizeStorageKey('attendance-activity-log', department))
+  );
+  useEffect(() => {
+    setPageSize(readServerTablePageSizeFromStorage(pageSizeStorageKey));
+    setPage(0);
+  }, [pageSizeStorageKey]);
   const [logs, setLogs] = useState<(AttendanceActivityLog & { user_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -48,7 +65,10 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
 
     if (filterAction !== 'all') query = query.eq('action_type', filterAction);
 
-    const { data: logData, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    const { data: logData, count } = await query.range(
+      page * pageSize,
+      (page + 1) * pageSize - 1
+    );
 
     if (logData && logData.length > 0) {
       const userIds = [...new Set(logData.map((l) => l.user_id).filter(Boolean))] as string[];
@@ -68,13 +88,17 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
     }
     setTotalCount(count ?? 0);
     setLoading(false);
-  }, [page, filterAction, supabase, activityTable]);
+  }, [page, pageSize, filterAction, supabase, activityTable]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
+
+  useEffect(() => {
+    setPage((p) => (p >= totalPages ? Math.max(0, totalPages - 1) : p));
+  }, [totalPages]);
 
   return (
     <div className="space-y-6">
@@ -115,6 +139,31 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
           </div>
         ) : (
           <>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-stone-200 dark:border-stone-700 bg-stone-50/40 dark:bg-stone-900/20">
+              <label className="flex items-center gap-2 text-sm text-stone-600 dark:text-stone-400">
+                <span className="font-medium">عدد الصفوف في الصفحة</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (!isServerTablePageSize(v)) return;
+                    writeServerTablePageSizeToStorage(pageSizeStorageKey, v);
+                    setPageSize(v);
+                    setPage(0);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm font-medium min-w-[4.5rem]"
+                >
+                  {SERVER_TABLE_PAGE_SIZE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {totalCount > 0 && (
+                <span className="text-xs text-stone-500 dark:text-stone-400">{totalCount} سجل إجمالي</span>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[600px]">
                 <thead>
@@ -175,22 +224,24 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
               </div>
             )}
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-stone-200 dark:border-stone-700">
+            {totalCount > 0 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-stone-200 dark:border-stone-700 gap-3 flex-wrap">
                 <p className="text-sm text-stone-500">
                   صفحة {page + 1} من {totalPages} ({totalCount} سجل)
                 </p>
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={() => setPage((p) => Math.max(0, p - 1))}
-                    disabled={page === 0}
+                    disabled={page === 0 || totalPages <= 1}
                     className="p-2 rounded-lg bg-stone-100 dark:bg-stone-700 disabled:opacity-50"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                    disabled={page >= totalPages - 1}
+                    disabled={page >= totalPages - 1 || totalPages <= 1}
                     className="p-2 rounded-lg bg-stone-100 dark:bg-stone-700 disabled:opacity-50"
                   >
                     <ChevronLeft className="w-4 h-4" />

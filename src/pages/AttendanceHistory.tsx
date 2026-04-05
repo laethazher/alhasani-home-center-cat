@@ -26,6 +26,14 @@ import type {
   AttendanceType,
   Vehicle,
 } from '../lib/supabaseClient';
+import {
+  isServerTablePageSize,
+  readServerTablePageSizeFromStorage,
+  serverTablePageSizeStorageKey,
+  SERVER_TABLE_PAGE_SIZE_OPTIONS,
+  writeServerTablePageSizeToStorage,
+  type ServerTablePageSize,
+} from '../lib/serverTablePagination';
 
 const ATTENDANCE_TYPE_LABELS: Record<string, string> = {
   present: 'حاضر',
@@ -34,8 +42,6 @@ const ATTENDANCE_TYPE_LABELS: Record<string, string> = {
   full_leave: 'إجازة كاملة',
   time_leave: 'إجازة زمنية',
 };
-
-const PAGE_SIZE = 20;
 
 interface Props {
   profile: UserProfile | null;
@@ -49,6 +55,18 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
   const isInstallation = department === 'installation';
   const driverLabel = isInstallation ? 'فني' : 'سائق';
   const assistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
+  const roleColumnLabel = (r: 'driver' | 'assistant') => (isInstallation ? driverLabel : r === 'driver' ? driverLabel : assistantLabel);
+  const pageSizeStorageKey = useMemo(
+    () => serverTablePageSizeStorageKey('attendance-history', department),
+    [department]
+  );
+  const [pageSize, setPageSize] = useState<ServerTablePageSize>(() =>
+    readServerTablePageSizeFromStorage(serverTablePageSizeStorageKey('attendance-history', department))
+  );
+  useEffect(() => {
+    setPageSize(readServerTablePageSizeFromStorage(pageSizeStorageKey));
+    setPage(0);
+  }, [pageSizeStorageKey]);
   const [records, setRecords] = useState<(AttendanceArchive & { staff?: StaffMember; vehicle?: Vehicle })[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -86,7 +104,7 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
       const rows = toExport.map(r => [
         new Date(r.attendance_date).toLocaleDateString('ar-IQ'),
         r.staff?.full_name ?? '—',
-        r.staff?.role === 'driver' ? driverLabel : assistantLabel,
+        roleColumnLabel(r.staff?.role === 'driver' ? 'driver' : 'assistant'),
         ATTENDANCE_TYPE_LABELS[r.attendance_type] ?? r.attendance_type,
         r.attendance_type === 'time_leave' && r.check_in_time && r.check_out_time
           ? `${String(r.check_in_time).slice(0, 5)} → ${String(r.check_out_time).slice(0, 5)}`
@@ -137,7 +155,10 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
     if (dateTo) query = query.lte('attendance_date', dateTo);
     if (filterType !== 'all') query = query.eq('attendance_type', filterType);
 
-    const { data: recData, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    const { data: recData, count } = await query.range(
+      page * pageSize,
+      (page + 1) * pageSize - 1
+    );
 
     const [staffRes, vehRes] = await Promise.all([
       supabase.from(tables.staffMembers).select('*'),
@@ -166,11 +187,26 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
     }
     setTotalCount(count ?? 0);
     setLoading(false);
-  }, [attendanceArchiveTable, dateFrom, dateTo, department, filterType, page, supabase, tables.staffMembers, tables.vehicles]);
+  }, [
+    attendanceArchiveTable,
+    dateFrom,
+    dateTo,
+    department,
+    filterType,
+    page,
+    pageSize,
+    supabase,
+    tables.staffMembers,
+    tables.vehicles,
+  ]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (isInstallation && filterRole === 'assistant') setFilterRole('all');
+  }, [isInstallation, filterRole]);
 
   const staffMap = useMemo(() => new Map(staff.map((s) => [Number(s.id), s])), [staff]);
   const vehicleMap = useMemo(() => new Map(vehicles.map((v) => [v.id, v])), [vehicles]);
@@ -187,7 +223,11 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
     return list;
   }, [records, searchName, filterRole]);
 
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
+
+  useEffect(() => {
+    setPage((p) => (p >= totalPages ? Math.max(0, totalPages - 1) : p));
+  }, [totalPages]);
 
   useEffect(() => {
     const d = new Date();
@@ -408,7 +448,7 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
             >
               <option value="all">الكل</option>
               <option value="driver">{driverLabel}</option>
-              <option value="assistant">{assistantLabel}</option>
+              {!isInstallation && <option value="assistant">{assistantLabel}</option>}
             </select>
           </div>
           <div>
@@ -439,6 +479,31 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
           </div>
         ) : (
           <>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-stone-200 dark:border-stone-700 bg-stone-50/40 dark:bg-stone-900/20">
+              <label className="flex items-center gap-2 text-sm text-stone-600 dark:text-stone-400">
+                <span className="font-medium">عدد الصفوف في الصفحة</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (!isServerTablePageSize(v)) return;
+                    writeServerTablePageSizeToStorage(pageSizeStorageKey, v);
+                    setPageSize(v);
+                    setPage(0);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm font-medium min-w-[4.5rem]"
+                >
+                  {SERVER_TABLE_PAGE_SIZE_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {totalCount > 0 && (
+                <span className="text-xs text-stone-500 dark:text-stone-400">{totalCount} سجل إجمالي</span>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px]">
                 <thead>
@@ -519,7 +584,9 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
                             <span className="font-medium">{r.staff?.full_name ?? '—'}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-2">{r.staff?.role === 'driver' ? driverLabel : assistantLabel}</td>
+                        <td className="px-4 py-2">
+                          {roleColumnLabel(r.staff?.role === 'driver' ? 'driver' : 'assistant')}
+                        </td>
                         <td className="px-4 py-2">
                           {isEditing ? (
                             <select
@@ -595,22 +662,24 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
             )}
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-stone-200 dark:border-stone-700">
+            {totalCount > 0 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-stone-200 dark:border-stone-700 gap-3 flex-wrap">
                 <p className="text-sm text-stone-500">
                   صفحة {page + 1} من {totalPages} ({totalCount} سجل)
                 </p>
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={() => setPage((p) => Math.max(0, p - 1))}
-                    disabled={page === 0}
+                    disabled={page === 0 || totalPages <= 1}
                     className="p-2 rounded-lg bg-stone-100 dark:bg-stone-700 disabled:opacity-50"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </button>
                   <button
+                    type="button"
                     onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                    disabled={page >= totalPages - 1}
+                    disabled={page >= totalPages - 1 || totalPages <= 1}
                     className="p-2 rounded-lg bg-stone-100 dark:bg-stone-700 disabled:opacity-50"
                   >
                     <ChevronLeft className="w-4 h-4" />

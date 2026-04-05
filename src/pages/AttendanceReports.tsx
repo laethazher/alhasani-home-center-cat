@@ -80,6 +80,8 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
   const assistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
   const driversReportTitle = isInstallation ? 'تقرير الفنيين' : 'تقرير السائقين';
   const assistantsReportTitle = isInstallation ? 'تقرير مساعدي الفنيين' : 'تقرير مساعدي السائقين';
+  const roleColumnLabel = (role: 'driver' | 'assistant') =>
+    isInstallation ? driverLabel : role === 'driver' ? driverLabel : assistantLabel;
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
@@ -123,6 +125,10 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (isInstallation && reportMode === 'assistants') setReportMode('individual');
+  }, [isInstallation, reportMode]);
 
   useEffect(() => {
     const d = new Date();
@@ -171,8 +177,8 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
         absent: 0,
         full_leave: 0,
         time_leave: 0,
-        loading_delay_events: s.role === 'driver' ? (load?.events ?? 0) : 0,
-        loading_delay_minutes_sum: s.role === 'driver' ? (load?.minutes ?? 0) : 0,
+        loading_delay_events: (isInstallation || s.role === 'driver') ? (load?.events ?? 0) : 0,
+        loading_delay_minutes_sum: (isInstallation || s.role === 'driver') ? (load?.minutes ?? 0) : 0,
       });
     }
 
@@ -190,7 +196,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
     if (reportMode === 'drivers') list = list.filter((s) => s.role === 'driver');
     else if (reportMode === 'assistants') list = list.filter((s) => s.role === 'assistant');
     return list.sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }, [archive, staff, dateFrom, dateTo, reportMode, exitLoadingRows]);
+  }, [archive, staff, dateFrom, dateTo, reportMode, exitLoadingRows, isInstallation]);
 
   const filteredStaffStats = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
@@ -264,14 +270,14 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       ];
       const rows = toExport.map((s) => [
         s.full_name,
-        s.role === 'driver' ? driverLabel : assistantLabel,
+        roleColumnLabel(s.role),
         s.present,
         s.late,
         s.absent,
         s.full_leave,
         s.time_leave,
-        s.role === 'driver' ? s.loading_delay_events : '—',
-        s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
+        (isInstallation || s.role === 'driver') ? s.loading_delay_events : '—',
+        (isInstallation || s.role === 'driver') ? s.loading_delay_minutes_sum : '—',
       ]);
 
       if (format === 'excel') {
@@ -348,7 +354,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
             >
               <option value="individual">تقرير فردي (الكل)</option>
               <option value="drivers">{driversReportTitle}</option>
-              <option value="assistants">{assistantsReportTitle}</option>
+              {!isInstallation && <option value="assistants">{assistantsReportTitle}</option>}
             </select>
           </div>
           
@@ -407,7 +413,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               ]}
               dataRows={filteredStaffStats.map((s) => [
                 s.full_name,
-                s.role === 'driver' ? driverLabel : assistantLabel,
+                roleColumnLabel(s.role),
                 s.present,
                 s.late,
                 s.absent,
@@ -430,7 +436,8 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                 if (typeof p.dateFrom === 'string') setDateFrom(p.dateFrom);
                 if (typeof p.dateTo === 'string') setDateTo(p.dateTo);
                 const rm = p.reportMode as typeof reportMode | undefined;
-                if (rm === 'individual' || rm === 'drivers' || rm === 'assistants') setReportMode(rm);
+                if (rm === 'individual' || rm === 'drivers') setReportMode(rm);
+                else if (rm === 'assistants' && !isInstallation) setReportMode('assistants');
                 if (typeof p.tableSearch === 'string') setTableSearch(p.tableSearch);
               }}
             />
@@ -439,7 +446,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       </motion.div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={cn('grid grid-cols-1 gap-4', !isInstallation && 'md:grid-cols-2')}>
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -449,7 +456,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
             <div className="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center">
               <Truck className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h3 className="font-bold text-lg">{driversReportTitle}</h3>
+            <h3 className="font-bold text-lg">{isInstallation ? 'ملخص حضور الفنيين' : driversReportTitle}</h3>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="flex justify-between">
@@ -485,45 +492,47 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
           </div>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-5 shadow-sm"
-        >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-              <Users className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+        {!isInstallation && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 p-5 shadow-sm"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                <Users className="w-6 h-6 text-violet-600 dark:text-violet-400" />
+              </div>
+              <h3 className="font-bold text-lg">{assistantsReportTitle}</h3>
             </div>
-            <h3 className="font-bold text-lg">{assistantsReportTitle}</h3>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-stone-500">عدد المساعدين</span>
-              <span className="font-semibold">{assistantsSummary.count}</span>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-stone-500">عدد المساعدين</span>
+                <span className="font-semibold">{assistantsSummary.count}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">أيام الحضور</span>
+                <span className="font-semibold text-emerald-600">{assistantsSummary.present}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">مرات التأخير</span>
+                <span className="font-semibold text-amber-600">{assistantsSummary.late}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">أيام الغياب</span>
+                <span className="font-semibold text-red-600">{assistantsSummary.absent}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">إجازات كاملة</span>
+                <span className="font-semibold">{assistantsSummary.full_leave}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">إجازات زمنية</span>
+                <span className="font-semibold">{assistantsSummary.time_leave}</span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-stone-500">أيام الحضور</span>
-              <span className="font-semibold text-emerald-600">{assistantsSummary.present}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-stone-500">مرات التأخير</span>
-              <span className="font-semibold text-amber-600">{assistantsSummary.late}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-stone-500">أيام الغياب</span>
-              <span className="font-semibold text-red-600">{assistantsSummary.absent}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-stone-500">إجازات كاملة</span>
-              <span className="font-semibold">{assistantsSummary.full_leave}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-stone-500">إجازات زمنية</span>
-              <span className="font-semibold">{assistantsSummary.time_leave}</span>
-            </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
       </div>
 
       {/* Individual Report Table */}
@@ -608,17 +617,17 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-2">{s.role === 'driver' ? driverLabel : assistantLabel}</td>
+                  <td className="px-4 py-2">{roleColumnLabel(s.role)}</td>
                   <td className="px-4 py-2 text-emerald-600 dark:text-emerald-400">{s.present}</td>
                   <td className="px-4 py-2 text-amber-600 dark:text-amber-400">{s.late}</td>
                   <td className="px-4 py-2 text-red-600 dark:text-red-400">{s.absent}</td>
                   <td className="px-4 py-2">{s.full_leave}</td>
                   <td className="px-4 py-2">{s.time_leave}</td>
                   <td className="px-4 py-2 text-amber-700 dark:text-amber-300">
-                    {s.role === 'driver' ? s.loading_delay_events : '—'}
+                    {(isInstallation || s.role === 'driver') ? s.loading_delay_events : '—'}
                   </td>
                   <td className="px-4 py-2 text-amber-800 dark:text-amber-200">
-                    {s.role === 'driver' ? s.loading_delay_minutes_sum : '—'}
+                    {(isInstallation || s.role === 'driver') ? s.loading_delay_minutes_sum : '—'}
                   </td>
                 </tr>
               ))}

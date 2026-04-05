@@ -60,6 +60,8 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
   const isInstallation = department === 'installation';
   const driverSingular = isInstallation ? 'فني' : 'سائق';
   const assistantSingular = isInstallation ? 'مساعد فني' : 'مساعد سائق';
+  const staffRoleDisplay = (role: 'driver' | 'assistant') =>
+    isInstallation ? driverSingular : role === 'driver' ? driverSingular : assistantSingular;
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
@@ -191,7 +193,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
       const headers = ['الموظف', 'الدور', 'الحضور', 'التأخير', 'الغياب', 'إجازة كاملة', 'إجازة زمنية'];
       const rows = toExport.map(s => [
         s.full_name,
-        s.role === 'driver' ? driverSingular : assistantSingular,
+        staffRoleDisplay(s.role),
         String(s.present),
         String(s.late),
         String(s.absent),
@@ -389,7 +391,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
                 <User className="w-5 h-5 text-stone-400" />
                 <div className="flex-1">
                   <p className="font-medium">{s.full_name}</p>
-                  <p className="text-sm text-stone-500">{s.role === 'driver' ? driverSingular : assistantSingular}</p>
+                  <p className="text-sm text-stone-500">{staffRoleDisplay(s.role)}</p>
                 </div>
               </div>
             ))}
@@ -433,7 +435,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
               <div className="space-y-4">
                 <div>
                   <p className="text-2xl font-bold">{selectedReport.full_name}</p>
-                  <p className="text-stone-500">{selectedReport.role === 'driver' ? driverSingular : assistantSingular}</p>
+                  <p className="text-stone-500">{staffRoleDisplay(selectedReport.role)}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 p-4">
