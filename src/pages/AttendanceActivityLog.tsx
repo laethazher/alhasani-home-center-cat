@@ -16,12 +16,14 @@ import { getDepartmentClient } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { UserProfile, AttendanceActivityLog } from '../lib/supabaseClient';
 import {
-  isServerTablePageSize,
-  readServerTablePageSizeFromStorage,
+  parsePageChoiceFromSelectValue,
+  readServerTablePageChoiceFromStorage,
   serverTablePageSizeStorageKey,
+  SERVER_TABLE_PAGE_ALL,
   SERVER_TABLE_PAGE_SIZE_OPTIONS,
-  writeServerTablePageSizeToStorage,
-  type ServerTablePageSize,
+  serverTableTotalPages,
+  writeServerTablePageChoiceToStorage,
+  type ServerTablePageChoice,
 } from '../lib/serverTablePagination';
 
 const ACTION_LABELS: Record<string, { label: string; icon: typeof Plus }> = {
@@ -43,11 +45,11 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
     () => serverTablePageSizeStorageKey('attendance-activity-log', department),
     [department]
   );
-  const [pageSize, setPageSize] = useState<ServerTablePageSize>(() =>
-    readServerTablePageSizeFromStorage(serverTablePageSizeStorageKey('attendance-activity-log', department))
+  const [pageChoice, setPageChoice] = useState<ServerTablePageChoice>(() =>
+    readServerTablePageChoiceFromStorage(serverTablePageSizeStorageKey('attendance-activity-log', department))
   );
   useEffect(() => {
-    setPageSize(readServerTablePageSizeFromStorage(pageSizeStorageKey));
+    setPageChoice(readServerTablePageChoiceFromStorage(pageSizeStorageKey));
     setPage(0);
   }, [pageSizeStorageKey]);
   const [logs, setLogs] = useState<(AttendanceActivityLog & { user_name?: string })[]>([]);
@@ -58,17 +60,38 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    let query = supabase
-      .from(activityTable)
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
 
-    if (filterAction !== 'all') query = query.eq('action_type', filterAction);
+    const filteredLogQuery = (opts: { head: boolean }) => {
+      let q = supabase
+        .from(activityTable)
+        .select('*', opts.head ? { count: 'exact', head: true } : { count: 'exact' })
+        .order('created_at', { ascending: false });
+      if (filterAction !== 'all') q = q.eq('action_type', filterAction);
+      return q;
+    };
 
-    const { data: logData, count } = await query.range(
-      page * pageSize,
-      (page + 1) * pageSize - 1
-    );
+    let logData: AttendanceActivityLog[] | null = null;
+    let count = 0;
+
+    if (pageChoice === SERVER_TABLE_PAGE_ALL) {
+      const { count: total } = await filteredLogQuery({ head: true });
+      const n = total ?? 0;
+      if (n === 0) {
+        logData = [];
+        count = 0;
+      } else {
+        const res = await filteredLogQuery({ head: false }).range(0, n - 1);
+        logData = (res.data as AttendanceActivityLog[] | null) ?? [];
+        count = res.count ?? n;
+      }
+    } else {
+      const res = await filteredLogQuery({ head: false }).range(
+        page * pageChoice,
+        (page + 1) * pageChoice - 1
+      );
+      logData = res.data as AttendanceActivityLog[] | null;
+      count = res.count ?? 0;
+    }
 
     if (logData && logData.length > 0) {
       const userIds = [...new Set(logData.map((l) => l.user_id).filter(Boolean))] as string[];
@@ -88,13 +111,13 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
     }
     setTotalCount(count ?? 0);
     setLoading(false);
-  }, [page, pageSize, filterAction, supabase, activityTable]);
+  }, [page, pageChoice, filterAction, supabase, activityTable]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
+  const totalPages = serverTableTotalPages(totalCount, pageChoice);
 
   useEffect(() => {
     setPage((p) => (p >= totalPages ? Math.max(0, totalPages - 1) : p));
@@ -143,21 +166,22 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
               <label className="flex items-center gap-2 text-sm text-stone-600 dark:text-stone-400">
                 <span className="font-medium">عدد الصفوف في الصفحة</span>
                 <select
-                  value={pageSize}
+                  value={pageChoice === SERVER_TABLE_PAGE_ALL ? SERVER_TABLE_PAGE_ALL : String(pageChoice)}
                   onChange={(e) => {
-                    const v = Number(e.target.value);
-                    if (!isServerTablePageSize(v)) return;
-                    writeServerTablePageSizeToStorage(pageSizeStorageKey, v);
-                    setPageSize(v);
+                    const next = parsePageChoiceFromSelectValue(e.target.value);
+                    if (next == null) return;
+                    writeServerTablePageChoiceToStorage(pageSizeStorageKey, next);
+                    setPageChoice(next);
                     setPage(0);
                   }}
-                  className="px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm font-medium min-w-[4.5rem]"
+                  className="px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 text-sm font-medium min-w-[7.5rem]"
                 >
                   {SERVER_TABLE_PAGE_SIZE_OPTIONS.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
                   ))}
+                  <option value={SERVER_TABLE_PAGE_ALL}>إظهار الكل</option>
                 </select>
               </label>
               {totalCount > 0 && (
@@ -227,7 +251,9 @@ export default function AttendanceActivityLog({ profile, department = 'tajhiz' }
             {totalCount > 0 && (
               <div className="flex items-center justify-between px-4 py-3 border-t border-stone-200 dark:border-stone-700 gap-3 flex-wrap">
                 <p className="text-sm text-stone-500">
-                  صفحة {page + 1} من {totalPages} ({totalCount} سجل)
+                  {pageChoice === SERVER_TABLE_PAGE_ALL
+                    ? `إظهار الكل — ${totalCount} سجل`
+                    : `صفحة ${page + 1} من ${totalPages} (${totalCount} سجل)`}
                 </p>
                 <div className="flex gap-2">
                   <button

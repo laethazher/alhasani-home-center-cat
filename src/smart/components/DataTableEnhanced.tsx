@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Columns3, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { SERVER_TABLE_PAGE_ALL } from '../../lib/serverTablePagination';
 
 export interface ColumnDef<T> {
   id: string;
@@ -24,7 +25,11 @@ export interface DataTableEnhancedProps<T> {
   selectionEnabled?: boolean;
   selectedKeys?: ReadonlySet<string>;
   onSelectedKeysChange?: (next: Set<string>) => void;
+  /** إظهار خيار «إظهار الكل» في قائمة حجم الصفحة (عرض كل الصفوف المحمّلة محلياً) */
+  showAllRowsOption?: boolean;
 }
+
+type ClientPageSize = number | typeof SERVER_TABLE_PAGE_ALL;
 
 export function DataTableEnhanced<T>({
   rows,
@@ -38,11 +43,12 @@ export function DataTableEnhanced<T>({
   selectionEnabled,
   selectedKeys,
   onSelectedKeysChange,
+  showAllRowsOption = true,
 }: DataTableEnhancedProps<T>) {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(defaultPageSize);
+  const [pageSize, setPageSize] = useState<ClientPageSize>(defaultPageSize);
   const [visible, setVisible] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const c of columns) init[c.id] = c.defaultVisible !== false;
@@ -78,9 +84,15 @@ export function DataTableEnhanced<T>({
     });
   }, [rows, sortCol, sortDir, columns]);
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const numericPageSize =
+    pageSize === SERVER_TABLE_PAGE_ALL ? Math.max(sorted.length, 1) : pageSize;
+  const pageCount =
+    pageSize === SERVER_TABLE_PAGE_ALL
+      ? 1
+      : Math.max(1, Math.ceil(sorted.length / pageSize) || 1);
   const safePage = Math.min(page, pageCount - 1);
   const pageRows = useMemo(() => {
+    if (pageSize === SERVER_TABLE_PAGE_ALL) return sorted;
     const start = safePage * pageSize;
     return sorted.slice(start, start + pageSize);
   }, [sorted, safePage, pageSize]);
@@ -237,18 +249,29 @@ export function DataTableEnhanced<T>({
         <div className="flex items-center gap-2 text-xs">
           <span className="text-stone-500">حجم الصفحة</span>
           <select
-            value={pageSize}
+            value={pageSize === SERVER_TABLE_PAGE_ALL ? SERVER_TABLE_PAGE_ALL : String(pageSize)}
             onChange={(e) => {
-              setPageSize(Number(e.target.value));
+              const v = e.target.value;
+              if (v === SERVER_TABLE_PAGE_ALL) {
+                setPageSize(SERVER_TABLE_PAGE_ALL);
+                setPage(0);
+                return;
+              }
+              const n = Number(v);
+              if (!Number.isFinite(n) || n < 1) return;
+              setPageSize(n);
               setPage(0);
             }}
-            className="rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 px-2 py-1"
+            className="rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-900 px-2 py-1 min-w-[7rem]"
           >
             {pageSizeOptions.map((n) => (
               <option key={n} value={n}>
                 {n}
               </option>
             ))}
+            {showAllRowsOption ? (
+              <option value={SERVER_TABLE_PAGE_ALL}>إظهار الكل</option>
+            ) : null}
           </select>
         </div>
       </div>
@@ -326,12 +349,14 @@ export function DataTableEnhanced<T>({
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-stone-200 dark:border-stone-700 text-xs text-stone-600 dark:text-stone-400">
           <span>
-            {safePage * pageSize + 1} — {Math.min((safePage + 1) * pageSize, sorted.length)} من {sorted.length}
+            {pageSize === SERVER_TABLE_PAGE_ALL
+              ? `إظهار الكل — ${sorted.length} من ${sorted.length}`
+              : `${safePage * numericPageSize + 1} — ${Math.min((safePage + 1) * numericPageSize, sorted.length)} من ${sorted.length}`}
           </span>
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={safePage <= 0}
+              disabled={safePage <= 0 || pageSize === SERVER_TABLE_PAGE_ALL}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-600 disabled:opacity-40"
             >
@@ -339,7 +364,7 @@ export function DataTableEnhanced<T>({
             </button>
             <button
               type="button"
-              disabled={safePage >= pageCount - 1}
+              disabled={safePage >= pageCount - 1 || pageSize === SERVER_TABLE_PAGE_ALL}
               onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
               className="px-3 py-1 rounded-lg border border-stone-200 dark:border-stone-600 disabled:opacity-40"
             >
