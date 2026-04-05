@@ -12,13 +12,36 @@ const ViewsSchema = z.array(
   })
 );
 
-function storageKey(pageKey: PageKey) {
-  return `smartSavedViews:v1:${pageKey}`;
+/** مفتاح التخزين؛ `storageScope` يفصل التقارير الذكية بين التجهيز والتركيب. */
+function resolveStorageKey(pageKey: PageKey, storageScope?: string) {
+  if (storageScope === undefined || storageScope === '') {
+    return `smartSavedViews:v1:${pageKey}`;
+  }
+  return `smartSavedViews:v1:${pageKey}:${storageScope}`;
 }
 
-function loadAll(pageKey: PageKey): SavedViewRecord[] {
+function loadAll(pageKey: PageKey, storageScope?: string): SavedViewRecord[] {
   try {
-    const raw = localStorage.getItem(storageKey(pageKey));
+    let key = resolveStorageKey(pageKey, storageScope);
+    let raw = localStorage.getItem(key);
+    // ترحيل لمرة واحدة: مفتاح قديم بدون قسم → نفس مفتاح التجهيز الافتراضي
+    if (
+      !raw &&
+      pageKey === 'reports-hub' &&
+      storageScope === 'tajhiz'
+    ) {
+      const legacyKey = `smartSavedViews:v1:${pageKey}`;
+      const legacyRaw = localStorage.getItem(legacyKey);
+      if (legacyRaw) {
+        try {
+          localStorage.setItem(key, legacyRaw);
+          localStorage.removeItem(legacyKey);
+          raw = legacyRaw;
+        } catch {
+          raw = legacyRaw;
+        }
+      }
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     const res = ViewsSchema.safeParse(parsed);
@@ -37,23 +60,26 @@ function loadAll(pageKey: PageKey): SavedViewRecord[] {
   }
 }
 
-function saveAll(pageKey: PageKey, list: SavedViewRecord[]) {
+function saveAll(pageKey: PageKey, list: SavedViewRecord[], storageScope?: string) {
   try {
-    localStorage.setItem(storageKey(pageKey), JSON.stringify(list));
+    localStorage.setItem(resolveStorageKey(pageKey, storageScope), JSON.stringify(list));
   } catch {
     /* noop */
   }
 }
 
-export function useSavedViews<T extends Record<string, unknown>>(pageKey: PageKey) {
+export function useSavedViews<T extends Record<string, unknown>>(
+  pageKey: PageKey,
+  storageScope?: string
+) {
   const [version, setVersion] = useState(0);
-  const views = useMemo(() => loadAll(pageKey), [pageKey, version]);
+  const views = useMemo(() => loadAll(pageKey, storageScope), [pageKey, storageScope, version]);
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
   const saveView = useCallback(
     (name: string, payload: T) => {
-      const list = loadAll(pageKey);
+      const list = loadAll(pageKey, storageScope);
       const rec: SavedViewRecord<T> = {
         id: crypto.randomUUID(),
         name: name.trim() || 'عرض بدون اسم',
@@ -62,19 +88,19 @@ export function useSavedViews<T extends Record<string, unknown>>(pageKey: PageKe
         payload,
       };
       list.unshift(rec as SavedViewRecord);
-      saveAll(pageKey, list.slice(0, 30));
+      saveAll(pageKey, list.slice(0, 30), storageScope);
       refresh();
     },
-    [pageKey, refresh]
+    [pageKey, storageScope, refresh]
   );
 
   const deleteView = useCallback(
     (id: string) => {
-      const list = loadAll(pageKey).filter((v) => v.id !== id);
-      saveAll(pageKey, list);
+      const list = loadAll(pageKey, storageScope).filter((v) => v.id !== id);
+      saveAll(pageKey, list, storageScope);
       refresh();
     },
-    [pageKey, refresh]
+    [pageKey, storageScope, refresh]
   );
 
   return { views, saveView, deleteView, refresh };

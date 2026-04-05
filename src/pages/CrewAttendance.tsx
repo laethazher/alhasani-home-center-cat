@@ -866,6 +866,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
           />
           <SavedViews<Record<string, unknown>>
             pageKey="crew-attendance"
+            storageScope={department}
             getCurrentPayload={() => ({
               searchQuery,
               roleFilter,

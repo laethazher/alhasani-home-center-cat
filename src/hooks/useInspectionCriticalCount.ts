@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DepartmentCode } from '../data/department';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import {
@@ -26,6 +26,7 @@ export function useInspectionCriticalCount(
   const client = useMemo(() => getDepartmentClient(department), [department]);
   const tables = useMemo(() => getDepartmentTables(department), [department]);
   const isInstallation = department === 'installation';
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
@@ -33,8 +34,9 @@ export function useInspectionCriticalCount(
       setLoading(false);
       return;
     }
-    let cancelled = false;
-    (async () => {
+
+    const load = async () => {
+      const seq = ++loadSeq.current;
       setLoading(true);
       try {
         const [vehicles, reports, staffMap] = await Promise.all([
@@ -48,15 +50,32 @@ export function useInspectionCriticalCount(
           patternLookbackReports: DEFAULT_PATTERN_LOOKBACK,
           patternMinDelays: DEFAULT_PATTERN_MIN_DELAYS,
         });
-        if (!cancelled) setCriticalCount(built.summary.criticalCount);
+        if (seq === loadSeq.current) setCriticalCount(built.summary.criticalCount);
       } catch {
-        if (!cancelled) setCriticalCount(null);
+        if (seq === loadSeq.current) setCriticalCount(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (seq === loadSeq.current) setLoading(false);
       }
-    })();
+    };
+
+    void load();
+
+    const channel = client
+      .channel(`inspection-critical-sync:${department}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.reports }, () => {
+        void load();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.vehicles }, () => {
+        void load();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.staffMembers }, () => {
+        void load();
+      })
+      .subscribe();
+
     return () => {
-      cancelled = true;
+      loadSeq.current += 1;
+      client.removeChannel(channel);
     };
   }, [enabled, client, tables, department, isInstallation]);
 

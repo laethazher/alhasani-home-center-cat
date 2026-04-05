@@ -1624,6 +1624,7 @@ export default function StaffExit({ profile, userId, unifiedGatePortal = false, 
           {!isGateGuard && (
             <SavedViews<Record<string, unknown>>
               pageKey="staff-exit"
+              storageScope="tajhiz"
               getCurrentPayload={() => ({
                 searchTerm,
                 statusFilter,

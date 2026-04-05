@@ -426,6 +426,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
             />
             <SavedViews<Record<string, unknown>>
               pageKey="attendance-reports"
+              storageScope={department}
               getCurrentPayload={() => ({
                 dateFrom,
                 dateTo,

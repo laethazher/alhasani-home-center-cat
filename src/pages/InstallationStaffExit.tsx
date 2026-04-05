@@ -1679,6 +1679,7 @@ export default function InstallationStaffExit({
           {!isGateGuard && (
             <SavedViews<Record<string, unknown>>
               pageKey="staff-exit"
+              storageScope="installation"
               getCurrentPayload={() => ({
                 searchTerm,
                 statusFilter,

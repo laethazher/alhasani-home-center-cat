@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DepartmentCode } from '../data/department';
 import type { DepartmentTables } from '../data/supabaseSource';
@@ -76,10 +76,32 @@ export function useInspectionIntelligence({
     }
   }, [client, tables, department, isInstallation, cycleDays]);
 
+  const loadRef = useRef(load);
+  useLayoutEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+
   useEffect(() => {
     if (!enabled) return;
     void load();
   }, [enabled, load]);
+
+  /** تحديث تلقائي عند تغيير التقارير/المركبات/الكادر أثناء فتح الدرج — لكل قسم على حدة. */
+  useEffect(() => {
+    if (!enabled) return;
+    const run = () => {
+      void loadRef.current();
+    };
+    const channel = client
+      .channel(`inspection-intel-drawer:${department}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.reports }, run)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.vehicles }, run)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.staffMembers }, run)
+      .subscribe();
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [enabled, client, department, tables.reports, tables.vehicles, tables.staffMembers]);
 
   const filteredInsights = useMemo(() => {
     if (!analytics) return [];

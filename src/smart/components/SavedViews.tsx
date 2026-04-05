@@ -8,6 +8,8 @@ import { useSavedViews } from '../hooks/useSavedViews';
 
 interface SavedViewsProps<T extends Record<string, unknown>> {
   pageKey: PageKey;
+  /** فصل التخزين بين الأقسام (مثل tajhiz / installation) */
+  storageScope?: string;
   /** لقطة الحالة الحالية للحفظ */
   getCurrentPayload: () => T;
   /** تطبيق عند اختيار عرض */
@@ -17,11 +19,12 @@ interface SavedViewsProps<T extends Record<string, unknown>> {
 
 export function SavedViews<T extends Record<string, unknown>>({
   pageKey,
+  storageScope,
   getCurrentPayload,
   onApply,
   className,
 }: SavedViewsProps<T>) {
-  const { views, saveView, deleteView } = useSavedViews<T>(pageKey);
+  const { views, saveView, deleteView } = useSavedViews<T>(pageKey, storageScope);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [showSave, setShowSave] = useState(false);

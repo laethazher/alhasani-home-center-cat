@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart3,
@@ -54,6 +54,7 @@ import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton
 import { deleteBubblesRecordsByUiIds } from '../lib/bubblesBulkDelete';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
+import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 import { buildHubViolationStaffRows, type HubViolationStaffRow } from './reportsHubViolationsAggregate';
 import { advancedFilterTags, FilterTags } from '../smart/components/FilterTags';
 import type { ColumnDef } from '../smart/components/DataTableEnhanced';
@@ -441,7 +442,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     if (staffRes.data) {
       const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
         ...s,
-        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+        role: normalizeDepartmentStaffRole(s.role, department),
       })) as StaffMember[];
       setStaff(normalizedStaff);
     }
@@ -473,6 +474,45 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     }
     if (!silent) setLoading(false);
   }, [department, supabase, attendanceArchiveTable, tables.staffMembers, tables.exitRequests, tables.vehicles, tables.violations, showBubblesTab]);
+
+  const fetchDataRef = useRef(fetchData);
+  useLayoutEffect(() => {
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
+  /** تحديث فوري عند تغيير الحضور/الكادر/المركبات/الخروج/المخالفات — بنفس أسلوب صفحات إخراج الكادر. */
+  useEffect(() => {
+    const silentRefresh = () => {
+      void fetchDataRef.current(true);
+    };
+    const ch = supabase
+      .channel(`reports-hub-sync:${department}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: attendanceArchiveTable }, silentRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.staffMembers }, silentRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.vehicles }, silentRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.exitRequests }, silentRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: tables.violations }, silentRefresh);
+    if (showBubblesTab) {
+      ch.on('postgres_changes', { event: '*', schema: 'public', table: 'bubbles_records' }, silentRefresh).on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'bubbles_records_archive' },
+        silentRefresh
+      ).on('postgres_changes', { event: '*', schema: 'public', table: 'bubbles_daily_snapshots' }, silentRefresh);
+    }
+    ch.subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [
+    supabase,
+    department,
+    attendanceArchiveTable,
+    tables.staffMembers,
+    tables.vehicles,
+    tables.exitRequests,
+    tables.violations,
+    showBubblesTab,
+  ]);
 
   useEffect(() => {
     void fetchData();
@@ -1937,6 +1977,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         <div className="flex flex-wrap gap-2 items-center">
           <SavedViews<Record<string, unknown>>
             pageKey="reports-hub"
+            storageScope={department}
             getCurrentPayload={() => ({
               activeDomain,
               hubSearch: { ...hubSearch },
