@@ -9,6 +9,7 @@ import DashboardCard from '../components/DashboardCard';
 import type { UserProfile, UserRole } from '../lib/supabaseClient';
 import type { PageKey } from '../components/Layout';
 import type { DepartmentCode } from '../data/department';
+import InspectionAlertBanner from '../components/inspection-intelligence/InspectionAlertBanner';
 
 interface DashboardProps {
   profile: UserProfile;
@@ -280,6 +281,7 @@ export default function Dashboard({ profile, onNavigate, department = 'tajhiz' }
     <div className="space-y-8">
       <span className="hidden dark:block"><DarkHero profile={profile} count={visible.length} departmentTag={departmentTag}/></span>
       <span className="dark:hidden"><LightHero profile={profile} count={visible.length} departmentTag={departmentTag}/></span>
+      <InspectionAlertBanner department={department} onGoToReports={() => onNavigate('reports')} />
       <SectionLabel
         count={visible.length}
         label={department === 'installation' ? 'وحدات سريعة' : undefined}

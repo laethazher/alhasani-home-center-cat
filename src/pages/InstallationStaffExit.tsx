@@ -59,6 +59,7 @@ import {
   rankItems,
   insightsFromExitRows,
 } from '../smart';
+import InspectionAlertBanner from '../components/inspection-intelligence/InspectionAlertBanner';
 
 /* ── Notification Sound ── */
 const playNotificationSound = () => {
@@ -617,12 +618,14 @@ interface InstallationStaffExitProps {
    * لقسم التركيب (يبقى السلوك كاملاً داخل مساحة عمل التركيب العادية).
    */
   unifiedGatePortal?: boolean;
+  onOpenReports?: () => void;
 }
 
 export default function InstallationStaffExit({
   profile,
   userId,
   unifiedGatePortal = false,
+  onOpenReports,
 }: InstallationStaffExitProps) {
   const supabase = getDepartmentClient('installation');
   const role = profile.role;
@@ -1490,6 +1493,8 @@ export default function InstallationStaffExit({
 
         <LiveClock />
       </div>
+
+      <InspectionAlertBanner department="installation" onGoToReports={onOpenReports} />
 
       {isAdmin && pendingIssueTodayCount > 0 && (
         <div

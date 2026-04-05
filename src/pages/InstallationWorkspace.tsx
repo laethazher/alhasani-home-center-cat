@@ -23,6 +23,7 @@ import CrewStaff from './CrewStaff';
 import AttendanceHistory from './AttendanceHistory';
 import AttendanceReports from './AttendanceReports';
 import AttendanceActivityLog from './AttendanceActivityLog';
+import { INSPECTION_DEEPLINK_STORAGE_KEY } from '../lib/inspectionIntelligence/deeplink';
 
 interface InstallationWorkspaceProps {
   profile: UserProfile;
@@ -44,6 +45,7 @@ export default function InstallationWorkspace({
   onToggleDark,
 }: InstallationWorkspaceProps) {
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
+  const [reportsInitialInspectionVehicleId, setReportsInitialInspectionVehicleId] = useState<string | null>(null);
 
   const role = profile?.role;
   const guardedPage = useMemo(
@@ -79,6 +81,20 @@ export default function InstallationWorkspace({
     };
   }, [role]);
 
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(INSPECTION_DEEPLINK_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { department?: string; vehicleId?: string };
+      if (parsed.department !== 'installation' || !parsed.vehicleId) return;
+      sessionStorage.removeItem(INSPECTION_DEEPLINK_STORAGE_KEY);
+      setReportsInitialInspectionVehicleId(String(parsed.vehicleId));
+      setActivePage('reports');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   function renderPage() {
     switch (guardedPage) {
       case 'dashboard':
@@ -86,9 +102,22 @@ export default function InstallationWorkspace({
       case 'vehicles':
         return <InstallationVehicles isDarkMode={isDarkMode} />;
       case 'staff-exit':
-        return <InstallationStaffExit profile={profile} userId={userId} />;
+        return (
+          <InstallationStaffExit
+            profile={profile}
+            userId={userId}
+            onOpenReports={() => setActivePage('reports')}
+          />
+        );
       case 'reports':
-        return <Reports userId={userId} department="installation" />;
+        return (
+          <Reports
+            userId={userId}
+            department="installation"
+            initialInspectionVehicleId={reportsInitialInspectionVehicleId}
+            onConsumedInitialInspectionVehicle={() => setReportsInitialInspectionVehicleId(null)}
+          />
+        );
       case 'violations':
         return <Violations department="installation" />;
       case 'reports-hub':

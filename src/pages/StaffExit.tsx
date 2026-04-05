@@ -59,6 +59,7 @@ import {
   rankItems,
   insightsFromExitRows,
 } from '../smart';
+import InspectionAlertBanner from '../components/inspection-intelligence/InspectionAlertBanner';
 
 /* ── Notification Sound ── */
 const playNotificationSound = () => {
@@ -614,9 +615,10 @@ interface StaffExitProps {
   userId: string;
   /** بوابة الحارس الموحدة: إخفاء الرؤى السريعة والرسوم البيانية */
   unifiedGatePortal?: boolean;
+  onOpenReports?: () => void;
 }
 
-export default function StaffExit({ profile, userId, unifiedGatePortal = false }: StaffExitProps) {
+export default function StaffExit({ profile, userId, unifiedGatePortal = false, onOpenReports }: StaffExitProps) {
   const hideGatePortalInsightsCharts = Boolean(unifiedGatePortal);
   const role = profile.role;
   const isAdmin = role === 'admin';
@@ -1432,6 +1434,8 @@ export default function StaffExit({ profile, userId, unifiedGatePortal = false }
 
         <LiveClock />
       </div>
+
+      <InspectionAlertBanner department="tajhiz" onGoToReports={onOpenReports} />
 
       {isAdmin && pendingIssueTodayCount > 0 && (
         <div

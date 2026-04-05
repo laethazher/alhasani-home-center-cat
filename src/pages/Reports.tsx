@@ -31,6 +31,7 @@ import {
   Trash2,
   GripVertical,
   X,
+  Brain,
 } from 'lucide-react';
 import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton';
 import { DamageMap } from '../components/DamageMap';
@@ -52,12 +53,16 @@ import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
 import { useUserProfile } from '../hooks/useUserProfile';
+import InspectionIntelligenceDrawer from '../components/inspection-intelligence/InspectionIntelligenceDrawer';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
 
 interface ReportsProps {
   userId: string;
   department?: DepartmentCode;
+  /** رابط عميق / QR — يُستهلك مرة واحدة عند التركيب */
+  initialInspectionVehicleId?: string | null;
+  onConsumedInitialInspectionVehicle?: () => void;
 }
 
 interface InventoryItemView {
@@ -209,12 +214,18 @@ function VehicleSelect({ vehicles, selectedVehicleId, onSelect, driverMap, staff
   );
 }
 
-export default function Reports({ userId, department = 'tajhiz' }: ReportsProps) {
+export default function Reports({
+  userId,
+  department = 'tajhiz',
+  initialInspectionVehicleId = null,
+  onConsumedInitialInspectionVehicle,
+}: ReportsProps) {
   const { profile } = useUserProfile();
   const canManageReports = profile?.role === 'admin' || profile?.role === 'manager';
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const [activeTab, setActiveTab] = useState<Tab>('damage');
+  const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [savedReports, setSavedReports] = useState<SavedReportView[]>([]);
@@ -499,6 +510,15 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
       console.error('Failed to initialize reports page:', error);
     });
   }, [fetchReports, fetchVehicles, fetchDrivers, fetchInventoryTemplates]);
+
+  useEffect(() => {
+    if (!initialInspectionVehicleId) return;
+    const id = String(initialInspectionVehicleId);
+    if (!vehicles.some((v) => String(v.id) === id)) return;
+    setSelectedVehicleId(id);
+    setActiveTab('damage');
+    onConsumedInitialInspectionVehicle?.();
+  }, [initialInspectionVehicleId, vehicles, onConsumedInitialInspectionVehicle]);
 
   const resetTemplateForm = () => {
     setTemplateName('');
@@ -800,8 +820,17 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
   return (
     <div className="pb-24" dir="rtl">
       {/* Tab bar */}
-      <div className="flex items-center gap-2 mb-6">
-        <button 
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <button
+          type="button"
+          onClick={() => setIntelligenceOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md hover:opacity-95 transition-opacity font-black text-sm"
+        >
+          <Brain className="w-4 h-4" />
+          Inspection Intelligence
+        </button>
+        <button
+          type="button"
           onClick={() => setActiveTab('history')}
           className="flex items-center gap-2 px-4 py-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors text-stone-600 dark:text-stone-300 font-bold text-sm"
         >
@@ -1650,6 +1679,20 @@ export default function Reports({ userId, department = 'tajhiz' }: ReportsProps)
           </motion.div>
         )}
       </AnimatePresence>
+
+      <InspectionIntelligenceDrawer
+        open={intelligenceOpen}
+        onClose={() => setIntelligenceOpen(false)}
+        pageDepartment={department}
+        onStartInspection={(vehicleId) => {
+          setSelectedVehicleId(String(vehicleId));
+          setActiveTab('damage');
+        }}
+        onOpenHistory={(vehicleId) => {
+          setSelectedVehicleId(String(vehicleId));
+          setActiveTab('history');
+        }}
+      />
     </div>
   );
 }

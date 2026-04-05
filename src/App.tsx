@@ -30,10 +30,15 @@ import Bubbles from './pages/Bubbles';
 import AttendanceActivityLog from './pages/AttendanceActivityLog';
 import { SmartPageProvider } from './smart';
 import { resolveWorkspaceGuardedPage } from './lib/workspacePageGuard';
+import {
+  INSPECTION_DEEPLINK_STORAGE_KEY,
+  parseInspectionDeepLink,
+} from './lib/inspectionIntelligence/deeplink';
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
   const [systemArea, setSystemArea] = useState<'tajhiz' | 'installation' | 'gate' | null>(null);
+  const [reportsInitialInspectionVehicleId, setReportsInitialInspectionVehicleId] = useState<string | null>(null);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -53,6 +58,41 @@ export default function App() {
   useEffect(() => {
     if (!user) setSystemArea(null);
   }, [user]);
+
+  useEffect(() => {
+    const { inspect, department, vehicleId } = parseInspectionDeepLink(window.location.search);
+    if (!inspect || !department || !vehicleId) return;
+    try {
+      sessionStorage.setItem(
+        INSPECTION_DEEPLINK_STORAGE_KEY,
+        JSON.stringify({ department, vehicleId }),
+      );
+    } catch {
+      /* ignore */
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete('inspect');
+    url.searchParams.delete('dept');
+    url.searchParams.delete('vehicleId');
+    const nextSearch = url.searchParams.toString();
+    const path = `${url.pathname}${nextSearch ? `?${nextSearch}` : ''}${url.hash}`;
+    window.history.replaceState({}, '', path || url.pathname);
+  }, []);
+
+  useEffect(() => {
+    if (systemArea !== 'tajhiz') return;
+    try {
+      const raw = sessionStorage.getItem(INSPECTION_DEEPLINK_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { department?: string; vehicleId?: string };
+      if (parsed.department !== 'tajhiz' || !parsed.vehicleId) return;
+      sessionStorage.removeItem(INSPECTION_DEEPLINK_STORAGE_KEY);
+      setReportsInitialInspectionVehicleId(String(parsed.vehicleId));
+      setActivePage('reports');
+    } catch {
+      /* ignore */
+    }
+  }, [systemArea]);
 
   const role = profile?.role;
   useEffect(() => {
@@ -165,11 +205,23 @@ export default function App() {
       case 'dashboard':
         return <Dashboard profile={authProfile} onNavigate={setActivePage} />;
       case 'reports':
-        return <Reports userId={authUser.id} />;
+        return (
+          <Reports
+            userId={authUser.id}
+            initialInspectionVehicleId={reportsInitialInspectionVehicleId}
+            onConsumedInitialInspectionVehicle={() => setReportsInitialInspectionVehicleId(null)}
+          />
+        );
       case 'vehicles':
         return <Vehicles profile={authProfile} />;
       case 'staff-exit':
-        return <StaffExit profile={authProfile} userId={authUser.id} />;
+        return (
+          <StaffExit
+            profile={authProfile}
+            userId={authUser.id}
+            onOpenReports={() => setActivePage('reports')}
+          />
+        );
       case 'violations':
         return <Violations />;
       case 'users':
