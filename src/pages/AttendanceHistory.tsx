@@ -16,6 +16,7 @@ import {
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
+import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import type {
@@ -143,16 +144,17 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
       supabase.from(tables.vehicles).select('*'),
     ]);
 
+    let normalizedStaffBatch: StaffMember[] = [];
     if (staffRes.data) {
-      const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
+      normalizedStaffBatch = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
         ...s,
-        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+        role: normalizeDepartmentStaffRole(s.role, department),
       })) as StaffMember[];
-      setStaff(normalizedStaff);
+      setStaff(normalizedStaffBatch);
     }
     if (vehRes.data) setVehicles(vehRes.data);
     if (recData) {
-      const staffMap = new Map(staffRes.data?.map((s) => [Number(s.id), s]) ?? []);
+      const staffMap = new Map(normalizedStaffBatch.map((s) => [Number(s.id), s]));
       const vehMap = new Map((vehRes.data ?? []).map((v) => [v.id, v]));
       setRecords(
         recData.map((r) => ({
@@ -164,7 +166,7 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
     }
     setTotalCount(count ?? 0);
     setLoading(false);
-  }, [dateFrom, dateTo, filterType, page]);
+  }, [attendanceArchiveTable, dateFrom, dateTo, department, filterType, page, supabase, tables.staffMembers, tables.vehicles]);
 
   useEffect(() => {
     fetchData();

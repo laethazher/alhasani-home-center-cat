@@ -12,6 +12,7 @@ import {
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
+import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 import { logAttendanceActivity } from '../lib/attendanceActivity';
@@ -111,13 +112,13 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
     if (staffRes.data) {
       const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
         ...s,
-        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+        role: normalizeDepartmentStaffRole(s.role, department),
       })) as StaffMember[];
       setStaff(normalizedStaff);
     }
     if (exitRes.data) setExitLoadingRows(exitRes.data as ExitLoadingRow[]);
     if (!silent) setLoading(false);
-  }, []);
+  }, [attendanceArchiveTable, department, supabase, tables.staffMembers, tables.exitRequests]);
 
   useEffect(() => {
     fetchData();

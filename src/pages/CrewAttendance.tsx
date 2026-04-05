@@ -51,6 +51,7 @@ import {
   insightsFromAttendanceRows,
 } from '../smart';
 import { WORK_TIMEZONE } from '../lib/loadingTime';
+import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 
 const ATTENDANCE_TYPES: { value: AttendanceType; label: string }[] = [
   { value: 'present', label: 'حاضر' },
@@ -159,7 +160,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
     if (staffRes.data) {
       const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
         ...s,
-        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+        role: normalizeDepartmentStaffRole(s.role, department),
       })) as StaffMember[];
       setStaff(normalizedStaff);
     }

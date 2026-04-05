@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { cn, ATTENDANCE_TYPE_COLORS } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
+import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 import type { DepartmentCode } from '../data/department';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
@@ -82,7 +83,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
     if (staffRes.data) {
       const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({
         ...s,
-        role: s.role === 'assistant' || s.role === 'crew' ? 'assistant' : 'driver',
+        role: normalizeDepartmentStaffRole(s.role, department),
       })) as StaffMember[];
       setStaff(normalizedStaff);
     }
