@@ -433,7 +433,9 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
         department,
         installationRpc: 'installation_archive_attendance_day',
         defaultRpc: 'archive_attendance_day',
-        params: { p_date: todayStr },
+        /** التركيب: الدالة في DB تستخدم p_day — إرسال p_date كان يترك التاريخ null فيُرشَف 0 صفوف */
+        installationParams: { p_day: todayStr },
+        defaultParams: { p_date: todayStr },
       });
       const result = data as { success?: boolean; error?: string; archived_count?: number } | null;
       if (error) {
