@@ -140,14 +140,7 @@ export default function SystemHome({
       dir="rtl"
     >
       <div className="relative h-[100dvh] min-h-[100dvh] w-full shrink-0 overflow-hidden">
-        <motion.div
-          className="absolute inset-0 h-full w-full"
-          initial={reduceMotion ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        >
-          <HomeCenterShowcase variant="home-hero" dark={isDarkMode} className="h-full w-full" />
-        </motion.div>
+        <HomeCenterShowcase variant="home-hero" dark={isDarkMode} className="h-full w-full" />
       </div>
 
       <div className="flex-1 w-full p-5 md:p-8 pb-10">

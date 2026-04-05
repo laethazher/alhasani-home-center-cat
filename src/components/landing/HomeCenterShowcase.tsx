@@ -44,7 +44,11 @@ const MARQUEE_AR =
 const MARQUEE_EN =
   'Baghdad · Karbala · Najaf · Anbar · Erbil · Kut · Hillah · Adhamiyah · Baghdad · Karbala · Najaf · Anbar · Erbil · Kut · Hillah · Adhamiyah';
 
-/** صورة مستقيمة، بدون تكبير — تُعرض كاملة ضمن الإطار (object-contain) */
+/**
+ * شريحة الهيرو: طبقة خلفية من نفس الصورة (cover + blur) تملأ الإطار،
+ * وطبقة أمامية حادة object-contain تعرض الصورة كاملة — بدون إطار أسود قاسٍ.
+ * المعاينات المصغّرة تبقى object-contain داخل أزرارها.
+ */
 function ContainSlideImage({
   fileBase,
   dark,
@@ -71,17 +75,41 @@ function ContainSlideImage({
   };
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-stone-950 p-3 sm:p-4 md:p-6">
+    <div
+      className={cn(
+        'absolute inset-0 overflow-hidden',
+        dark
+          ? 'bg-gradient-to-b from-slate-900 via-stone-900 to-slate-950'
+          : 'bg-gradient-to-b from-slate-200 via-stone-100 to-slate-200',
+      )}
+    >
       {!loadFailed ? (
-        <img
-          key={`${fileBase}-${extIndex}`}
-          src={src}
-          alt=""
-          decoding="async"
-          draggable={false}
-          onError={handleError}
-          className="max-h-full max-w-full h-auto w-auto object-contain select-none"
-        />
+        <>
+          <img
+            key={`slide-bg-${fileBase}-${extIndex}`}
+            src={src}
+            alt=""
+            aria-hidden
+            decoding="async"
+            draggable={false}
+            className={cn(
+              'pointer-events-none absolute inset-0 h-full w-full object-cover object-center select-none',
+              'scale-[1.14] blur-2xl opacity-[0.88] saturate-[1.08] dark:opacity-[0.82]',
+              'motion-reduce:hidden',
+            )}
+          />
+          <div className="absolute inset-0 z-[1] flex items-center justify-center p-2 sm:p-3 md:p-5">
+            <img
+              key={`slide-fg-${fileBase}-${extIndex}`}
+              src={src}
+              alt=""
+              decoding="async"
+              draggable={false}
+              onError={handleError}
+              className="max-h-full max-w-full object-contain object-center select-none drop-shadow-md"
+            />
+          </div>
+        </>
       ) : (
         <div
           className="absolute inset-0"
@@ -243,7 +271,15 @@ function PremiumCarousel({
   const thumbsBottom = reserveFooterSpace ? 'bottom-32 md:bottom-36' : 'bottom-24 sm:bottom-28';
 
   return (
-    <div className={cn('relative h-full w-full min-h-full overflow-hidden bg-stone-950', className)}>
+    <div
+      className={cn(
+        'relative h-full w-full min-h-full overflow-hidden',
+        dark
+          ? 'bg-gradient-to-b from-slate-900 via-stone-900 to-slate-950'
+          : 'bg-gradient-to-b from-slate-200 via-stone-100 to-slate-200',
+        className,
+      )}
+    >
       <AnimatePresence initial={false} custom={direction} mode="sync">
         <motion.div
           key={fileKey}
@@ -417,16 +453,16 @@ export function HomeCenterShowcase({
   className,
 }: {
   dark: boolean;
+  /** يُبقى للتمييز بين السياقات؛ حركة التبديل بين الشرائح موحّدة مع تسجيل الدخول والواجهة الرئيسية */
   variant: ShowcaseVariant;
   className?: string;
 }) {
   return (
-    <div className={cn('relative h-full w-full overflow-hidden', className)}>
-      <PremiumCarousel
-        dark={dark}
-        className={variant === 'home-hero' ? 'rounded-none' : ''}
-        reserveFooterSpace={variant === 'login-bg'}
-      />
+    <div
+      className={cn('relative h-full w-full overflow-hidden', className)}
+      data-showcase-variant={variant}
+    >
+      <PremiumCarousel dark={dark} reserveFooterSpace />
     </div>
   );
 }
