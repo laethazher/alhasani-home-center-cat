@@ -98,6 +98,10 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
 
   const isAdmin = profile?.role === 'admin';
   const isManager = profile?.role === 'maintenance_manager';
+  const canCreateMaintenanceRequest =
+    isAdmin ||
+    isManager ||
+    (isInstallation && profile?.role === 'installation_department');
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -580,7 +584,7 @@ export default function MaintenanceRequests({ profile, onNavigate, department = 
                   </button>
                 </>
               )}
-              {isAdmin && (
+              {canCreateMaintenanceRequest && (
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}

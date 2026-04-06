@@ -89,7 +89,11 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const canEdit = profile?.role === 'admin' || profile?.role === 'manager';
+  const canEdit =
+    profile?.role === 'admin' ||
+    profile?.role === 'manager' ||
+    (department === 'installation' && profile?.role === 'installation_department');
+  const canDelete = profile?.role === 'admin';
 
   const handleExport = (format: 'pdf' | 'excel') => {
     const toExport = isSelectionMode && selectedRecordIds.length > 0
@@ -322,7 +326,7 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedRecordIds.length === 0 || !canEdit) return;
+    if (selectedRecordIds.length === 0 || !canDelete) return;
     if (!window.confirm(`هل أنت متأكد من حذف ${selectedRecordIds.length} سجل؟`)) return;
     setDeleting(true);
     try {
@@ -401,14 +405,16 @@ export default function AttendanceHistory({ profile, department = 'tajhiz' }: Pr
                   {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                   PDF ({selectedRecordIds.length})
                 </button>
-                <button
-                  onClick={handleDeleteSelected}
-                  disabled={deleting}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-                >
-                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                  حذف ({selectedRecordIds.length})
-                </button>
+                {canDelete && (
+                  <button
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    حذف ({selectedRecordIds.length})
+                  </button>
+                )}
               </>
             )}
             {!isSelectionMode && (

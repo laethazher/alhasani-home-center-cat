@@ -79,6 +79,7 @@ const isReserveVehicle = (vehicle: Vehicle) =>
   vehicle.status === 'available' && !vehicle.assigned_driver_id;
 
 export default function Vehicles({ profile }: VehiclesProps) {
+  const canDelete = profile?.role === 'admin';
   /* State */
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [importingPdf, setImportingPdf] = useState(false);
@@ -366,6 +367,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
 
   /* ── Delete vehicle ── */
   const handleDelete = async (id: number) => {
+    if (!canDelete) return;
     const { error } = await supabase.from('vehicles').delete().eq('id', id);
     if (error) {
       alert('فشل حذف المركبة: ' + error.message);
@@ -404,6 +406,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
 
   /* ── Delete maintenance ── */
   const handleDeleteMaintenance = async (id: number) => {
+    if (!canDelete) return;
     await supabase.from('vehicle_maintenance').delete().eq('id', id);
     await fetchData();
   };
@@ -442,6 +445,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
   };
 
   const handleDeleteSelected = async () => {
+    if (!canDelete) return;
     if (selectedVehicleIds.length === 0) return;
     if (!window.confirm(`هل أنت متأكد من حذف ${selectedVehicleIds.length} مركبة؟`)) return;
     setSaving(true);

@@ -77,7 +77,11 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const canManage = profile?.role === 'admin' || profile?.role === 'manager';
+  const canManage =
+    profile?.role === 'admin' ||
+    profile?.role === 'manager' ||
+    (department === 'installation' && profile?.role === 'installation_department');
+  const canDelete = profile?.role === 'admin';
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -165,7 +169,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedStaffIds.length === 0 || !canManage) return;
+    if (selectedStaffIds.length === 0 || !canDelete) return;
     if (!window.confirm(`هل أنت متأكد من حذف ${selectedStaffIds.length} موظف؟`)) return;
     setDeleting(true);
     try {
@@ -327,14 +331,16 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
                     {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                     تصدير PDF ({selectedStaffIds.length})
                   </button>
-                  <button
-                    onClick={handleDeleteSelected}
-                    disabled={deleting}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                    حذف ({selectedStaffIds.length})
-                  </button>
+                  {canDelete && (
+                    <button
+                      onClick={handleDeleteSelected}
+                      disabled={deleting}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      حذف ({selectedStaffIds.length})
+                    </button>
+                  )}
                 </>
               )}
             </>

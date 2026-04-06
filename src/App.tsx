@@ -104,6 +104,14 @@ export default function App() {
     }
   }, [role, activePage]);
 
+  const handleSelectTajhiz = () => {
+    if (role === 'installation_department') {
+      alert('ليس من صلاحياتك الدخول إلى قسم التجهيز. يمكنك الدخول إلى قسم التركيب فقط.');
+      return;
+    }
+    setSystemArea('tajhiz');
+  };
+
   // Audible alert for maintenance manager when a new pending request is created
   useEffect(() => {
     if (role !== 'maintenance_manager') return;
@@ -159,7 +167,7 @@ export default function App() {
         isDarkMode={isDarkMode}
         isGateGuard={role === 'gate_guard'}
         onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
-        onSelectTajhiz={() => setSystemArea('tajhiz')}
+        onSelectTajhiz={handleSelectTajhiz}
         onSelectInstallation={() => setSystemArea('installation')}
         onSelectGate={() => setSystemArea('gate')}
         onSignOut={signOut}
@@ -235,7 +243,7 @@ export default function App() {
       case 'maintenance-history':
         return <MaintenanceHistory profile={authProfile} />;
       case 'spare-parts':
-        return <SpareParts />;
+        return <SpareParts profile={authProfile} />;
       case 'notifications':
         return <MaintenanceNotifications />;
       case 'crew-attendance':

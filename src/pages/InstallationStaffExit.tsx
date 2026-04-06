@@ -630,6 +630,7 @@ export default function InstallationStaffExit({
   const supabase = getDepartmentClient('installation');
   const role = profile.role;
   const isAdmin = role === 'admin';
+  const canCreateExitRequest = isAdmin || role === 'installation_department';
   const isGateGuard = role === 'gate_guard';
   /** واجهة مبسّطة للحارس في البوابة الموحدة — بدون تحميل/قواطع/إنفوجرافيك */
   const hideLoadingBreakersUi = Boolean(unifiedGatePortal);
@@ -1990,8 +1991,8 @@ export default function InstallationStaffExit({
         </>
       )}
 
-      {/* ── Create New Request (Admin) ── */}
-      {isAdmin && (
+      {/* ── Create New Request ── */}
+      {canCreateExitRequest && (
         <div>
           {!showForm ? (
             <motion.button

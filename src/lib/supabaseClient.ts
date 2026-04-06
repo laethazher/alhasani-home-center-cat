@@ -17,7 +17,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
 
 /* ── Types ── */
 
-export type UserRole = 'admin' | 'driver' | 'manager' | 'warehouse' | 'logistics' | 'gate_guard' | 'maintenance_manager';
+export type UserRole =
+  | 'admin'
+  | 'driver'
+  | 'manager'
+  | 'warehouse'
+  | 'logistics'
+  | 'gate_guard'
+  | 'maintenance_manager'
+  | 'installation_department';
 
 /* ── Staff Exit Types ── */
 

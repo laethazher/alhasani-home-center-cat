@@ -221,7 +221,11 @@ export default function Reports({
   onConsumedInitialInspectionVehicle,
 }: ReportsProps) {
   const { profile } = useUserProfile();
-  const canManageReports = profile?.role === 'admin' || profile?.role === 'manager';
+  const canManageReports =
+    profile?.role === 'admin' ||
+    profile?.role === 'manager' ||
+    (department === 'installation' && profile?.role === 'installation_department');
+  const canDeleteReports = profile?.role === 'admin';
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const [activeTab, setActiveTab] = useState<Tab>('damage');
@@ -270,7 +274,7 @@ export default function Reports({
   };
 
   const handleDeleteSelectedReports = async () => {
-    if (!canManageReports || selectedReportIds.length === 0) return;
+    if (!canDeleteReports || selectedReportIds.length === 0) return;
     setDeletingReportsBulk(true);
     try {
       const { data: deletedRows, error } = await supabase
@@ -871,7 +875,7 @@ export default function Reports({
                   </button>
                 )}
 
-                {canManageReports && isSelectionMode && (
+                {canDeleteReports && isSelectionMode && (
                   <BulkDeleteSelectedButton
                     selectedCount={selectedReportIds.length}
                     deleting={deletingReportsBulk}

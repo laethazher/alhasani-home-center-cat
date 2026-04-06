@@ -38,6 +38,10 @@ export function resolveWorkspaceGuardedPage(
 ): PageKey {
   const r = role ?? 'driver';
 
+  if (r === 'installation_department' && opts.department === 'tajhiz') {
+    return 'dashboard';
+  }
+
   if (activePage === 'users' && r !== 'admin') return 'dashboard';
   if (activePage === 'settings' && r !== 'admin') return 'dashboard';
 
@@ -55,13 +59,20 @@ export function resolveWorkspaceGuardedPage(
     return 'dashboard';
   }
 
-  if (maintenancePages.includes(activePage) && r !== 'admin' && r !== 'maintenance_manager') {
+  const isInstallationDepartmentRole = r === 'installation_department' && opts.department === 'installation';
+
+  if (
+    maintenancePages.includes(activePage) &&
+    r !== 'admin' &&
+    r !== 'maintenance_manager' &&
+    !isInstallationDepartmentRole
+  ) {
     return 'dashboard';
   }
-  if (smartHubPages.includes(activePage) && r !== 'admin' && r !== 'manager') {
+  if (smartHubPages.includes(activePage) && r !== 'admin' && r !== 'manager' && !isInstallationDepartmentRole) {
     return 'dashboard';
   }
-  if (attendancePages.includes(activePage) && r !== 'admin' && r !== 'manager') {
+  if (attendancePages.includes(activePage) && r !== 'admin' && r !== 'manager' && !isInstallationDepartmentRole) {
     return 'dashboard';
   }
 

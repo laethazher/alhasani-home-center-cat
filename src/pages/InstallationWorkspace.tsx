@@ -100,7 +100,7 @@ export default function InstallationWorkspace({
       case 'dashboard':
         return <Dashboard profile={profile} onNavigate={setActivePage} department="installation" />;
       case 'vehicles':
-        return <InstallationVehicles isDarkMode={isDarkMode} />;
+        return <InstallationVehicles isDarkMode={isDarkMode} profile={profile} />;
       case 'staff-exit':
         return (
           <InstallationStaffExit
@@ -143,7 +143,7 @@ export default function InstallationWorkspace({
       case 'maintenance-history':
         return <MaintenanceHistory department="installation" profile={profile} />;
       case 'spare-parts':
-        return <SpareParts department="installation" />;
+        return <SpareParts department="installation" profile={profile} />;
       case 'notifications':
         return <MaintenanceNotifications department="installation" />;
       case 'settings':

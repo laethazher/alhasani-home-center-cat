@@ -9,7 +9,7 @@ import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton
 import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
-import type { SparePart, SparePartUsage } from '../lib/supabaseClient';
+import type { SparePart, SparePartUsage, UserProfile } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel } from '../lib/excelExport';
 
@@ -17,11 +17,13 @@ const LOW_STOCK_THRESHOLD = 5;
 
 interface Props {
   department?: DepartmentCode;
+  profile?: UserProfile | null;
 }
 
-export default function SpareParts({ department = 'tajhiz' }: Props) {
+export default function SpareParts({ department = 'tajhiz', profile = null }: Props) {
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
+  const canDelete = profile?.role === 'admin';
   const [parts, setParts] = useState<SparePart[]>([]);
   const [usage, setUsage] = useState<SparePartUsage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,7 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
   };
 
   async function handleDeleteSelected() {
+    if (!canDelete) return;
     if (selectedIds.length === 0) return;
     setBulkDeleting(true);
     try {
@@ -148,6 +151,7 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
   }
 
   async function handleDelete(id: number) {
+    if (!canDelete) return;
     await supabase.from(tables.spareParts).delete().eq('id', id);
     setDeleteConfirm(null);
     fetchData();
@@ -298,13 +302,15 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
                 {selectedIds.length === filteredParts.length ? 'إلغاء الكل' : 'تحديد الكل'}
               </button>
               
-              <BulkDeleteSelectedButton
-                selectedCount={selectedIds.length}
-                deleting={bulkDeleting}
-                confirmMessage={(n) => `هل أنت متأكد من حذف ${n} قطعة من قاعدة البيانات؟`}
-                onDelete={handleDeleteSelected}
-                label={(n) => `حذف (${n})`}
-              />
+              {canDelete && (
+                <BulkDeleteSelectedButton
+                  selectedCount={selectedIds.length}
+                  deleting={bulkDeleting}
+                  confirmMessage={(n) => `هل أنت متأكد من حذف ${n} قطعة من قاعدة البيانات؟`}
+                  onDelete={handleDeleteSelected}
+                  label={(n) => `حذف (${n})`}
+                />
+              )}
             </>
           )}
 
@@ -402,7 +408,7 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      {deleteConfirm === part.id ? (
+                      {canDelete && deleteConfirm === part.id ? (
                         <div className="flex gap-1">
                           <button onClick={() => handleDelete(part.id)} className="p-1.5 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600">
                             <Trash2 className="w-4 h-4" />
@@ -411,14 +417,14 @@ export default function SpareParts({ department = 'tajhiz' }: Props) {
                             <X className="w-4 h-4" />
                           </button>
                         </div>
-                      ) : (
+                      ) : canDelete ? (
                         <button
                           onClick={() => setDeleteConfirm(part.id)}
                           className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </td>
                 </tr>

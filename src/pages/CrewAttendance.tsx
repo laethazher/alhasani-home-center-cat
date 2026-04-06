@@ -149,6 +149,8 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
 
   const todayStr = getTodayDateStr();
   const isAdmin = profile?.role === 'admin';
+  const canAddStaff = isAdmin || (isInstallation && profile?.role === 'installation_department');
+  const canArchiveDay = isAdmin || (isInstallation && profile?.role === 'installation_department');
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -533,6 +535,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
   };
 
   const handleAddStaff = async (role: 'driver' | 'assistant') => {
+    if (!canAddStaff) return;
     const name = newName.trim();
     if (!name) {
       setAddError('يرجى إدخال الاسم');
@@ -743,7 +746,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
             {!isInstallation && <option value="assistant">{assistantPlural} فقط</option>}
           </select>
 
-          {isAdmin && (
+          {canAddStaff && (
             <>
               <button
                 onClick={() => { setShowAddDriver(true); setAddError(''); setNewName(''); }}
@@ -796,7 +799,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
           >
             <RotateCcw className="w-4 h-4" /> إعادة تحميل
           </button>
-          {isAdmin && (
+          {canArchiveDay && (
             <button
               onClick={handleArchiveDay}
               disabled={archiving}
