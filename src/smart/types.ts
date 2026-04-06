@@ -33,7 +33,8 @@ export type AttendanceFilterStatus =
   | 'late'
   | 'absent'
   | 'full_leave'
-  | 'time_leave';
+  | 'time_leave'
+  | 'break';
 
 /** مخرجات parseSearchQuery — دمج مع لوحة الفلاتر */
 export interface StructuredSearchFilters {

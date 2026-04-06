@@ -42,6 +42,7 @@ interface StaffStats {
   absent: number;
   full_leave: number;
   time_leave: number;
+  break: number;
   /** من exit_requests: مرات تأخير التحميل بعد 8:15 (للسائقين فقط) */
   loading_delay_events: number;
   loading_delay_minutes_sum: number;
@@ -54,6 +55,7 @@ function getDominantType(s: StaffStats): string {
     { k: 'absent', v: s.absent },
     { k: 'full_leave', v: s.full_leave },
     { k: 'time_leave', v: s.time_leave },
+    { k: 'break', v: s.break },
   ];
   const max = types.reduce((a, b) => (b.v > a.v ? b : a), { k: 'present', v: 0 });
   return max.v > 0 ? max.k : 'present';
@@ -177,6 +179,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
         absent: 0,
         full_leave: 0,
         time_leave: 0,
+        break: 0,
         loading_delay_events: (isInstallation || s.role === 'driver') ? (load?.events ?? 0) : 0,
         loading_delay_minutes_sum: (isInstallation || s.role === 'driver') ? (load?.minutes ?? 0) : 0,
       });
@@ -190,6 +193,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       else if (a.attendance_type === 'absent') st.absent++;
       else if (a.attendance_type === 'full_leave') st.full_leave++;
       else if (a.attendance_type === 'time_leave') st.time_leave++;
+      else if (a.attendance_type === 'break') st.break++;
     }
 
     let list = Array.from(statsMap.values());
@@ -235,6 +239,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       absent: drivers.reduce((s, d) => s + d.absent, 0),
       full_leave: drivers.reduce((s, d) => s + d.full_leave, 0),
       time_leave: drivers.reduce((s, d) => s + d.time_leave, 0),
+      break: drivers.reduce((s, d) => s + d.break, 0),
       loading_delay_events: drivers.reduce((s, d) => s + d.loading_delay_events, 0),
       loading_delay_minutes: drivers.reduce((s, d) => s + d.loading_delay_minutes_sum, 0),
     };
@@ -249,6 +254,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
       absent: assistants.reduce((s, d) => s + d.absent, 0),
       full_leave: assistants.reduce((s, d) => s + d.full_leave, 0),
       time_leave: assistants.reduce((s, d) => s + d.time_leave, 0),
+      break: assistants.reduce((s, d) => s + d.break, 0),
     };
   }, [staffStats]);
 
@@ -265,7 +271,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
     setExporting(true);
     try {
       const headers = [
-        'الموظف', 'الدور', 'حاضر', 'متأخر', 'غائب', 'إجازة كاملة', 'إجازة زمنية',
+        'الموظف', 'الدور', 'حاضر', 'متأخر', 'غائب', 'إجازة كاملة', 'إجازة زمنية', 'استراحه',
         'مرات تأخير التحميل', 'مجموع دقائق تأخير التحميل',
       ];
       const rows = toExport.map((s) => [
@@ -276,6 +282,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
         s.absent,
         s.full_leave,
         s.time_leave,
+        s.break,
         (isInstallation || s.role === 'driver') ? s.loading_delay_events : '—',
         (isInstallation || s.role === 'driver') ? s.loading_delay_minutes_sum : '—',
       ]);
@@ -408,6 +415,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                 'غائب',
                 'إجازة كاملة',
                 'إجازة زمنية',
+                'استراحه',
                 'مرات تأخير التحميل',
                 'مجموع دقائق تأخير التحميل',
               ]}
@@ -419,6 +427,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                 s.absent,
                 s.full_leave,
                 s.time_leave,
+                s.break,
                 s.role === 'driver' ? s.loading_delay_events : '—',
                 s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
               ])}
@@ -484,6 +493,10 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               <span className="text-stone-500">إجازات زمنية</span>
               <span className="font-semibold">{driversSummary.time_leave}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-stone-500">استراحه</span>
+              <span className="font-semibold text-cyan-700 dark:text-cyan-300">{driversSummary.break}</span>
+            </div>
             <div className="flex justify-between col-span-2 border-t border-stone-100 dark:border-stone-700 pt-2 mt-1">
               <span className="text-stone-500">تأخير تحميل (طلبات إخراج، بعد 8:15)</span>
               <span className="font-semibold text-amber-700 dark:text-amber-300">
@@ -530,6 +543,10 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
               <div className="flex justify-between">
                 <span className="text-stone-500">إجازات زمنية</span>
                 <span className="font-semibold">{assistantsSummary.time_leave}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-stone-500">استراحه</span>
+                <span className="font-semibold text-cyan-700 dark:text-cyan-300">{assistantsSummary.break}</span>
               </div>
             </div>
           </motion.div>
@@ -581,6 +598,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                 <th className="px-4 py-3 text-right text-sm font-semibold">غائب</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">إجازة كاملة</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">إجازة زمنية</th>
+                <th className="px-4 py-3 text-right text-sm font-semibold">استراحه</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">تأخير تحميل (مرات)</th>
                 <th className="px-4 py-3 text-right text-sm font-semibold">دقائق تأخير التحميل</th>
               </tr>
@@ -624,6 +642,7 @@ export default function AttendanceReports({ profile, department = 'tajhiz' }: Pr
                   <td className="px-4 py-2 text-red-600 dark:text-red-400">{s.absent}</td>
                   <td className="px-4 py-2">{s.full_leave}</td>
                   <td className="px-4 py-2">{s.time_leave}</td>
+                  <td className="px-4 py-2 text-cyan-700 dark:text-cyan-300">{s.break}</td>
                   <td className="px-4 py-2 text-amber-700 dark:text-amber-300">
                     {(isInstallation || s.role === 'driver') ? s.loading_delay_events : '—'}
                   </td>

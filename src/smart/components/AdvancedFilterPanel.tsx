@@ -10,6 +10,7 @@ const STATUS_OPTIONS: { value: AttendanceFilterStatus; label: string }[] = [
   { value: 'absent', label: 'غائب' },
   { value: 'full_leave', label: 'إجازة كاملة' },
   { value: 'time_leave', label: 'إجازة زمنية' },
+  { value: 'break', label: 'استراحه' },
 ];
 
 export interface AdvancedFilterPanelProps {

@@ -67,6 +67,7 @@ export function advancedFilterTags(state: import('../types').AdvancedFilterState
       absent: 'غائب',
       full_leave: 'إجازة كاملة',
       time_leave: 'إجازة زمنية',
+      break: 'استراحه',
     };
     tags.push({
       key: 'statuses',

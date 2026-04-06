@@ -81,6 +81,10 @@ const ATT_MAP: Record<string, StructuredSearchFilters['attendanceStatuses'][numb
   'إجازة كاملة': 'full_leave',
   'اجازة كاملة': 'full_leave',
   'إجازة زمنية': 'time_leave',
+  استرحة: 'break',
+  استراحه: 'break',
+  استراحة: 'break',
+  break: 'break',
 };
 
 function extractAttendanceStatuses(text: string): StructuredSearchFilters['attendanceStatuses'] {

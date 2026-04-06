@@ -310,7 +310,7 @@ export interface MaintenanceNotification {
 
 /* ── Crew Attendance Types ── */
 
-export type AttendanceType = 'present' | 'late' | 'absent' | 'full_leave' | 'time_leave';
+export type AttendanceType = 'present' | 'late' | 'absent' | 'full_leave' | 'time_leave' | 'break';
 
 export interface Attendance {
   id: number;

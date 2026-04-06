@@ -27,6 +27,7 @@ interface StaffStats {
   absent: number;
   full_leave: number;
   time_leave: number;
+  break: number;
 }
 
 const DOMINANT_TYPE_LABELS: Record<string, string> = {
@@ -35,6 +36,7 @@ const DOMINANT_TYPE_LABELS: Record<string, string> = {
   absent: 'غائب',
   full_leave: 'إجازة كاملة',
   time_leave: 'إجازة زمنية',
+  break: 'استراحه',
 };
 
 function getDominantAttendanceType(s: StaffStats): string {
@@ -44,6 +46,7 @@ function getDominantAttendanceType(s: StaffStats): string {
     { k: 'absent', v: s.absent },
     { k: 'full_leave', v: s.full_leave },
     { k: 'time_leave', v: s.time_leave },
+    { k: 'break', v: s.break },
   ];
   const max = types.reduce((a, b) => (b.v > a.v ? b : a), { k: 'present', v: 0 });
   return max.v > 0 ? max.k : 'present';
@@ -126,6 +129,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
         absent: 0,
         full_leave: 0,
         time_leave: 0,
+        break: 0,
       });
     }
     for (const a of filtered) {
@@ -136,6 +140,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
       else if (a.attendance_type === 'absent') st.absent++;
       else if (a.attendance_type === 'full_leave') st.full_leave++;
       else if (a.attendance_type === 'time_leave') st.time_leave++;
+      else if (a.attendance_type === 'break') st.break++;
     }
     return Array.from(statsMap.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
   }, [staff, archive, dateFrom, dateTo]);
@@ -190,7 +195,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
 
     setExporting(true);
     try {
-      const headers = ['الموظف', 'الدور', 'الحضور', 'التأخير', 'الغياب', 'إجازة كاملة', 'إجازة زمنية'];
+      const headers = ['الموظف', 'الدور', 'الحضور', 'التأخير', 'الغياب', 'إجازة كاملة', 'إجازة زمنية', 'استراحه'];
       const rows = toExport.map(s => [
         s.full_name,
         staffRoleDisplay(s.role),
@@ -199,6 +204,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
         String(s.absent),
         String(s.full_leave),
         String(s.time_leave),
+        String(s.break),
       ]);
 
       const filename = toExport.length === 1 
@@ -454,9 +460,13 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
                     <p className="text-2xl font-bold text-blue-600">{selectedReport.full_leave}</p>
                     <p className="text-sm text-stone-500">إجازات كاملة</p>
                   </div>
-                  <div className="rounded-xl bg-violet-50 dark:bg-violet-900/20 p-4 col-span-2">
+                  <div className="rounded-xl bg-violet-50 dark:bg-violet-900/20 p-4">
                     <p className="text-2xl font-bold text-violet-600">{selectedReport.time_leave}</p>
                     <p className="text-sm text-stone-500">إجازات زمنية</p>
+                  </div>
+                  <div className="rounded-xl bg-cyan-50 dark:bg-cyan-900/20 p-4">
+                    <p className="text-2xl font-bold text-cyan-600">{selectedReport.break}</p>
+                    <p className="text-sm text-stone-500">استراحه</p>
                   </div>
                 </div>
               </div>

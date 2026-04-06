@@ -68,6 +68,7 @@ const ATT_LABELS: Record<string, string> = {
   absent: 'غائب',
   full_leave: 'إجازة كاملة',
   time_leave: 'إجازة زمنية',
+  break: 'استراحه',
 };
 
 export function insightsFromAttendanceRows(

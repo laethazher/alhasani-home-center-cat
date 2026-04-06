@@ -32,4 +32,9 @@ export const ATTENDANCE_TYPE_COLORS: Record<string, { dot: string; bg: string; b
     bg: 'bg-violet-50 dark:bg-violet-900/20',
     border: 'border-violet-200 dark:border-violet-800',
   },
+  break: {
+    dot: 'bg-cyan-500',
+    bg: 'bg-cyan-50 dark:bg-cyan-900/20',
+    border: 'border-cyan-200 dark:border-cyan-800',
+  },
 };

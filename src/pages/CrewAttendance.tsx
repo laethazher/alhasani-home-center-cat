@@ -59,6 +59,7 @@ const ATTENDANCE_TYPES: { value: AttendanceType; label: string }[] = [
   { value: 'absent', label: 'غائب' },
   { value: 'full_leave', label: 'إجازة كاملة' },
   { value: 'time_leave', label: 'إجازة زمنية' },
+  { value: 'break', label: 'استراحه' },
 ];
 
 const TIME_REGEX = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/;
@@ -328,7 +329,7 @@ export default function CrewAttendance({ profile, department = 'tajhiz' }: Props
       if (a.attendance_type === 'present') present++;
       else if (a.attendance_type === 'late') late++;
       else if (a.attendance_type === 'absent') absent++;
-      else if (a.attendance_type === 'full_leave' || a.attendance_type === 'time_leave') leave++;
+      else if (a.attendance_type === 'full_leave' || a.attendance_type === 'time_leave' || a.attendance_type === 'break') leave++;
     });
     return { present, late, absent, leave };
   }, [attendance]);

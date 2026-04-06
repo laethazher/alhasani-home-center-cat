@@ -43,6 +43,7 @@ const ATTENDANCE_TYPE_LABELS: Record<string, string> = {
   absent: 'غائب',
   full_leave: 'إجازة كاملة',
   time_leave: 'إجازة زمنية',
+  break: 'استراحه',
 };
 
 interface Props {

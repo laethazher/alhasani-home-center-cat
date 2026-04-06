@@ -78,6 +78,7 @@ interface StaffStats {
   absent: number;
   full_leave: number;
   time_leave: number;
+  break: number;
   loading_delay_events: number;
   loading_delay_minutes_sum: number;
 }
@@ -215,6 +216,7 @@ function getDominantType(s: StaffStats): string {
     { k: 'absent', v: s.absent },
     { k: 'full_leave', v: s.full_leave },
     { k: 'time_leave', v: s.time_leave },
+    { k: 'break', v: s.break },
   ];
   const max = types.reduce((a, b) => (b.v > a.v ? b : a), { k: 'present', v: 0 });
   return max.v > 0 ? max.k : 'present';
@@ -646,6 +648,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         absent: 0,
         full_leave: 0,
         time_leave: 0,
+        break: 0,
         loading_delay_events: s.role === 'driver' ? (load?.events ?? 0) : 0,
         loading_delay_minutes_sum: s.role === 'driver' ? (load?.minutes ?? 0) : 0,
       });
@@ -659,6 +662,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       else if (a.attendance_type === 'absent') st.absent++;
       else if (a.attendance_type === 'full_leave') st.full_leave++;
       else if (a.attendance_type === 'time_leave') st.time_leave++;
+      else if (a.attendance_type === 'break') st.break++;
     }
 
     let list = Array.from(statsMap.values());
@@ -709,7 +713,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     if (attendanceTextQ.trim()) {
       rows = rows.filter((s) =>
         rowMatchesHubQuery(
-          `${s.full_name} ${s.role} ${s.present} ${s.late} ${s.absent} ${s.full_leave} ${s.time_leave} ${s.loading_delay_events} ${s.loading_delay_minutes_sum}`,
+          `${s.full_name} ${s.role} ${s.present} ${s.late} ${s.absent} ${s.full_leave} ${s.time_leave} ${s.break} ${s.loading_delay_events} ${s.loading_delay_minutes_sum}`,
           attendanceTextQ
         )
       );
@@ -726,6 +730,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
           if (st === 'absent') return s.absent > 0;
           if (st === 'full_leave') return s.full_leave > 0;
           if (st === 'time_leave') return s.time_leave > 0;
+          if (st === 'break') return s.break > 0;
           return false;
         })
       );
@@ -746,7 +751,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       const ft = structured.freeText.trim();
       rows = rows.filter((s) =>
         rowMatchesHubQuery(
-          `${s.full_name} ${s.role} ${s.present} ${s.late} ${s.absent} ${s.full_leave} ${s.time_leave}`,
+          `${s.full_name} ${s.role} ${s.present} ${s.late} ${s.absent} ${s.full_leave} ${s.time_leave} ${s.break}`,
           ft
         )
       );
@@ -1075,6 +1080,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       { id: 'absent', header: 'غائب', accessor: (s) => s.absent },
       { id: 'full_leave', header: 'إجازة كاملة', accessor: (s) => s.full_leave },
       { id: 'time_leave', header: 'إجازة زمنية', accessor: (s) => s.time_leave },
+      { id: 'break', header: 'استراحه', accessor: (s) => s.break },
       {
         id: 'ld_ev',
         header: 'تأخير تحميل (مرات)',
@@ -1553,6 +1559,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       'غائب',
       'إجازة كاملة',
       'إجازة زمنية',
+      'استراحه',
       'مرات تأخير التحميل',
       'مجموع دقائق تأخير التحميل',
     ];
@@ -1564,6 +1571,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       s.absent,
       s.full_leave,
       s.time_leave,
+      s.break,
       s.role === 'driver' ? s.loading_delay_events : '—',
       s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
     ]);
@@ -2146,6 +2154,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                           s.absent,
                           s.full_leave,
                           s.time_leave,
+                          s.break,
                           s.role === 'driver' ? s.loading_delay_events : '—',
                           s.role === 'driver' ? s.loading_delay_minutes_sum : '—',
                         ])
