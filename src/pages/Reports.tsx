@@ -237,6 +237,7 @@ export default function Reports({
   const [hasMoreReports, setHasMoreReports] = useState(true);
   const [loadingReports, setLoadingReports] = useState(false);
   const [viewingReport, setViewingReport] = useState<SavedReportView | null>(null);
+  const [loadingReportDetails, setLoadingReportDetails] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemView[]>(
@@ -406,22 +407,39 @@ export default function Reports({
   );
 
   const REPORTS_PAGE_SIZE = 20;
+  const REPORTS_QUERY_TIMEOUT_MS = 12000;
   const fetchReports = useCallback(async (opts?: { append?: boolean; page?: number }) => {
     const append = opts?.append === true;
     const page = append ? Math.max(0, Number(opts?.page ?? 0)) : 0;
     const from = page * REPORTS_PAGE_SIZE;
     const to = from + REPORTS_PAGE_SIZE - 1;
     setLoadingReports(true);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REPORTS_QUERY_TIMEOUT_MS);
     try {
-      const { data, error } = await supabase
-        .from(tables.reports)
-        .select('*')
-        .range(from, to)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
       if (isTajhiz) {
-        const mapped = ((data ?? []) as Report[]).map((r) =>
-          mapDbRowToSavedReportView(r as unknown as Record<string, unknown>, false),
+        const { data, error } = await supabase
+          .from(tables.reports)
+          .select('id,vehicle_id,driver_name,truck_number,date,created_at')
+          .abortSignal(controller.signal)
+          .range(from, to)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const mapped = ((data ?? []) as Array<Record<string, unknown>>).map((row) =>
+          mapDbRowToSavedReportView(
+            {
+              ...row,
+              damage_points: [],
+              inspection_values: {},
+              tool_values: {},
+              tool_images: {},
+              driver_signature: '',
+              equipment_manager: '',
+              logistics_manager: '',
+              warehouse_manager: '',
+            },
+            false,
+          ),
         );
         setSavedReports((prev) => {
           const next = append ? [...prev, ...mapped] : mapped;
@@ -432,9 +450,22 @@ export default function Reports({
         setReportsPage(append ? page + 1 : 1);
         return;
       }
-      const mapped = ((data ?? []) as Array<Record<string, unknown>>).map((row) =>
-        mapDbRowToSavedReportView(row, true),
-      );
+      const { data, error } = await supabase
+        .from(tables.reports)
+        .select('id,vehicle_id,vehicle_number,vehicle_type,created_at')
+        .abortSignal(controller.signal)
+        .range(from, to)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const mapped = ((data ?? []) as Array<Record<string, unknown>>).map((row) => {
+        const listRow = {
+          ...row,
+          driver_name: row.driver_name ?? '—',
+          truck_number: row.truck_number ?? row.vehicle_number ?? '',
+          date: row.date ?? '',
+        };
+        return mapDbRowToSavedReportView(listRow, true);
+      });
       setSavedReports((prev) => {
         const next = append ? [...prev, ...mapped] : mapped;
         const unique = Array.from(new Map(next.map((item) => [item.id, item])).values());
@@ -444,10 +475,37 @@ export default function Reports({
       setReportsPage(append ? page + 1 : 1);
     } catch (error) {
       console.error("Failed to fetch reports:", error);
+      if ((error as { name?: string })?.name === 'AbortError') {
+        alert('استعلام سجل التقارير استغرق وقتاً طويلاً وتم إيقافه. حاول التحديث مرة أخرى.');
+      }
     } finally {
+      window.clearTimeout(timeoutId);
       setLoadingReports(false);
     }
-  }, [REPORTS_PAGE_SIZE, isTajhiz, supabase, tables.reports]);
+  }, [REPORTS_PAGE_SIZE, REPORTS_QUERY_TIMEOUT_MS, isInstallation, isTajhiz, supabase, tables.reports]);
+
+  const openReportDetails = useCallback(
+    async (report: SavedReportView) => {
+      setViewingReport(report);
+      setLoadingReportDetails(true);
+      try {
+        const { data, error } = await supabase
+          .from(tables.reports)
+          .select('*')
+          .eq('id', report.id)
+          .single();
+        if (error) throw error;
+        const full = mapDbRowToSavedReportView(data as Record<string, unknown>, isInstallation);
+        setViewingReport(full);
+      } catch (error) {
+        console.error('Failed to load full report details:', error);
+        alert('تعذر تحميل تفاصيل التقرير: ' + getErrorMessage(error));
+      } finally {
+        setLoadingReportDetails(false);
+      }
+    },
+    [isInstallation, supabase, tables.reports],
+  );
 
   const fetchVehicles = useCallback(async () => {
     const orderColumn = department === 'installation' ? 'vehicle_number' : 'plate_number';
@@ -960,7 +1018,7 @@ export default function Reports({
                       "glass p-6 rounded-2xl hover:border-red-200 transition-all cursor-pointer group relative",
                       selectedReportIds.includes(report.id) && "ring-2 ring-red-500/50 bg-red-50/10"
                     )}
-                    onClick={() => isSelectionMode ? toggleReportSelection(report.id) : setViewingReport(report)}
+                    onClick={() => isSelectionMode ? toggleReportSelection(report.id) : void openReportDetails(report)}
                   >
                     {isSelectionMode && (
                       <div className="absolute top-4 left-4 z-10" onClick={(e) => e.stopPropagation()}>
