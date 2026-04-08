@@ -23,6 +23,30 @@ export const ImageCapture: React.FC<ImageCaptureProps> = ({
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [error, setError] = useState<string>('');
 
+  const compressDataUrl = async (source: string): Promise<string> => {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = source;
+    });
+
+    const maxW = 1280;
+    const maxH = 1280;
+    const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
+    const targetW = Math.max(1, Math.round(img.width * ratio));
+    const targetH = Math.max(1, Math.round(img.height * ratio));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return source;
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    return canvas.toDataURL('image/jpeg', 0.62);
+  };
+
   const startCamera = async () => {
     try {
       setError('');
@@ -46,14 +70,15 @@ export const ImageCapture: React.FC<ImageCaptureProps> = ({
     }
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext('2d');
       if (context) {
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         context.drawImage(videoRef.current, 0, 0);
-        const imageData = canvasRef.current.toDataURL('image/jpeg', 0.8);
+        const rawImage = canvasRef.current.toDataURL('image/jpeg', 0.72);
+        const imageData = await compressDataUrl(rawImage);
         onImageCapture(imageData);
       }
     }
@@ -63,9 +88,10 @@ export const ImageCapture: React.FC<ImageCaptureProps> = ({
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const imageData = e.target?.result as string;
-        onImageCapture(imageData);
+        const compressed = await compressDataUrl(imageData);
+        onImageCapture(compressed);
       };
       reader.readAsDataURL(file);
     }

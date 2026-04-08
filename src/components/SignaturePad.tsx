@@ -21,8 +21,22 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({ label, onSave, defau
       if (sigCanvas.current.isEmpty()) {
         onSave('');
       } else {
-        // Use getCanvas() instead of getTrimmedCanvas() to avoid the trim-canvas dependency error
-        onSave(sigCanvas.current.getCanvas().toDataURL('image/png'));
+        const source = sigCanvas.current.getCanvas();
+        const out = document.createElement('canvas');
+        const maxWidth = 900;
+        const ratio = Math.min(maxWidth / source.width, 1);
+        out.width = Math.max(1, Math.round(source.width * ratio));
+        out.height = Math.max(1, Math.round(source.height * ratio));
+        const ctx = out.getContext('2d');
+        if (!ctx) {
+          onSave(source.toDataURL('image/jpeg', 0.7));
+          return;
+        }
+        // White background to preserve signature visibility when converting from transparent PNG.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(source, 0, 0, out.width, out.height);
+        onSave(out.toDataURL('image/jpeg', 0.65));
       }
     }
   };
