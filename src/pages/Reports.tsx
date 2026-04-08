@@ -233,6 +233,9 @@ export default function Reports({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [savedReports, setSavedReports] = useState<SavedReportView[]>([]);
+  const [reportsPage, setReportsPage] = useState(0);
+  const [hasMoreReports, setHasMoreReports] = useState(true);
+  const [loadingReports, setLoadingReports] = useState(false);
   const [viewingReport, setViewingReport] = useState<SavedReportView | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
@@ -402,28 +405,49 @@ export default function Reports({
     (selectedVehicle as unknown as { vehicle_type?: unknown } | null)?.vehicle_type,
   );
 
-  const fetchReports = useCallback(async () => {
+  const REPORTS_PAGE_SIZE = 20;
+  const fetchReports = useCallback(async (opts?: { append?: boolean; page?: number }) => {
+    const append = opts?.append === true;
+    const page = append ? Math.max(0, Number(opts?.page ?? 0)) : 0;
+    const from = page * REPORTS_PAGE_SIZE;
+    const to = from + REPORTS_PAGE_SIZE - 1;
+    setLoadingReports(true);
     try {
       const { data, error } = await supabase
         .from(tables.reports)
         .select('*')
+        .range(from, to)
         .order('created_at', { ascending: false });
       if (error) throw error;
       if (isTajhiz) {
         const mapped = ((data ?? []) as Report[]).map((r) =>
           mapDbRowToSavedReportView(r as unknown as Record<string, unknown>, false),
         );
-        setSavedReports(assignReportDisplaySequences(mapped));
+        setSavedReports((prev) => {
+          const next = append ? [...prev, ...mapped] : mapped;
+          const unique = Array.from(new Map(next.map((item) => [item.id, item])).values());
+          return assignReportDisplaySequences(unique);
+        });
+        setHasMoreReports((data?.length ?? 0) >= REPORTS_PAGE_SIZE);
+        setReportsPage(append ? page + 1 : 1);
         return;
       }
       const mapped = ((data ?? []) as Array<Record<string, unknown>>).map((row) =>
         mapDbRowToSavedReportView(row, true),
       );
-      setSavedReports(assignReportDisplaySequences(mapped));
+      setSavedReports((prev) => {
+        const next = append ? [...prev, ...mapped] : mapped;
+        const unique = Array.from(new Map(next.map((item) => [item.id, item])).values());
+        return assignReportDisplaySequences(unique);
+      });
+      setHasMoreReports((data?.length ?? 0) >= REPORTS_PAGE_SIZE);
+      setReportsPage(append ? page + 1 : 1);
     } catch (error) {
       console.error("Failed to fetch reports:", error);
+    } finally {
+      setLoadingReports(false);
     }
-  }, [isTajhiz, supabase, tables.reports]);
+  }, [REPORTS_PAGE_SIZE, isTajhiz, supabase, tables.reports]);
 
   const fetchVehicles = useCallback(async () => {
     const orderColumn = department === 'installation' ? 'vehicle_number' : 'plate_number';
@@ -752,7 +776,7 @@ export default function Reports({
         } catch (e) {
           console.error('vehicle event after report:', e);
         }
-        await fetchReports();
+      await fetchReports();
       })();
     } catch (error: unknown) {
       console.error('Submission error:', error);
@@ -906,7 +930,7 @@ export default function Reports({
                 )}
 
                 <button 
-                  onClick={fetchReports}
+                  onClick={() => fetchReports()}
                   className="p-2 text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-400 transition-colors"
                   title="تحديث السجل"
                 >
@@ -923,7 +947,7 @@ export default function Reports({
             </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {savedReports.length === 0 ? (
+              {savedReports.length === 0 && !loadingReports ? (
                 <div className="col-span-full py-20 text-center text-stone-400 dark:text-stone-500">
                   <FileText className="w-12 h-12 mx-auto mb-4 opacity-20" />
                   <p>لا توجد تقارير محفوظة حالياً</p>
@@ -979,7 +1003,25 @@ export default function Reports({
                   </div>
                 ))
               )}
+              {loadingReports && (
+                <div className="col-span-full py-10 text-center text-stone-500 dark:text-stone-400">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                  جاري تحميل السجل...
+                </div>
+              )}
             </div>
+            {savedReports.length > 0 && hasMoreReports && (
+              <div className="pt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => fetchReports({ append: true, page: reportsPage })}
+                  disabled={loadingReports}
+                  className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-600 text-sm font-bold text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-60"
+                >
+                  تحميل المزيد من السجل
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <>
