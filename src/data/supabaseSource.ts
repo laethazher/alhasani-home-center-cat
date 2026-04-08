@@ -24,6 +24,8 @@ export interface DepartmentTables {
   maintenanceNotifications: string;
   driverIssueReports: string;
   attendance: string;
+  attendanceArchive: string;
+  attendanceActivityLog: string;
   violations: string;
   reports: string;
   inventoryTemplates: string;
@@ -45,6 +47,8 @@ const INSTALLATION_TABLES: DepartmentTables = {
   maintenanceNotifications: 'installation_maintenance_notifications',
   driverIssueReports: 'installation_driver_issue_reports',
   attendance: 'installation_attendance',
+  attendanceArchive: 'installation_attendance_archive',
+  attendanceActivityLog: 'installation_attendance_activity_log',
   violations: 'installation_violations',
   reports: 'installation_reports',
   inventoryTemplates: 'inventory_item_templates',
@@ -65,14 +69,40 @@ const TAJHIZ_TABLES: DepartmentTables = {
   maintenanceNotifications: 'maintenance_notifications',
   driverIssueReports: 'driver_issue_reports',
   attendance: 'attendance',
+  attendanceArchive: 'attendance_archive',
+  attendanceActivityLog: 'attendance_activity_log',
   violations: 'violations',
   reports: 'reports',
   inventoryTemplates: 'inventory_item_templates',
   gateNotifications: 'gate_notifications',
 };
 
+const OPERATIONS_TABLES: DepartmentTables = {
+  staffMembers: 'operations_staff_members',
+  vehicles: 'operations_vehicles',
+  vehicleEvents: 'operations_vehicle_events',
+  exitRequests: 'operations_exit_requests',
+  maintenanceRequests: 'operations_maintenance_requests',
+  maintenanceRecords: 'operations_maintenance_records',
+  maintenanceImages: 'operations_maintenance_images',
+  spareParts: 'operations_spare_parts',
+  sparePartUsage: 'operations_spare_part_usage',
+  periodicMaintenance: 'operations_periodic_maintenance',
+  maintenanceNotifications: 'operations_maintenance_notifications',
+  driverIssueReports: 'operations_driver_issue_reports',
+  attendance: 'operations_attendance',
+  attendanceArchive: 'operations_attendance_archive',
+  attendanceActivityLog: 'operations_attendance_activity_log',
+  violations: 'operations_violations',
+  reports: 'operations_reports',
+  inventoryTemplates: 'operations_inventory_item_templates',
+  gateNotifications: 'operations_gate_notifications',
+};
+
 export function getDepartmentTables(department: DepartmentCode): DepartmentTables {
-  return department === 'installation' ? INSTALLATION_TABLES : TAJHIZ_TABLES;
+  if (department === 'installation') return INSTALLATION_TABLES;
+  if (department === 'operations') return OPERATIONS_TABLES;
+  return TAJHIZ_TABLES;
 }
 
 /** توحيد عرض مركبات التركيب (vehicle_number) مع واجهة التجهيز (plate_number). */

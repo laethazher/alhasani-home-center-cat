@@ -244,7 +244,7 @@ interface Props {
 export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
-  const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
+  const attendanceArchiveTable = tables.attendanceArchive;
   const [archive, setArchive] = useState<AttendanceArchive[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [exitLoadingRows, setExitLoadingRows] = useState<ExitLoadingRow[]>([]);
@@ -284,7 +284,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   const [bubbleBulkDeleting, setBubbleBulkDeleting] = useState(false);
 
   const showViolationsTab = profile?.role === 'admin';
-  const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department !== 'installation';
+  const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department === 'tajhiz';
   const isInstallation = department === 'installation';
   const attendanceDriverLabel = isInstallation ? 'فني' : 'سائق';
   const attendanceAssistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';

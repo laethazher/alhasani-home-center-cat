@@ -40,7 +40,12 @@ function formatDuration(ms: number) {
 export default function ActiveMaintenance({ profile, onNavigate, department = 'tajhiz' }: Props) {
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
-  const maintenanceImagesBucket = department === 'installation' ? 'installation-maintenance-images' : 'maintenance-images';
+  const maintenanceImagesBucket =
+    department === 'installation'
+      ? 'installation-maintenance-images'
+      : department === 'operations'
+        ? 'operations-maintenance-images'
+        : 'maintenance-images';
   const isInstallation = department === 'installation';
   const driverLabel = isInstallation ? 'فني' : 'سائق';
   const isAdmin = profile?.role === 'admin';

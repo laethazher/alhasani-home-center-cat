@@ -38,6 +38,10 @@ export function resolveWorkspaceGuardedPage(
 ): PageKey {
   const r = role ?? 'driver';
 
+  if (opts.department === 'operations' && r !== 'admin') {
+    return 'dashboard';
+  }
+
   if (r === 'installation_department' && opts.department === 'tajhiz') {
     return 'dashboard';
   }

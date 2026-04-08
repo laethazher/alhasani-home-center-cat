@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import SystemHome from './pages/SystemHome';
 import InstallationWorkspace from './pages/InstallationWorkspace';
 import GateGuardWorkspace from './pages/GateGuardWorkspace';
+import OperationsWorkspace from './pages/OperationsWorkspace';
 import Dashboard from './pages/Dashboard';
 import Reports from './pages/Reports';
 import Vehicles from './pages/Vehicles';
@@ -37,7 +38,7 @@ import {
 
 export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
-  const [systemArea, setSystemArea] = useState<'tajhiz' | 'installation' | 'gate' | null>(null);
+  const [systemArea, setSystemArea] = useState<'tajhiz' | 'installation' | 'operations' | 'gate' | null>(null);
   const [reportsInitialInspectionVehicleId, setReportsInitialInspectionVehicleId] = useState<string | null>(null);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
@@ -169,6 +170,13 @@ export default function App() {
         onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
         onSelectTajhiz={handleSelectTajhiz}
         onSelectInstallation={() => setSystemArea('installation')}
+        onSelectOperations={() => {
+          if (role !== 'admin') {
+            alert('ليس من صلاحياتك الدخول إلى قسم العمليات.');
+            return;
+          }
+          setSystemArea('operations');
+        }}
         onSelectGate={() => setSystemArea('gate')}
         onSignOut={signOut}
         signingOut={signingOut}
@@ -199,6 +207,24 @@ export default function App() {
         signingOut={signingOut}
         isDarkMode={isDarkMode}
         onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
+      />
+    );
+  }
+
+  if (systemArea === 'operations') {
+    if (role !== 'admin') {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-stone-950">
+          <p className="text-stone-500 dark:text-stone-300">ليس من صلاحياتك الدخول إلى قسم العمليات.</p>
+        </div>
+      );
+    }
+    return (
+      <OperationsWorkspace
+        profile={profile}
+        onBack={() => setSystemArea(null)}
+        onSignOut={signOut}
+        signingOut={signingOut}
       />
     );
   }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DepartmentTables } from '../../data/supabaseSource';
+import type { DepartmentCode } from '../../data/department';
 import { normalizeDepartmentVehicleRow } from '../../data/supabaseSource';
 import type { ReportRowForIntelligence, VehicleRowForIntelligence } from './types';
 
@@ -9,7 +10,7 @@ import type { ReportRowForIntelligence, VehicleRowForIntelligence } from './type
 export async function fetchVehiclesForIntelligence(
   client: SupabaseClient,
   tables: DepartmentTables,
-  department: 'tajhiz' | 'installation',
+  department: DepartmentCode,
 ): Promise<VehicleRowForIntelligence[]> {
   const orderColumn = department === 'installation' ? 'vehicle_number' : 'plate_number';
   const { data, error } = await client.from(tables.vehicles).select('*').order(orderColumn);
@@ -64,7 +65,7 @@ export async function fetchReportsForIntelligence(
 export async function fetchStaffNamesForIntelligence(
   client: SupabaseClient,
   tables: DepartmentTables,
-  department: 'tajhiz' | 'installation',
+  department: DepartmentCode,
 ): Promise<Map<string, string>> {
   let query = client.from(tables.staffMembers).select('id, full_name').eq('is_active', true);
   if (department !== 'installation') {

@@ -34,6 +34,8 @@ export function parseInspectionDeepLink(search: string): {
   const deptRaw = params.get('dept');
   const vehicleId = params.get('vehicleId');
   const department =
-    deptRaw === 'installation' || deptRaw === 'tajhiz' ? (deptRaw as DepartmentCode) : null;
+    deptRaw === 'installation' || deptRaw === 'tajhiz' || deptRaw === 'operations'
+      ? (deptRaw as DepartmentCode)
+      : null;
   return { inspect, department, vehicleId };
 }

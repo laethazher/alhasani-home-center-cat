@@ -87,7 +87,7 @@ export default function CrewStaff({ profile, department = 'tajhiz' }: Props) {
     setLoading(true);
     const [staffRes, archRes] = await Promise.all([
       supabase.from(tables.staffMembers).select('*').eq('is_active', true).order('role').order('full_name'),
-      supabase.from(department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive').select('*').order('attendance_date', { ascending: false }),
+      supabase.from(tables.attendanceArchive).select('*').order('attendance_date', { ascending: false }),
     ]);
     if (staffRes.data) {
       const normalizedStaff = (staffRes.data as Array<Record<string, unknown>>).map((s) => ({

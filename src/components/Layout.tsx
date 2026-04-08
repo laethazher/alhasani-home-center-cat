@@ -112,7 +112,7 @@ export default function Layout({
   const visibleAttendanceChildren  = ATTENDANCE_CHILDREN.filter(c => c.roles.includes(safeRole));
   const visibleItems = NAV_ITEMS
     .filter(i => i.roles === 'all' || i.roles.includes(safeRole))
-    .filter(i => department === 'installation' ? i.key !== 'bubbles' : true);
+    .filter(i => (department === 'tajhiz' ? true : i.key !== 'bubbles'));
 
   const currentPageLabel =
     visibleItems.find(i => i.key === activePage)?.label ??
@@ -325,7 +325,7 @@ export default function Layout({
                 </p>
                 <p className="text-[10px] font-semibold whitespace-nowrap" style={{ color: isDarkMode ? '#334155' : '#94a3b8' }}>
                   Fleet Management System
-                  {department === 'installation' ? ' · قسم التركيب' : ''}
+                  {department === 'installation' ? ' · قسم التركيب' : department === 'operations' ? ' · قسم العمليات' : ''}
                 </p>
               </motion.div>
             )}

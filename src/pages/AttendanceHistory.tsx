@@ -54,7 +54,7 @@ interface Props {
 export default function AttendanceHistory({ profile, department = 'tajhiz' }: Props) {
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
-  const attendanceArchiveTable = department === 'installation' ? 'installation_attendance_archive' : 'attendance_archive';
+  const attendanceArchiveTable = tables.attendanceArchive;
   const isInstallation = department === 'installation';
   const driverLabel = isInstallation ? 'فني' : 'سائق';
   const assistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';

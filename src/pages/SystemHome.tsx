@@ -1,8 +1,9 @@
 import { motion, useReducedMotion } from 'framer-motion';
-import { Building2, LogOut, Moon, Shield, Sun, Truck, Wrench } from 'lucide-react';
+import { Activity, Building2, LogOut, Moon, Shield, Sun, Truck, Wrench } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { HomeCenterShowcase, CityMarquee } from '../components/landing/HomeCenterShowcase';
+import OperationsHero from '../components/operations/OperationsHero';
 import { cn } from '../lib/utils';
 
 interface SystemHomeProps {
@@ -12,6 +13,7 @@ interface SystemHomeProps {
   onToggleDark: () => void;
   onSelectTajhiz: () => void;
   onSelectInstallation: () => void;
+  onSelectOperations: () => void;
   onSelectGate?: () => void;
   onSignOut: () => void;
   signingOut?: boolean;
@@ -24,6 +26,8 @@ const TILE_BG = {
     'https://images.unsplash.com/photo-1504917595217-d4dc5ebe6122?w=1000&q=80&auto=format&fit=crop',
   gate:
     'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1000&q=80&auto=format&fit=crop',
+  operations:
+    'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1000&q=80&auto=format&fit=crop',
 } as const;
 
 function DepartmentTile({
@@ -121,6 +125,7 @@ export default function SystemHome({
   onToggleDark,
   onSelectTajhiz,
   onSelectInstallation,
+  onSelectOperations,
   onSelectGate,
   onSignOut,
   signingOut = false,
@@ -184,7 +189,7 @@ export default function SystemHome({
         <motion.div
           className={cn(
             'grid gap-5',
-            isGateGuard ? 'grid-cols-1 max-w-xl mx-auto' : 'grid-cols-1 lg:grid-cols-2',
+            isGateGuard ? 'grid-cols-1 max-w-xl mx-auto' : 'grid-cols-1 lg:grid-cols-3',
           )}
           variants={listVariants}
           initial="hidden"
@@ -220,9 +225,20 @@ export default function SystemHome({
                 onClick={onSelectInstallation}
                 reduceMotion={reduceMotion}
               />
+              <DepartmentTile
+                title="قسم العمليات"
+                description="سستم عمليات جديد كلياً داخل النظام مع بيانات معزولة وهوية تشغيل مستقلة."
+                accentClass="bg-gradient-to-br from-cyan-600 via-sky-700 to-slate-900"
+                icon={Activity}
+                imageUrl={TILE_BG.operations}
+                onClick={onSelectOperations}
+                reduceMotion={reduceMotion}
+              />
             </>
           )}
         </motion.div>
+
+        {!isGateGuard && <OperationsHero onOpenWorkspace={onSelectOperations} />}
 
         <motion.div
           initial={reduceMotion ? false : { opacity: 0 }}

@@ -12,7 +12,7 @@ import {
   Download,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { getDepartmentClient } from '../data/supabaseSource';
+import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { UserProfile, AttendanceActivityLog } from '../lib/supabaseClient';
 import {
@@ -40,7 +40,8 @@ interface Props {
 
 export default function AttendanceActivityLog({ profile, department = 'tajhiz' }: Props) {
   const supabase = getDepartmentClient(department);
-  const activityTable = department === 'installation' ? 'installation_attendance_activity_log' : 'attendance_activity_log';
+  const tables = getDepartmentTables(department);
+  const activityTable = tables.attendanceActivityLog;
   const pageSizeStorageKey = useMemo(
     () => serverTablePageSizeStorageKey('attendance-activity-log', department),
     [department]
