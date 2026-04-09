@@ -1,6 +1,7 @@
 import { AlertTriangle, Brain } from 'lucide-react';
 import type { DepartmentCode } from '../../data/department';
 import { useInspectionCriticalCount } from '../../hooks/useInspectionCriticalCount';
+import { useInspectionRecoveryStats } from '../../hooks/useInspectionRecoveryStats';
 
 interface InspectionAlertBannerProps {
   department: DepartmentCode;
@@ -15,8 +16,11 @@ export default function InspectionAlertBanner({
   onGoToReports,
 }: InspectionAlertBannerProps) {
   const { loading, criticalCount } = useInspectionCriticalCount(department, enabled);
+  const { loading: recoveryLoading, stats: recoveryStats } = useInspectionRecoveryStats(department, enabled);
 
-  if (!enabled || loading || criticalCount === null || criticalCount < 1) {
+  const hasCritical = criticalCount != null && criticalCount > 0;
+  const hasRecoveryAlert = recoveryStats.pendingCount > 0 || recoveryStats.dueReminderCount > 0;
+  if (!enabled || loading || recoveryLoading || (!hasCritical && !hasRecoveryAlert)) {
     return null;
   }
 
@@ -31,10 +35,13 @@ export default function InspectionAlertBanner({
       <div className="flex-1 min-w-0">
         <p className="font-bold text-rose-900 dark:text-rose-100 flex items-center gap-2">
           <Brain className="w-4 h-4 shrink-0 opacity-80" />
-          ذكاء الجرد: مركبات متأخرة عن دورة الفحص
+          ذكاء الجرد: تنبيهات الفحص ونواقص التعويض
         </p>
         <p className="text-sm text-rose-800/95 dark:text-rose-200/85 mt-0.5">
-          يوجد {criticalCount} مركبة بحالة حرجة وفق دورة الجرد — يُنصح بمراجعة التقارير وإكمال الفحص.
+          {hasCritical ? `يوجد ${criticalCount} مركبة بحالة حرجة وفق دورة الجرد.` : 'لا توجد حالات حرجة في دورة الجرد.'}
+          {hasRecoveryAlert
+            ? ` نواقص التعويض المفتوحة: ${recoveryStats.pendingCount} (المستحق الآن: ${recoveryStats.dueReminderCount}).`
+            : ''}
         </p>
       </div>
       {onGoToReports ? (

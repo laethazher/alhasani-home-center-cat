@@ -58,6 +58,7 @@ import { normalizeDepartmentStaffRole } from '../lib/staffRoleNormalize';
 import { buildHubViolationStaffRows, type HubViolationStaffRow } from './reportsHubViolationsAggregate';
 import { advancedFilterTags, FilterTags } from '../smart/components/FilterTags';
 import type { ColumnDef } from '../smart/components/DataTableEnhanced';
+import { useInspectionRecoveryStats } from '../hooks/useInspectionRecoveryStats';
 
 const AdvancedFilterPanel = lazy(() =>
   import('../smart/components/AdvancedFilterPanel').then((m) => ({ default: m.AdvancedFilterPanel }))
@@ -285,6 +286,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
 
   const showViolationsTab = profile?.role === 'admin';
   const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department === 'tajhiz';
+  const { stats: recoveryStats } = useInspectionRecoveryStats(department, true);
   const isInstallation = department === 'installation';
   const attendanceDriverLabel = isInstallation ? 'فني' : 'سائق';
   const attendanceAssistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
@@ -1383,7 +1385,16 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
             ? [{ label: 'صفوف جدول المخالفات', value: filteredViolationRows.length }]
             : []),
         ],
-        alerts: [] as string[],
+        alerts: [
+          ...(recoveryStats.pendingCount > 0
+            ? [
+                `نواقص جرد مفتوحة: ${recoveryStats.pendingCount} | إجمالي النقص: ${recoveryStats.totalMissing} | مركبات معرضة: ${recoveryStats.vehicleRiskScore}`,
+              ]
+            : []),
+          ...(recoveryStats.dueReminderCount > 0
+            ? [`يوجد ${recoveryStats.dueReminderCount} حالة تعويض مجدولة حان موعدها.`]
+            : []),
+        ],
         bar,
         pie: pie.length ? pie : [{ name: 'لا توجد بيانات', value: 0 }],
       };
@@ -1402,6 +1413,10 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     vehicleInsights,
     violationInsights,
     reportTableInsights,
+    recoveryStats.pendingCount,
+    recoveryStats.totalMissing,
+    recoveryStats.vehicleRiskScore,
+    recoveryStats.dueReminderCount,
   ]);
 
   const kpiItems = useMemo(() => {
@@ -1422,6 +1437,9 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         });
       }
       base.push({ label: 'إجمالي صفوف الجداول', value: total, icon: LayoutGrid });
+      base.push({ label: 'total_missing', value: recoveryStats.totalMissing, icon: Package });
+      base.push({ label: 'vehicle_risk_score', value: recoveryStats.vehicleRiskScore, icon: Truck });
+      base.push({ label: 'user_gap_count', value: recoveryStats.userGapCount, icon: Users });
       return base;
     }
     if (activeDomain === 'vehicles') {
@@ -1430,6 +1448,9 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         { label: 'متاحة', value: kpisVehicles.available, icon: BarChart3 },
         { label: 'صيانة', value: kpisVehicles.maintenance, icon: SlidersHorizontal },
         { label: 'معطلة', value: kpisVehicles.broken, icon: FileText },
+        { label: 'total_missing', value: recoveryStats.totalMissing, icon: Package },
+        { label: 'vehicle_risk_score', value: recoveryStats.vehicleRiskScore, icon: Truck },
+        { label: 'user_gap_count', value: recoveryStats.userGapCount, icon: Users },
       ] as const;
     }
     if (activeDomain === 'violations') {
@@ -1466,6 +1487,9 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     filteredVehicleRows.length,
     filteredViolationRows.length,
     showViolationsTab,
+    recoveryStats.totalMissing,
+    recoveryStats.vehicleRiskScore,
+    recoveryStats.userGapCount,
   ]);
 
   const handleExport = async (format: 'pdf' | 'excel') => {

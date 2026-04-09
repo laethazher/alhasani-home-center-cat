@@ -55,6 +55,8 @@ import { exportToExcel } from '../lib/excelExport';
 import { WEEKLY_INSPECTION_ITEMS, TOOL_INVENTORY_ITEMS } from '../constants';
 import { useUserProfile } from '../hooks/useUserProfile';
 import InspectionIntelligenceDrawer from '../components/inspection-intelligence/InspectionIntelligenceDrawer';
+import { calculateInspectionRecovery } from '../lib/inspectionRecovery/calculateInspectionRecovery';
+import { useInspectionRecoveryStats } from '../hooks/useInspectionRecoveryStats';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
 
@@ -72,6 +74,12 @@ interface InventoryItemView {
   quantity: number;
   sortOrder: number;
 }
+
+/**
+ * عرض تفاصيل نواقص التعويض داخل التقرير نفسه مُعطّل؛
+ * التفاصيل والإجراءات تُدار حصراً عبر واجهة "نواقص الجرد" في Inspection Intelligence.
+ */
+const SHOW_RECOVERY_DETAILS_IN_REPORT = false;
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -233,6 +241,7 @@ export default function Reports({
   const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [postSubmitNotice, setPostSubmitNotice] = useState<string | null>(null);
   const [savedReports, setSavedReports] = useState<SavedReportView[]>([]);
   const [reportsPage, setReportsPage] = useState(0);
   const [hasMoreReports, setHasMoreReports] = useState(true);
@@ -387,6 +396,7 @@ export default function Reports({
   const [cacheBuster] = useState(() => Date.now());
   const isInstallation = department === 'installation';
   const isTajhiz = department === 'tajhiz';
+  const { stats: recoveryStats } = useInspectionRecoveryStats(department, true);
   const staffLabel = isInstallation ? 'الفني' : 'السائق';
   const departmentManagerLabel = isInstallation ? 'توقيع مسؤول قسم التركيب' : 'توقيع مسؤول قسم التجهيز';
   const departmentManagerText = isInstallation ? 'مسؤول قسم التركيب' : 'مسؤول قسم التجهيز';
@@ -759,6 +769,7 @@ export default function Reports({
 
   const resetNewReportForm = useCallback(() => {
     setSubmitted(false);
+    setPostSubmitNotice(null);
     setActiveTab('damage');
     setSelectedVehicleId('');
     setDriverName('');
@@ -835,6 +846,25 @@ export default function Reports({
         return assignReportDisplaySequences([newView, ...rest]);
       });
 
+      try {
+        const recoveryResult = await calculateInspectionRecovery({
+          client: supabase,
+          department,
+          inspectionId: Number(newView.id),
+          vehicleId: Number(selectedVehicle.id),
+          userId,
+          hasToolkit: selectedVehicleHasToolkit,
+          toolValues: selectedVehicleHasToolkit ? toolValues : {},
+        });
+        if (recoveryResult.skippedNoToolkit) {
+          setPostSubmitNotice('لا تحتوي على عدة');
+        } else {
+          setPostSubmitNotice(null);
+        }
+      } catch (recoveryError) {
+        console.error('Post-inspection recovery failed:', recoveryError);
+      }
+
       setSubmitted(true);
 
       const completedInspectionCount = Object.values(inspectionValues).filter(Boolean).length;
@@ -907,6 +937,11 @@ export default function Reports({
           </div>
           <h1 className="text-2xl font-bold text-stone-900 dark:text-stone-100">تم حفظ التقرير بنجاح!</h1>
           <p className="text-stone-500 dark:text-stone-400">تم تخزين التقرير في قاعدة بيانات الموقع ويمكنك الرجوع إليه في أي وقت.</p>
+          {postSubmitNotice && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+              {postSubmitNotice}
+            </div>
+          )}
           <div className="flex flex-col gap-3">
             <button
               type="button"
@@ -933,6 +968,13 @@ export default function Reports({
   return (
     <div className="pb-24" dir="rtl">
       {/* Tab bar */}
+      {(recoveryStats.pendingCount > 0 || recoveryStats.dueReminderCount > 0) && (
+        <div className="mb-4 rounded-2xl border border-amber-300/70 dark:border-amber-800 bg-amber-50/90 dark:bg-amber-950/30 px-4 py-3">
+          <p className="text-xs font-black text-amber-900 dark:text-amber-100">
+            نواقص الجرد المفتوحة: {recoveryStats.pendingCount} | مستحق الآن: {recoveryStats.dueReminderCount} | إجمالي النقص: {recoveryStats.totalMissing}
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 mb-6">
         <button
           type="button"
@@ -1731,62 +1773,63 @@ export default function Reports({
                   </div>
                 </div>
 
-                {/* Expanded recommendations for non-compliant items + deficits */}
-                <div className="space-y-4 pdf-section">
-                  <h3 className="text-xl font-bold border-r-4 border-amber-500 pr-4">تقرير موسّع — التنبيهات والتوصيات</h3>
-                  {(() => {
-                    const nonCompliant = WEEKLY_INSPECTION_ITEMS.filter((item) => !viewingReport.inspectionValues[item.id]);
-                    const deficits = inventoryItems
-                      .map((item) => {
-                        const available = Number(viewingReport.toolValues[item.id] || 0);
-                        const required = Number(item.quantity || 0);
-                        return {
-                          id: item.id,
-                          name: item.name,
-                          available,
-                          required,
-                          deficit: Math.max(required - available, 0),
-                        };
-                      })
-                      .filter((d) => d.deficit > 0);
-                    return (
-                      <div className="space-y-3">
-                        {nonCompliant.length === 0 && deficits.length === 0 ? (
-                          <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-sm font-bold">
-                            لا توجد عناصر غير سليمة أو نواقص في هذا التقرير.
-                          </div>
-                        ) : (
-                          <>
-                            {nonCompliant.length > 0 && (
-                              <div className="p-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20">
-                                <p className="text-sm font-black text-red-700 dark:text-red-300 mb-2">
-                                  عناصر غير سليمة — يجب الاستبدال/الصيانة ({nonCompliant.length})
-                                </p>
-                                <ul className="space-y-1 text-xs text-red-700 dark:text-red-300">
-                                  {nonCompliant.map((item) => (
-                                    <li key={`warn-${item.id}`}>- {item.label} (توصية: استبدال أو إصلاح فوري)</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            {deficits.length > 0 && (
-                              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20">
-                                <p className="text-sm font-black text-amber-800 dark:text-amber-200 mb-2">
-                                  نواقص العُدّة — يجب التعويض ({deficits.length})
-                                </p>
-                                <ul className="space-y-1 text-xs text-amber-800 dark:text-amber-200">
-                                  {deficits.map((d) => (
-                                    <li key={`def-${d.id}`}>- {d.name}: مطلوب {d.required} / متوفر {d.available} / نقص {d.deficit}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
+                {SHOW_RECOVERY_DETAILS_IN_REPORT && (
+                  <div className="space-y-4 pdf-section">
+                    <h3 className="text-xl font-bold border-r-4 border-amber-500 pr-4">تقرير موسّع — التنبيهات والتوصيات</h3>
+                    {(() => {
+                      const nonCompliant = WEEKLY_INSPECTION_ITEMS.filter((item) => !viewingReport.inspectionValues[item.id]);
+                      const deficits = inventoryItems
+                        .map((item) => {
+                          const available = Number(viewingReport.toolValues[item.id] || 0);
+                          const required = Number(item.quantity || 0);
+                          return {
+                            id: item.id,
+                            name: item.name,
+                            available,
+                            required,
+                            deficit: Math.max(required - available, 0),
+                          };
+                        })
+                        .filter((d) => d.deficit > 0);
+                      return (
+                        <div className="space-y-3">
+                          {nonCompliant.length === 0 && deficits.length === 0 ? (
+                            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-sm font-bold">
+                              لا توجد عناصر غير سليمة أو نواقص في هذا التقرير.
+                            </div>
+                          ) : (
+                            <>
+                              {nonCompliant.length > 0 && (
+                                <div className="p-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20">
+                                  <p className="text-sm font-black text-red-700 dark:text-red-300 mb-2">
+                                    عناصر غير سليمة — يجب الاستبدال/الصيانة ({nonCompliant.length})
+                                  </p>
+                                  <ul className="space-y-1 text-xs text-red-700 dark:text-red-300">
+                                    {nonCompliant.map((item) => (
+                                      <li key={`warn-${item.id}`}>- {item.label} (توصية: استبدال أو إصلاح فوري)</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {deficits.length > 0 && (
+                                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20">
+                                  <p className="text-sm font-black text-amber-800 dark:text-amber-200 mb-2">
+                                    نواقص العُدّة — يجب التعويض ({deficits.length})
+                                  </p>
+                                  <ul className="space-y-1 text-xs text-amber-800 dark:text-amber-200">
+                                    {deficits.map((d) => (
+                                      <li key={`def-${d.id}`}>- {d.name}: مطلوب {d.required} / متوفر {d.available} / نقص {d.deficit}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
 
                 {/* Tool Inventory */}
                 <div className="space-y-4 pdf-section">

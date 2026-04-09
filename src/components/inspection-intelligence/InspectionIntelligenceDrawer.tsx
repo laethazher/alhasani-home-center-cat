@@ -38,6 +38,34 @@ interface CompensationRecord {
   notes: string | null;
 }
 
+type RecoveryStatus = 'pending' | 'scheduled' | 'resolved';
+
+interface InspectionRecoveryRow {
+  id: number;
+  inspection_id: number;
+  vehicle_id: number;
+  user_id: string | null;
+  item_name: string;
+  required_qty: number;
+  actual_qty: number;
+  missing_qty: number;
+  status: RecoveryStatus;
+  scheduled_date: string | null;
+  resolved_at: string | null;
+  reason: string | null;
+  created_at: string;
+  source_type?: 'stored' | 'derived';
+}
+
+interface RecoveryGroupedCard {
+  key: string;
+  vehicleId: number;
+  vehicleLabel: string;
+  userId: string | null;
+  userLabel: string;
+  rows: InspectionRecoveryRow[];
+}
+
 function statusStyle(status: 'healthy' | 'warning' | 'critical') {
   if (status === 'critical') return 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/40';
   if (status === 'warning') return 'bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40';
@@ -90,12 +118,26 @@ export default function InspectionIntelligenceDrawer({
   const [savingCompensationId, setSavingCompensationId] = useState<number | null>(null);
   const [compensationsByReport, setCompensationsByReport] = useState<Map<number, CompensationRecord>>(new Map());
   const [dueDatesByReport, setDueDatesByReport] = useState<Record<number, string>>({});
+  const [intelTab, setIntelTab] = useState<'overview' | 'recovery'>('overview');
+  const [recoveryRows, setRecoveryRows] = useState<InspectionRecoveryRow[]>([]);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [savingRecoveryId, setSavingRecoveryId] = useState<number | null>(null);
+  const [backfillingRecovery, setBackfillingRecovery] = useState(false);
+  const [recoveryActionNotice, setRecoveryActionNotice] = useState<string | null>(null);
+  const [recoveryReasonDrafts, setRecoveryReasonDrafts] = useState<Record<number, string>>({});
+  const [recoveryScheduleDrafts, setRecoveryScheduleDrafts] = useState<Record<number, string>>({});
+  const [showNotCompensatedEditor, setShowNotCompensatedEditor] = useState<Record<number, boolean>>({});
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
 
   useEffect(() => {
     if (open) setQrVehicleId(null);
   }, [open, pageDepartment]);
+
+  useEffect(() => {
+    if (!open) return;
+    setIntelTab('overview');
+  }, [open]);
 
   const client = useMemo(() => getDepartmentClient(department), [department]);
   const tables = useMemo(() => getDepartmentTables(department), [department]);
@@ -146,7 +188,10 @@ export default function InspectionIntelligenceDrawer({
 
       if (templatesRes.error) throw templatesRes.error;
       if (vehiclesRes.error) throw vehiclesRes.error;
-      if (compensationRes.error) throw compensationRes.error;
+      if (compensationRes.error) {
+        // Do not block deficit rendering when compensation status read is not permitted.
+        console.warn('inventory_deficit_compensations read failed; continuing without status map', compensationRes.error);
+      }
 
       // تحميل التقارير القديمة والجديدة على دفعات لضمان الشمول.
       const reportRows: Array<Record<string, unknown>> = [];
@@ -264,7 +309,7 @@ export default function InspectionIntelligenceDrawer({
 
       const compMap = new Map<number, CompensationRecord>();
       const dueDefaults: Record<number, string> = {};
-      for (const row of (compensationRes.data ?? []) as CompensationRecord[]) {
+      for (const row of ((compensationRes.data ?? []) as CompensationRecord[])) {
         compMap.set(Number(row.report_id), row);
       }
       for (const row of nextRows) {
@@ -285,6 +330,43 @@ export default function InspectionIntelligenceDrawer({
   useEffect(() => {
     void loadDeficits();
   }, [loadDeficits]);
+
+  const loadRecoveryRows = useCallback(async () => {
+    if (!open) return;
+    setRecoveryLoading(true);
+    try {
+      const { data, error } = await client
+        .from('inspection_recovery')
+        .select(
+          'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,status,scheduled_date,resolved_at,reason,created_at',
+        )
+        .eq('department', department)
+        .order('created_at', { ascending: false })
+        .limit(3000);
+      if (error) throw error;
+      const rows = ((data ?? []) as InspectionRecoveryRow[]).map((row) => ({
+        ...row,
+        status: (row.status ?? 'pending') as RecoveryStatus,
+      }));
+      const defaultDates: Record<number, string> = {};
+      const defaultReasons: Record<number, string> = {};
+      for (const row of rows) {
+        defaultDates[row.id] = row.scheduled_date ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        defaultReasons[row.id] = row.reason ?? '';
+      }
+      setRecoveryRows(rows);
+      setRecoveryScheduleDrafts(defaultDates);
+      setRecoveryReasonDrafts(defaultReasons);
+    } catch (e) {
+      console.error('loadRecoveryRows failed', e);
+    } finally {
+      setRecoveryLoading(false);
+    }
+  }, [client, department, open]);
+
+  useEffect(() => {
+    void loadRecoveryRows();
+  }, [loadRecoveryRows]);
 
   const updateCompensationStatus = useCallback(
     async (row: DeficitRow, status: 'compensated' | 'not_compensated') => {
@@ -323,6 +405,178 @@ export default function InspectionIntelligenceDrawer({
     },
     [client, department, dueDatesByReport],
   );
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const getEffectiveRecoveryStatus = useCallback(
+    (row: InspectionRecoveryRow): RecoveryStatus => {
+      if (row.status === 'scheduled' && row.scheduled_date && row.scheduled_date <= todayIso) {
+        return 'pending';
+      }
+      return row.status;
+    },
+    [todayIso],
+  );
+
+  const mergedRecoveryRows = useMemo<InspectionRecoveryRow[]>(() => {
+    const rows = [...recoveryRows];
+    const existingInspectionIds = new Set(rows.map((r) => Number(r.inspection_id)));
+    for (const deficit of deficitRows) {
+      const inspectionId = Number(deficit.reportId);
+      if (existingInspectionIds.has(inspectionId)) continue;
+      for (const item of deficit.items) {
+        rows.push({
+          id: -1 * (inspectionId * 1000 + item.itemId),
+          inspection_id: inspectionId,
+          vehicle_id: deficit.vehicleId,
+          user_id: null,
+          item_name: item.itemName,
+          required_qty: item.required,
+          actual_qty: item.available,
+          missing_qty: item.deficit,
+          status: 'pending',
+          scheduled_date: null,
+          resolved_at: null,
+          reason: 'مسترجع تلقائياً من جرد سابق',
+          created_at: new Date().toISOString(),
+          source_type: 'derived',
+        });
+      }
+    }
+    return rows.sort((a, b) => Number(b.inspection_id) - Number(a.inspection_id));
+  }, [deficitRows, recoveryRows]);
+
+  const pendingReminderCount = useMemo(
+    () =>
+      mergedRecoveryRows.filter(
+        (row) => row.status === 'scheduled' && row.scheduled_date != null && row.scheduled_date <= todayIso,
+      ).length,
+    [mergedRecoveryRows, todayIso],
+  );
+
+  const recoveryCards = useMemo<RecoveryGroupedCard[]>(() => {
+    const vehicleMeta = new Map<number, { plateNumber: string; responsibleName: string }>();
+    for (const row of analytics?.insightsSorted ?? []) {
+      vehicleMeta.set(row.vehicleId, {
+        plateNumber: row.plateNumber,
+        responsibleName: row.responsibleName,
+      });
+    }
+
+    const grouped = new Map<string, RecoveryGroupedCard>();
+    for (const row of mergedRecoveryRows) {
+      const userId = row.user_id ?? 'no-user';
+      const key = `${row.vehicle_id}-${userId}`;
+      if (!grouped.has(key)) {
+        const meta = vehicleMeta.get(row.vehicle_id);
+        grouped.set(key, {
+          key,
+          vehicleId: row.vehicle_id,
+          vehicleLabel: meta?.plateNumber ?? `#${row.vehicle_id}`,
+          userId: row.user_id,
+          userLabel: meta?.responsibleName ?? '—',
+          rows: [],
+        });
+      }
+      grouped.get(key)?.rows.push(row);
+    }
+    return Array.from(grouped.values()).sort((a, b) => b.vehicleId - a.vehicleId);
+  }, [analytics?.insightsSorted, mergedRecoveryRows]);
+
+  const derivedRecoveryRows = useMemo(
+    () => mergedRecoveryRows.filter((row) => row.id < 0 || row.source_type === 'derived'),
+    [mergedRecoveryRows],
+  );
+
+  const updateRecoveryStatus = useCallback(
+    async (row: InspectionRecoveryRow, nextStatus: RecoveryStatus, options?: { reason?: string; scheduledDate?: string }) => {
+      setSavingRecoveryId(row.id);
+      try {
+        if (row.id < 0) {
+          const { data: created, error: createError } = await client
+            .from('inspection_recovery')
+            .insert({
+              inspection_id: row.inspection_id,
+              vehicle_id: row.vehicle_id,
+              user_id: row.user_id,
+              department,
+              item_name: row.item_name,
+              required_qty: row.required_qty,
+              actual_qty: row.actual_qty,
+              missing_qty: row.missing_qty,
+              status: nextStatus,
+              action_type: 'manual',
+              reason: options?.reason ?? row.reason ?? null,
+              scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
+              resolved_at: nextStatus === 'resolved' ? new Date().toISOString() : null,
+            })
+            .select(
+              'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,status,scheduled_date,resolved_at,reason,created_at',
+            )
+            .single();
+          if (createError) throw createError;
+          setRecoveryRows((prev) => [created as InspectionRecoveryRow, ...prev]);
+          setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: false }));
+          return;
+        }
+
+        const payload: Record<string, unknown> = {
+          status: nextStatus,
+          action_type: 'manual',
+          reason: options?.reason ?? row.reason ?? null,
+          scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
+          resolved_at: nextStatus === 'resolved' ? new Date().toISOString() : null,
+        };
+        const { data, error } = await client
+          .from('inspection_recovery')
+          .update(payload)
+          .eq('id', row.id)
+          .select(
+            'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,status,scheduled_date,resolved_at,reason,created_at',
+          )
+          .single();
+        if (error) throw error;
+        setRecoveryRows((prev) => prev.map((item) => (item.id === row.id ? ((data as InspectionRecoveryRow) ?? item) : item)));
+        if (nextStatus !== 'scheduled') {
+          setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: false }));
+        }
+      } catch (e) {
+        console.error('updateRecoveryStatus failed', e);
+      } finally {
+        setSavingRecoveryId(null);
+      }
+    },
+    [client, department],
+  );
+
+  const backfillDerivedRecoveryRows = useCallback(async () => {
+    if (derivedRecoveryRows.length === 0 || backfillingRecovery) return;
+    setBackfillingRecovery(true);
+    setRecoveryActionNotice(null);
+    try {
+      const payload = derivedRecoveryRows.map((row) => ({
+        inspection_id: row.inspection_id,
+        vehicle_id: row.vehicle_id,
+        user_id: row.user_id,
+        department,
+        item_name: row.item_name,
+        required_qty: row.required_qty,
+        actual_qty: row.actual_qty,
+        missing_qty: row.missing_qty,
+        status: 'pending' as const,
+        action_type: 'auto' as const,
+        reason: row.reason ?? 'تم ترحيل نقص تاريخي من جرد سابق',
+      }));
+      const { error } = await client.from('inspection_recovery').insert(payload);
+      if (error) throw error;
+      await loadRecoveryRows();
+      setRecoveryActionNotice(`تم ترحيل ${payload.length} نقص تاريخي إلى سجل التعويض بنجاح.`);
+    } catch (e) {
+      console.error('backfillDerivedRecoveryRows failed', e);
+      setRecoveryActionNotice('تعذر ترحيل النواقص التاريخية حالياً. حاول مرة أخرى.');
+    } finally {
+      setBackfillingRecovery(false);
+    }
+  }, [backfillingRecovery, client, department, derivedRecoveryRows, loadRecoveryRows]);
 
   return (
     <AnimatePresence>
@@ -418,6 +672,35 @@ export default function InspectionIntelligenceDrawer({
 
               {analytics && (
                 <>
+                  <div className="flex items-center gap-2 p-1 rounded-xl bg-stone-100 dark:bg-stone-800">
+                    <button
+                      type="button"
+                      onClick={() => setIntelTab('overview')}
+                      className={cn(
+                        'flex-1 rounded-lg px-3 py-2 text-[11px] font-black',
+                        intelTab === 'overview'
+                          ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                          : 'text-stone-500 dark:text-stone-300',
+                      )}
+                    >
+                      لوحة الذكاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIntelTab('recovery')}
+                      className={cn(
+                        'flex-1 rounded-lg px-3 py-2 text-[11px] font-black',
+                        intelTab === 'recovery'
+                          ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                          : 'text-stone-500 dark:text-stone-300',
+                      )}
+                    >
+                      نواقص الجرد
+                    </button>
+                  </div>
+
+                  {intelTab === 'overview' && (
+                  <>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-2xl border border-stone-200/80 dark:border-stone-700/80 bg-stone-50/80 dark:bg-stone-900/50 p-3">
                       <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">التزام</p>
@@ -733,6 +1016,176 @@ export default function InspectionIntelligenceDrawer({
                       <p className="text-center text-sm font-bold text-stone-400 py-8">لا توجد نتائج للفلتر الحالي</p>
                     )}
                   </div>
+                  </>
+                  )}
+
+                  {intelTab === 'recovery' && (
+                    <div className="space-y-3 pb-8">
+                      {recoveryActionNotice && (
+                        <div className="rounded-2xl border border-violet-400/35 bg-violet-500/10 dark:bg-violet-950/30 px-3 py-2.5">
+                          <p className="text-xs font-black text-violet-800 dark:text-violet-200">{recoveryActionNotice}</p>
+                        </div>
+                      )}
+                      {pendingReminderCount > 0 && (
+                        <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 dark:bg-amber-950/30 px-3 py-2.5">
+                          <p className="text-xs font-black text-amber-800 dark:text-amber-200">
+                            تنبيه متابعة: {pendingReminderCount} حالة مجدولة حان موعدها وعادت لحالة انتظار.
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-black text-stone-700 dark:text-stone-200">نواقص ما بعد الجرد</p>
+                        <div className="flex items-center gap-2">
+                          {derivedRecoveryRows.length > 0 && (
+                            <button
+                              type="button"
+                              disabled={backfillingRecovery}
+                              onClick={() => {
+                                const approved = window.confirm(
+                                  `سيتم تثبيت ${derivedRecoveryRows.length} نقص تاريخي داخل سجل التعويض. هل تريد المتابعة؟`,
+                                );
+                                if (!approved) return;
+                                void backfillDerivedRecoveryRows();
+                              }}
+                              className="text-[10px] font-bold px-2 py-1 rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 disabled:opacity-60"
+                            >
+                              {backfillingRecovery ? 'جاري الترحيل...' : `تثبيت التاريخي (${derivedRecoveryRows.length})`}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void loadRecoveryRows()}
+                            className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
+                          >
+                            تحديث
+                          </button>
+                        </div>
+                      </div>
+                      {recoveryLoading ? (
+                        <div className="text-center py-8 text-xs font-bold text-stone-500">
+                          <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
+                          جاري تحميل نواقص الجرد...
+                        </div>
+                      ) : recoveryCards.length === 0 ? (
+                        <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد نواقص جرد مسجلة حالياً.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {recoveryCards.map((card) => (
+                            <div key={card.key} className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs font-black">{card.vehicleLabel}</p>
+                                <p className="text-[10px] font-bold text-stone-500">{staffLabel}: {card.userLabel}</p>
+                              </div>
+                              <div className="space-y-2">
+                                {card.rows.map((row) => {
+                                  const effectiveStatus = getEffectiveRecoveryStatus(row);
+                                  const isEditorOpen = showNotCompensatedEditor[row.id] === true;
+                                  const draftDate = recoveryScheduleDrafts[row.id] ?? '';
+                                  const draftReason = recoveryReasonDrafts[row.id] ?? '';
+                                  return (
+                                    <div key={row.id} className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/80 dark:bg-stone-950/40 p-2 space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[11px] font-bold truncate">{row.item_name}</p>
+                                        <span
+                                          className={cn(
+                                            'text-[10px] font-black px-2 py-1 rounded-md',
+                                            effectiveStatus === 'resolved'
+                                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                              : effectiveStatus === 'scheduled'
+                                                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+                                          )}
+                                        >
+                                          {effectiveStatus === 'resolved' ? 'resolved' : effectiveStatus === 'scheduled' ? 'scheduled' : 'pending'}
+                                        </span>
+                                      </div>
+                                      <p className="text-[10px] text-stone-600 dark:text-stone-300">
+                                        مطلوب {row.required_qty} / موجود {row.actual_qty} / نقص {row.missing_qty}
+                                      </p>
+                                      {row.source_type === 'derived' && (
+                                        <p className="text-[10px] font-bold text-violet-700 dark:text-violet-300">
+                                          مسترجع من جرد سابق (غير محفوظ مسبقاً في سجل التعويض)
+                                        </p>
+                                      )}
+                                      {isEditorOpen && (
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <input
+                                            type="text"
+                                            value={draftReason}
+                                            onChange={(e) =>
+                                              setRecoveryReasonDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                            }
+                                            placeholder="سبب عدم التعويض"
+                                            className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1 text-[10px] bg-white dark:bg-stone-900"
+                                          />
+                                          <input
+                                            type="date"
+                                            value={draftDate}
+                                            onChange={(e) =>
+                                              setRecoveryScheduleDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                            }
+                                            className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1 text-[10px] bg-white dark:bg-stone-900"
+                                          />
+                                        </div>
+                                      )}
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          disabled={savingRecoveryId === row.id}
+                                          onClick={() => void updateRecoveryStatus(row, 'resolved')}
+                                          className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
+                                        >
+                                          تم التعويض
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={savingRecoveryId === row.id}
+                                          onClick={() =>
+                                            setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: !prev[row.id] }))
+                                          }
+                                          className="rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
+                                        >
+                                          لم يتم التعويض
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={savingRecoveryId === row.id}
+                                          onClick={() =>
+                                            void updateRecoveryStatus(row, 'scheduled', {
+                                              reason: draftReason || row.reason || 'تعويض لاحق',
+                                              scheduledDate: draftDate || row.scheduled_date || todayIso,
+                                            })
+                                          }
+                                          className="rounded-lg border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
+                                        >
+                                          تعويض لاحق
+                                        </button>
+                                        {isEditorOpen && (
+                                          <button
+                                            type="button"
+                                            disabled={savingRecoveryId === row.id || !draftDate}
+                                            onClick={() =>
+                                              void updateRecoveryStatus(row, 'scheduled', {
+                                                reason: draftReason,
+                                                scheduledDate: draftDate,
+                                              })
+                                            }
+                                            className="rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
+                                          >
+                                            حفظ الجدولة
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
