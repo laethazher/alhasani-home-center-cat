@@ -148,6 +148,7 @@ export interface Vehicle {
   notes: string | null;
   assigned_driver_id: string | null;
   has_logo: boolean;
+  has_toolkit: boolean;
   created_at: string;
   updated_at: string;
 }

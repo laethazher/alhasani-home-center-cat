@@ -44,6 +44,7 @@ import type { DepartmentCode } from '../data/department';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
 import {
   assignReportDisplaySequences,
+  buildReportSequenceMap,
   formatReportInventoryNo,
   mapDbRowToSavedReportView,
   type SavedReportView,
@@ -398,6 +399,7 @@ export default function Reports({
     () => vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)) || null,
     [vehicles, selectedVehicleId]
   );
+  const selectedVehicleHasToolkit = selectedVehicle?.has_toolkit !== false;
   const selectedVehicleDriver = selectedVehicle?.assigned_driver_id
     ? (driverMap.get(String(selectedVehicle.assigned_driver_id)) || '')
     : '';
@@ -441,10 +443,20 @@ export default function Reports({
             false,
           ),
         );
+        const { data: allRowsForSequence, error: seqError } = await supabase
+          .from(tables.reports)
+          .select('id,created_at')
+          .abortSignal(controller.signal);
+        if (seqError) throw seqError;
+        const sequenceMap = buildReportSequenceMap((allRowsForSequence ?? []) as Array<{ id: unknown; created_at?: unknown }>);
+
         setSavedReports((prev) => {
           const next = append ? [...prev, ...mapped] : mapped;
           const unique = Array.from(new Map(next.map((item) => [item.id, item])).values());
-          return assignReportDisplaySequences(unique);
+          return unique.map((item) => ({
+            ...item,
+            displaySequence: sequenceMap.get(item.id) ?? item.displaySequence ?? 1,
+          }));
         });
         setHasMoreReports((data?.length ?? 0) >= REPORTS_PAGE_SIZE);
         setReportsPage(append ? page + 1 : 1);
@@ -466,10 +478,19 @@ export default function Reports({
         };
         return mapDbRowToSavedReportView(listRow, true);
       });
+      const { data: allRowsForSequence, error: seqError } = await supabase
+        .from(tables.reports)
+        .select('id,created_at')
+        .abortSignal(controller.signal);
+      if (seqError) throw seqError;
+      const sequenceMap = buildReportSequenceMap((allRowsForSequence ?? []) as Array<{ id: unknown; created_at?: unknown }>);
       setSavedReports((prev) => {
         const next = append ? [...prev, ...mapped] : mapped;
         const unique = Array.from(new Map(next.map((item) => [item.id, item])).values());
-        return assignReportDisplaySequences(unique);
+        return unique.map((item) => ({
+          ...item,
+          displaySequence: sequenceMap.get(item.id) ?? item.displaySequence ?? 1,
+        }));
       });
       setHasMoreReports((data?.length ?? 0) >= REPORTS_PAGE_SIZE);
       setReportsPage(append ? page + 1 : 1);
@@ -496,7 +517,7 @@ export default function Reports({
           .single();
         if (error) throw error;
         const full = mapDbRowToSavedReportView(data as Record<string, unknown>, isInstallation);
-        setViewingReport(full);
+        setViewingReport({ ...full, displaySequence: report.displaySequence });
       } catch (error) {
         console.error('Failed to load full report details:', error);
         alert('تعذر تحميل تفاصيل التقرير: ' + getErrorMessage(error));
@@ -506,6 +527,12 @@ export default function Reports({
     },
     [isInstallation, supabase, tables.reports],
   );
+
+  useEffect(() => {
+    if (!selectedVehicleHasToolkit && activeTab === 'tools') {
+      setActiveTab('inspection');
+    }
+  }, [activeTab, selectedVehicleHasToolkit]);
 
   const fetchVehicles = useCallback(async () => {
     const orderColumn = department === 'installation' ? 'vehicle_number' : 'plate_number';
@@ -764,8 +791,8 @@ export default function Reports({
         date,
         damage_points: damagePoints,
         inspection_values: inspectionValues,
-        tool_values: toolValues,
-        tool_images: toolImages,
+        tool_values: selectedVehicleHasToolkit ? toolValues : {},
+        tool_images: selectedVehicleHasToolkit ? toolImages : {},
         driver_signature: driverSignature,
         equipment_manager: equipmentManagerSignature,
         logistics_manager: logisticsManagerSignature,
@@ -1173,13 +1200,23 @@ export default function Reports({
                   <span className="text-stone-500 dark:text-stone-400">
                     {staffLabel} الحالي: {selectedVehicleDriver || `بدون ${staffLabel}`}
                   </span>
+                  <span
+                    className={cn(
+                      'px-2.5 py-1 rounded-full text-xs font-bold',
+                      selectedVehicleHasToolkit
+                        ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                        : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                    )}
+                  >
+                    {selectedVehicleHasToolkit ? 'تحتوي على عُدّة' : 'لا تحتوي على عُدّة'}
+                  </span>
                 </div>
               </section>
             )}
 
             {/* Tabs Navigation */}
             <div className="flex p-1 bg-stone-200 dark:bg-stone-800 rounded-2xl">
-              {(['damage', 'inspection', 'tools'] as const).map((tab) => (
+              {(['damage', 'inspection', ...(selectedVehicleHasToolkit ? (['tools'] as const) : ([] as const))] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -1473,9 +1510,13 @@ export default function Reports({
                 <span className={Object.keys(inspectionValues).length > 0 ? 'text-green-600' : ''}>
                   {Object.keys(inspectionValues).length} فحص
                 </span>
-                <span className={Object.keys(toolValues).length > 0 ? 'text-blue-600' : ''}>
-                  {Object.keys(toolValues).length} جرد
-                </span>
+                {selectedVehicleHasToolkit ? (
+                  <span className={Object.keys(toolValues).length > 0 ? 'text-blue-600' : ''}>
+                    {Object.keys(toolValues).length} جرد
+                  </span>
+                ) : (
+                  <span className="text-red-600 dark:text-red-300">لا تحتوي على عُدّة</span>
+                )}
               </div>
               
               <button 
@@ -1690,9 +1731,71 @@ export default function Reports({
                   </div>
                 </div>
 
+                {/* Expanded recommendations for non-compliant items + deficits */}
+                <div className="space-y-4 pdf-section">
+                  <h3 className="text-xl font-bold border-r-4 border-amber-500 pr-4">تقرير موسّع — التنبيهات والتوصيات</h3>
+                  {(() => {
+                    const nonCompliant = WEEKLY_INSPECTION_ITEMS.filter((item) => !viewingReport.inspectionValues[item.id]);
+                    const deficits = inventoryItems
+                      .map((item) => {
+                        const available = Number(viewingReport.toolValues[item.id] || 0);
+                        const required = Number(item.quantity || 0);
+                        return {
+                          id: item.id,
+                          name: item.name,
+                          available,
+                          required,
+                          deficit: Math.max(required - available, 0),
+                        };
+                      })
+                      .filter((d) => d.deficit > 0);
+                    return (
+                      <div className="space-y-3">
+                        {nonCompliant.length === 0 && deficits.length === 0 ? (
+                          <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-sm font-bold">
+                            لا توجد عناصر غير سليمة أو نواقص في هذا التقرير.
+                          </div>
+                        ) : (
+                          <>
+                            {nonCompliant.length > 0 && (
+                              <div className="p-4 rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20">
+                                <p className="text-sm font-black text-red-700 dark:text-red-300 mb-2">
+                                  عناصر غير سليمة — يجب الاستبدال/الصيانة ({nonCompliant.length})
+                                </p>
+                                <ul className="space-y-1 text-xs text-red-700 dark:text-red-300">
+                                  {nonCompliant.map((item) => (
+                                    <li key={`warn-${item.id}`}>- {item.label} (توصية: استبدال أو إصلاح فوري)</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {deficits.length > 0 && (
+                              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20">
+                                <p className="text-sm font-black text-amber-800 dark:text-amber-200 mb-2">
+                                  نواقص العُدّة — يجب التعويض ({deficits.length})
+                                </p>
+                                <ul className="space-y-1 text-xs text-amber-800 dark:text-amber-200">
+                                  {deficits.map((d) => (
+                                    <li key={`def-${d.id}`}>- {d.name}: مطلوب {d.required} / متوفر {d.available} / نقص {d.deficit}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
                 {/* Tool Inventory */}
                 <div className="space-y-4 pdf-section">
                   <h3 className="text-xl font-bold border-r-4 border-rose-400 pr-4">جرد العدة والمواد</h3>
+                  {Object.keys(viewingReport.toolValues || {}).length === 0 ? (
+                    <div className="p-4 rounded-xl border border-stone-200 dark:border-stone-700 text-sm text-stone-500 dark:text-stone-400">
+                      لا تحتوي المركبة على عُدّة أو لا توجد بيانات جرد عُدّة في هذا التقرير.
+                    </div>
+                  ) : (
                   <div className="space-y-4">
                     {inventoryItems.map((item) => (
                       <div key={item.id} className="pdf-print-flow-row border border-stone-200 rounded-lg overflow-hidden">
@@ -1742,6 +1845,7 @@ export default function Reports({
                       </div>
                     ))}
                   </div>
+                  )}
                 </div>
 
                 {/* Signatures */}

@@ -1,14 +1,42 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Brain, History, Loader2, Play, QrCode, RefreshCw, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, Brain, CalendarCheck2, History, Loader2, Play, QrCode, RefreshCw, Sparkles, X } from 'lucide-react';
 import QRCode from 'react-qr-code';
 import type { DepartmentCode } from '../../data/department';
 import { getDepartmentClient, getDepartmentTables } from '../../data/supabaseSource';
 import { useInspectionIntelligence } from '../../hooks/useInspectionIntelligence';
 import { buildInspectionDeepLink, type IntelligenceFilterKey } from '../../lib/inspectionIntelligence';
 import { cn } from '../../lib/utils';
+import { TOOL_INVENTORY_ITEMS, WEEKLY_INSPECTION_ITEMS } from '../../constants';
 
 const WEEKDAY_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+interface DeficitItem {
+  itemId: number;
+  itemName: string;
+  required: number;
+  available: number;
+  deficit: number;
+}
+
+interface DeficitRow {
+  vehicleId: number;
+  reportId: number;
+  plateNumber: string;
+  responsibleName: string;
+  totalDeficit: number;
+  items: DeficitItem[];
+  nonCompliantItems: string[];
+}
+
+interface CompensationRecord {
+  id: number;
+  vehicle_id: number;
+  report_id: number;
+  status: 'pending' | 'compensated' | 'not_compensated';
+  compensation_due_date: string | null;
+  notes: string | null;
+}
 
 function statusStyle(status: 'healthy' | 'warning' | 'critical') {
   if (status === 'critical') return 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/40';
@@ -20,6 +48,24 @@ function statusLabel(status: 'healthy' | 'warning' | 'critical') {
   if (status === 'critical') return 'حرج';
   if (status === 'warning') return 'تنبيه';
   return 'سليم';
+}
+
+function normalizeRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function parseBooleanLike(value: unknown): boolean | null {
+  if (value === true || value === false) return value;
+  if (typeof value === 'number') {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    if (v === 'true' || v === '1' || v === 'yes' || v === 'نعم') return true;
+    if (v === 'false' || v === '0' || v === 'no' || v === 'لا') return false;
+  }
+  return null;
 }
 
 export interface InspectionIntelligenceDrawerProps {
@@ -39,6 +85,11 @@ export default function InspectionIntelligenceDrawer({
   onOpenHistory,
 }: InspectionIntelligenceDrawerProps) {
   const [qrVehicleId, setQrVehicleId] = useState<number | null>(null);
+  const [deficitRows, setDeficitRows] = useState<DeficitRow[]>([]);
+  const [deficitLoading, setDeficitLoading] = useState(false);
+  const [savingCompensationId, setSavingCompensationId] = useState<number | null>(null);
+  const [compensationsByReport, setCompensationsByReport] = useState<Map<number, CompensationRecord>>(new Map());
+  const [dueDatesByReport, setDueDatesByReport] = useState<Record<number, string>>({});
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
 
@@ -72,6 +123,206 @@ export default function InspectionIntelligenceDrawer({
     if (!analytics) return 1;
     return Math.max(1, ...Object.values(analytics.heatmap));
   }, [analytics]);
+
+  const loadDeficits = useCallback(async () => {
+    if (!open) return;
+    setDeficitLoading(true);
+    try {
+      const [templatesRes, vehiclesRes, compensationRes] = await Promise.all([
+        client
+          .from(tables.inventoryTemplates)
+          .select('id,item_name,required_quantity')
+          .eq('department_code', department)
+          .eq('category', 'tools')
+          .eq('is_active', true),
+        client.from(tables.vehicles).select('id,plate_number,vehicle_number,has_toolkit,assigned_driver_id,responsible_staff_id'),
+        client
+          .from('inventory_deficit_compensations')
+          .select('id,vehicle_id,report_id,status,compensation_due_date,notes')
+          .eq('department_code', department)
+          .order('created_at', { ascending: false })
+          .limit(1000),
+      ]);
+
+      if (templatesRes.error) throw templatesRes.error;
+      if (vehiclesRes.error) throw vehiclesRes.error;
+      if (compensationRes.error) throw compensationRes.error;
+
+      // تحميل التقارير القديمة والجديدة على دفعات لضمان الشمول.
+      const reportRows: Array<Record<string, unknown>> = [];
+      const batchSize = 1000;
+      const maxReports = 10000;
+      for (let offset = 0; offset < maxReports; offset += batchSize) {
+        const query =
+          department === 'installation'
+            ? client
+                .from(tables.reports)
+                .select('id,vehicle_id,payload,created_at')
+                .order('created_at', { ascending: false })
+                .range(offset, offset + batchSize - 1)
+            : client
+                .from(tables.reports)
+                .select('id,vehicle_id,tool_values,inspection_values,created_at')
+                .order('created_at', { ascending: false })
+                .range(offset, offset + batchSize - 1);
+        const { data, error } = await query;
+        if (error) throw error;
+        const chunk = (data ?? []) as Array<Record<string, unknown>>;
+        reportRows.push(...chunk);
+        if (chunk.length < batchSize) break;
+      }
+
+      const requiredMap = new Map<number, { name: string; required: number }>();
+      const templateRows = (templatesRes.data ?? []) as Array<{ id: number; item_name: string; required_quantity: number }>;
+      const sourceTemplates = templateRows.length > 0
+        ? templateRows.map((t) => ({ id: Number(t.id), name: String(t.item_name ?? ''), required: Number(t.required_quantity ?? 0) }))
+        : TOOL_INVENTORY_ITEMS.map((t) => ({ id: Number(t.id), name: t.name, required: Number(t.quantity ?? 0) }));
+      for (const row of sourceTemplates) {
+        requiredMap.set(Number(row.id), {
+          name: String(row.name ?? ''),
+          required: Number(row.required ?? 0),
+        });
+      }
+
+      const vehicleMap = new Map<number, { plate: string; hasToolkit: boolean }>();
+      for (const row of (vehiclesRes.data ?? []) as Array<Record<string, unknown>>) {
+        const id = Number(row.id);
+        if (!Number.isFinite(id)) continue;
+        vehicleMap.set(id, {
+          plate: String(row.plate_number ?? row.vehicle_number ?? `#${id}`),
+          hasToolkit: row.has_toolkit !== false,
+        });
+      }
+
+      const responsibleByVehicle = new Map<number, string>();
+      for (const row of (analytics?.insightsSorted ?? [])) {
+        responsibleByVehicle.set(row.vehicleId, row.responsibleName);
+      }
+
+      const nextRows: DeficitRow[] = [];
+      for (const reportRow of reportRows) {
+        const vehicleId = Number(reportRow.vehicle_id);
+        if (!Number.isFinite(vehicleId)) continue;
+        const vMeta = vehicleMap.get(vehicleId);
+        if (!vMeta?.hasToolkit) continue;
+
+        const payload = normalizeRecord(reportRow.payload);
+        const toolValues = normalizeRecord(department === 'installation' ? payload.tool_values : reportRow.tool_values);
+        const inspectionValues = normalizeRecord(
+          department === 'installation' ? payload.inspection_values : reportRow.inspection_values,
+        );
+
+        const items: DeficitItem[] = [];
+        let totalDeficit = 0;
+        const nonCompliantItems = WEEKLY_INSPECTION_ITEMS
+          .filter((item) => {
+            const byId = parseBooleanLike(inspectionValues[String(item.id)]);
+            const byLabel = parseBooleanLike(inspectionValues[item.label]);
+            const normalized = byId ?? byLabel;
+            return normalized === false;
+          })
+          .map((item) => item.label);
+
+        requiredMap.forEach((cfg, itemId) => {
+          const rawAvailableById = toolValues[String(itemId)];
+          const rawAvailableByName = toolValues[cfg.name];
+          const rawAvailable = rawAvailableById ?? rawAvailableByName;
+          const available = Number(rawAvailable ?? 0);
+          const safeAvailable = Number.isFinite(available) ? available : 0;
+          const deficit = Math.max(cfg.required - safeAvailable, 0);
+          if (deficit > 0) {
+            totalDeficit += deficit;
+            items.push({
+              itemId,
+              itemName: cfg.name,
+              required: cfg.required,
+              available: safeAvailable,
+              deficit,
+            });
+          }
+        });
+
+        if (totalDeficit > 0 || nonCompliantItems.length > 0) {
+          nextRows.push({
+            vehicleId,
+            reportId: Number(reportRow.id),
+            plateNumber: vMeta.plate,
+            responsibleName: responsibleByVehicle.get(vehicleId) ?? '—',
+            totalDeficit,
+            items,
+            nonCompliantItems,
+          });
+        }
+      }
+
+      // إظهار أحدث تقرير لكل مركبة أولاً ثم حجم النقص.
+      nextRows.sort((a, b) => {
+        if (a.vehicleId !== b.vehicleId) return b.reportId - a.reportId;
+        return b.totalDeficit - a.totalDeficit;
+      });
+      setDeficitRows(nextRows);
+
+      const compMap = new Map<number, CompensationRecord>();
+      const dueDefaults: Record<number, string> = {};
+      for (const row of (compensationRes.data ?? []) as CompensationRecord[]) {
+        compMap.set(Number(row.report_id), row);
+      }
+      for (const row of nextRows) {
+        const existing = compMap.get(row.reportId);
+        dueDefaults[row.reportId] =
+          existing?.compensation_due_date ??
+          new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      }
+      setCompensationsByReport(compMap);
+      setDueDatesByReport(dueDefaults);
+    } catch (e) {
+      console.error('loadDeficits failed', e);
+    } finally {
+      setDeficitLoading(false);
+    }
+  }, [analytics?.insightsSorted, client, department, open, tables.inventoryTemplates, tables.reports, tables.vehicles]);
+
+  useEffect(() => {
+    void loadDeficits();
+  }, [loadDeficits]);
+
+  const updateCompensationStatus = useCallback(
+    async (row: DeficitRow, status: 'compensated' | 'not_compensated') => {
+      const dueDate = dueDatesByReport[row.reportId] || null;
+      setSavingCompensationId(row.reportId);
+      try {
+        const payload = {
+          department_code: department,
+          vehicle_id: row.vehicleId,
+          report_id: row.reportId,
+          plate_number: row.plateNumber,
+          responsible_name: row.responsibleName,
+          deficit_items: row.items,
+          total_deficit: row.totalDeficit,
+          status,
+          compensation_due_date: dueDate || null,
+          compensated_at: status === 'compensated' ? new Date().toISOString() : null,
+          notes: status === 'compensated' ? 'تم التعويض' : 'لم يتم التعويض',
+        };
+        const { data, error } = await client
+          .from('inventory_deficit_compensations')
+          .upsert(payload, { onConflict: 'department_code,report_id' })
+          .select('id,vehicle_id,report_id,status,compensation_due_date,notes')
+          .single();
+        if (error) throw error;
+        setCompensationsByReport((prev) => {
+          const next = new Map(prev);
+          next.set(row.reportId, data as CompensationRecord);
+          return next;
+        });
+      } catch (e) {
+        console.error('updateCompensationStatus failed', e);
+      } finally {
+        setSavingCompensationId(null);
+      }
+    },
+    [client, department, dueDatesByReport],
+  );
 
   return (
     <AnimatePresence>
@@ -234,6 +485,14 @@ export default function InspectionIntelligenceDrawer({
                     </div>
                   )}
 
+                  {deficitRows.length > 0 && (
+                    <div className="rounded-2xl border border-rose-500/35 bg-rose-500/10 dark:bg-rose-950/30 px-3 py-2.5">
+                      <p className="text-xs font-black text-rose-800 dark:text-rose-200">
+                        تنبيه نواقص العُدّة: {deficitRows.length} تقرير يحتاج تعويض/متابعة.
+                      </p>
+                    </div>
+                  )}
+
                   <div>
                     <p className="text-[10px] font-black text-stone-500 dark:text-stone-400 mb-2">توزيع التأخير (أيام الأسبوع)</p>
                     <div className="flex items-end justify-between gap-1 h-28 px-1">
@@ -254,6 +513,101 @@ export default function InspectionIntelligenceDrawer({
                         );
                       })}
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-stone-200/80 dark:border-stone-700/80 p-3 space-y-3 bg-stone-50/80 dark:bg-stone-900/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-black text-stone-800 dark:text-stone-100">فرق آخر جرد (المطلوب مقابل المتوفر)</p>
+                      <button
+                        type="button"
+                        onClick={() => void loadDeficits()}
+                        className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
+                      >
+                        تحديث
+                      </button>
+                    </div>
+                    {deficitLoading ? (
+                      <div className="text-center py-4 text-xs font-bold text-stone-500">
+                        <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
+                        جاري حساب النواقص...
+                      </div>
+                    ) : deficitRows.length === 0 ? (
+                      <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد نواقص عُدّة أو عناصر فحص غير سليمة حالياً.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {deficitRows.map((row) => {
+                          const comp = compensationsByReport.get(row.reportId);
+                          const status = comp?.status ?? 'pending';
+                          return (
+                            <div key={row.reportId} className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/80 dark:bg-stone-950/50 p-2.5 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-xs font-black truncate">{row.plateNumber}</p>
+                                  <p className="text-[10px] text-stone-500 dark:text-stone-400 truncate">{staffLabel}: {row.responsibleName}</p>
+                                </div>
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                                  نقص {row.totalDeficit} {row.nonCompliantItems.length > 0 ? `· فحص غير سليم ${row.nonCompliantItems.length}` : ''}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-stone-600 dark:text-stone-300 leading-5">
+                                {row.items.slice(0, 3).map((item) => (
+                                  <div key={`${row.reportId}-${item.itemId}`}>- {item.itemName}: مطلوب {item.required} / متوفر {item.available} / نقص {item.deficit}</div>
+                                ))}
+                                {row.items.length > 3 && <div>... +{row.items.length - 3} عناصر أخرى</div>}
+                                {row.nonCompliantItems.length > 0 && (
+                                  <div className="mt-1 text-amber-700 dark:text-amber-300">
+                                    عناصر الفحص غير السليمة: {row.nonCompliantItems.slice(0, 3).join('، ')}
+                                    {row.nonCompliantItems.length > 3 ? ` ... +${row.nonCompliantItems.length - 3}` : ''}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <label className="text-[10px] font-bold text-stone-500">تاريخ التعويض:</label>
+                                <input
+                                  type="date"
+                                  value={dueDatesByReport[row.reportId] ?? ''}
+                                  onChange={(e) =>
+                                    setDueDatesByReport((prev) => ({ ...prev, [row.reportId]: e.target.value }))
+                                  }
+                                  className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1 text-[10px] bg-white dark:bg-stone-900"
+                                />
+                                <span
+                                  className={cn(
+                                    'text-[10px] font-black px-2 py-1 rounded-md',
+                                    status === 'compensated'
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                      : status === 'not_compensated'
+                                        ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                                        : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                  )}
+                                >
+                                  {status === 'compensated' ? 'تم التعويض' : status === 'not_compensated' ? 'لم يتم التعويض' : 'بانتظار التعويض'}
+                                </span>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  disabled={savingCompensationId === row.reportId}
+                                  onClick={() => void updateCompensationStatus(row, 'compensated')}
+                                  className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
+                                >
+                                  <CalendarCheck2 className="h-3.5 w-3.5" />
+                                  تم التعويض
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingCompensationId === row.reportId}
+                                  onClick={() => void updateCompensationStatus(row, 'not_compensated')}
+                                  className="flex-1 rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
+                                >
+                                  لم يتم التعويض
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">

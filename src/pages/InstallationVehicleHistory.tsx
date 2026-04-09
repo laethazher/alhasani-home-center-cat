@@ -9,7 +9,7 @@ import {
 import { cn } from '../lib/utils';
 import { getDepartmentClient } from '../data/supabaseSource';
 import { exportSheetsToExcel } from '../lib/excelExport';
-import { parseReportIdFromVehicleEventNewValue } from '../lib/savedReportFromRow';
+import { buildReportSequenceMap, parseReportIdFromVehicleEventNewValue } from '../lib/savedReportFromRow';
 import SavedReportDetailModal from '../components/SavedReportDetailModal';
 
 type InstallationStatus = 'available' | 'maintenance' | 'broken' | 'reserved';
@@ -113,6 +113,12 @@ const EVENT_CONFIG: Record<string, { label: string; color: string; bgColor: stri
   note_added: { label: 'ملاحظة', color: 'text-stone-600 dark:text-stone-400', bgColor: 'bg-stone-100 dark:bg-stone-800', icon: FileText },
 };
 
+function formatTimelineReportNo(reportId: number, sequenceMap: Map<number, number>): string {
+  const safe = Number.isFinite(reportId) ? Math.max(0, Math.trunc(reportId)) : 0;
+  const sequence = sequenceMap.get(safe) ?? safe;
+  return String(sequence).padStart(5, '0');
+}
+
 function exitRequestStatusLabelAr(status: string): string {
   if (status === 'exited') return 'خرج';
   if (status === 'approved') return 'مُوافق';
@@ -164,9 +170,10 @@ export default function InstallationVehicleHistory({ vehicleId, onBack }: Instal
   const [activeTab, setActiveTab] = useState<TabKey>('timeline');
   const [timelineLimit, setTimelineLimit] = useState(40);
   const [timelineReportId, setTimelineReportId] = useState<number | null>(null);
+  const [reportSequenceById, setReportSequenceById] = useState<Map<number, number>>(new Map());
 
   const fetchAll = useCallback(async () => {
-    const [vRes, mRes, mrRes, eRes, erRes, sRes] = await Promise.all([
+    const [vRes, mRes, mrRes, eRes, erRes, sRes, reportsRes] = await Promise.all([
       supabase.from('installation_vehicles').select('*').eq('id', vehicleId).single(),
       supabase.from('installation_vehicle_maintenance').select('*').eq('vehicle_id', vehicleId).order('performed_at', { ascending: false }),
       supabase
@@ -177,6 +184,7 @@ export default function InstallationVehicleHistory({ vehicleId, onBack }: Instal
       supabase.from('installation_vehicle_events').select('*').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('installation_exit_requests').select('*').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('installation_staff_members').select('id, full_name'),
+      supabase.from('installation_reports').select('id,created_at'),
     ]);
     if (vRes.data) setVehicle(vRes.data as InstallationVehicleRow);
     if (mRes.data) setMaintenanceList(mRes.data as InstallationVehicleMaintRow[]);
@@ -185,6 +193,9 @@ export default function InstallationVehicleHistory({ vehicleId, onBack }: Instal
     if (erRes.data) setExitRequests(erRes.data as InstallationExitRow[]);
     if (sRes.data) {
       setStaffMap(new Map(sRes.data.map((s: { id: number; full_name: string }) => [String(s.id), s.full_name])));
+    }
+    if (reportsRes.data) {
+      setReportSequenceById(buildReportSequenceMap(reportsRes.data as Array<{ id: unknown; created_at?: unknown }>));
     }
     setLoading(false);
   }, [supabase, vehicleId]);
@@ -555,10 +566,18 @@ export default function InstallationVehicleHistory({ vehicleId, onBack }: Instal
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className={cn('text-sm font-semibold', cfg.color)}>{item.title}</span>
+                            <span className={cn('px-2 py-0.5 rounded-md text-[10px] font-medium', cfg.bgColor, cfg.color)}>
+                              {cfg.label}
+                            </span>
                             {openReport && (
-                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
-                                اضغط لعرض التقرير كاملاً
-                              </span>
+                              <>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300">
+                                  {formatTimelineReportNo(item.reportId!, reportSequenceById)}
+                                </span>
+                                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">
+                                  اضغط لعرض التقرير كاملاً
+                                </span>
+                              </>
                             )}
                           </div>
                           <span className="text-[10px] text-stone-400 dark:text-stone-500 whitespace-nowrap">

@@ -22,7 +22,7 @@ import { supabase } from '../lib/supabaseClient';
 import type { Vehicle, VehicleMaintenance, VehicleEvent, StaffMember, ExitRequest, VehicleStatus, MaintenanceRecord, MaintenanceImage } from '../lib/supabaseClient';
 import { exportHtmlToPdf } from '../lib/pdfExport';
 import { exportToExcel, exportSheetsToExcel } from '../lib/excelExport';
-import { parseReportIdFromVehicleEventNewValue } from '../lib/savedReportFromRow';
+import { buildReportSequenceMap, parseReportIdFromVehicleEventNewValue } from '../lib/savedReportFromRow';
 import SavedReportDetailModal from '../components/SavedReportDetailModal';
 
 /* ── Constants ── */
@@ -67,6 +67,12 @@ const EVENT_CONFIG: Record<string, { label: string; color: string; bgColor: stri
   report_created:    { label: 'تقرير فحص',       color: 'text-rose-600 dark:text-rose-400',     bgColor: 'bg-rose-100 dark:bg-rose-900/30',     icon: ClipboardCheck },
 };
 
+function formatTimelineReportNo(reportId: number, sequenceMap: Map<number, number>): string {
+  const safe = Number.isFinite(reportId) ? Math.max(0, Math.trunc(reportId)) : 0;
+  const sequence = sequenceMap.get(safe) ?? safe;
+  return String(sequence).padStart(5, '0');
+}
+
 type TabKey = 'timeline' | 'trips' | 'maintenance' | 'drivers' | 'stats';
 
 /* ── Props ── */
@@ -101,16 +107,18 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
   const [activeTab, setActiveTab] = useState<TabKey>('timeline');
   const [timelineLimit, setTimelineLimit] = useState(30);
   const [timelineReportId, setTimelineReportId] = useState<number | null>(null);
+  const [reportSequenceById, setReportSequenceById] = useState<Map<number, number>>(new Map());
 
   /* ── Fetch everything ── */
   const fetchAll = useCallback(async () => {
-    const [vRes, mRes, mrRes, eRes, erRes, sRes] = await Promise.all([
+    const [vRes, mRes, mrRes, eRes, erRes, sRes, reportsRes] = await Promise.all([
       supabase.from('vehicles').select('*').eq('id', vehicleId).single(),
       supabase.from('vehicle_maintenance').select('*').eq('vehicle_id', vehicleId).order('performed_at', { ascending: false }),
       supabase.from('maintenance_records').select('*, maintenance_images(*)').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('vehicle_events').select('*').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('exit_requests').select('*').eq('vehicle_id', vehicleId).order('created_at', { ascending: false }),
       supabase.from('staff_members').select('id,full_name').eq('role', 'driver'),
+      supabase.from('reports').select('id,created_at'),
     ]);
     if (vRes.data) setVehicle(vRes.data);
     if (mRes.data) setMaintenanceList(mRes.data);
@@ -118,6 +126,9 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
     if (eRes.data) setEvents(eRes.data);
     if (erRes.data) setExitRequests(erRes.data);
     if (sRes.data) setDriverMap(new Map(sRes.data.map((s: { id: string; full_name: string }) => [String(s.id), s.full_name])));
+    if (reportsRes.data) {
+      setReportSequenceById(buildReportSequenceMap(reportsRes.data as Array<{ id: unknown; created_at?: unknown }>));
+    }
     setLoading(false);
   }, [vehicleId]);
 
@@ -821,7 +832,12 @@ export default function VehicleHistory({ vehicleId, onBack }: VehicleHistoryProp
                               {cfg.label}
                             </span>
                             {openReport && (
-                              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">اضغط لعرض التقرير كاملاً</span>
+                              <>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300">
+                                  {formatTimelineReportNo(item.reportId!, reportSequenceById)}
+                                </span>
+                                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400">اضغط لعرض التقرير كاملاً</span>
+                              </>
                             )}
                           </div>
                           <span className="text-[10px] text-stone-400 dark:text-stone-500 whitespace-nowrap">{fmtDateTime(item.date)}</span>

@@ -36,6 +36,7 @@ interface InstallationVehicle {
   location: string | null;
   responsible_staff_id: number | null;
   notes: string | null;
+  has_toolkit: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +115,7 @@ export default function InstallationVehicles({ isDarkMode, profile }: Installati
     location: '',
     responsible_staff_id: '',
     notes: '',
+    has_toolkit: true,
   });
 
   const formRef = useRef<HTMLDivElement>(null);
@@ -208,6 +210,7 @@ export default function InstallationVehicles({ isDarkMode, profile }: Installati
       location: '',
       responsible_staff_id: '',
       notes: '',
+      has_toolkit: true,
     });
     setFormError('');
     setShowForm(true);
@@ -227,6 +230,7 @@ export default function InstallationVehicles({ isDarkMode, profile }: Installati
       location: v.location || '',
       responsible_staff_id: v.responsible_staff_id ? String(v.responsible_staff_id) : '',
       notes: v.notes || '',
+      has_toolkit: v.has_toolkit ?? true,
     });
     setFormError('');
     setShowForm(true);
@@ -251,6 +255,7 @@ export default function InstallationVehicles({ isDarkMode, profile }: Installati
       location: formData.location.trim() || null,
       responsible_staff_id: formData.responsible_staff_id ? Number(formData.responsible_staff_id) : null,
       notes: formData.notes.trim() || null,
+      has_toolkit: formData.has_toolkit,
     };
 
     if (editingVehicle) {
@@ -543,6 +548,31 @@ export default function InstallationVehicles({ isDarkMode, profile }: Installati
                     onChange={(e) => setFormData({ ...formData, chassis_number: e.target.value })}
                     className="w-full px-3 py-2 rounded-lg border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-700 text-sm"
                   />
+                </div>
+                <div>
+                  <label className="text-xs text-stone-500 mb-1 block">تحتوي على عُدّة</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, has_toolkit: true })}
+                      className={cn('px-3 py-2 rounded-lg text-xs font-bold border transition-colors',
+                        formData.has_toolkit
+                          ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                          : 'bg-stone-50 dark:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-600')}
+                    >
+                      نعم
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, has_toolkit: false })}
+                      className={cn('px-3 py-2 rounded-lg text-xs font-bold border transition-colors',
+                        !formData.has_toolkit
+                          ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700'
+                          : 'bg-stone-50 dark:bg-stone-700 text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-600')}
+                    >
+                      لا
+                    </button>
+                  </div>
                 </div>
               </div>
               <div>

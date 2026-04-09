@@ -33,8 +33,9 @@ export function parseReportIdFromVehicleEventNewValue(newValue: string | null | 
 
 /** تنسيق رقم الجرد للعرض (مثل #00007) — يعتمد على displaySequence بعد assignReportDisplaySequences */
 export function formatReportInventoryNo(report: Pick<SavedReportView, 'id' | 'displaySequence'>): string {
-  const seq = report.displaySequence > 0 ? report.displaySequence : report.id;
-  return String(seq).padStart(5, '0');
+  // توحيد المرجع مع سجل المركبة (vehicle_events new_value = report:<id>)
+  // حتى يكون رقم التقرير ثابتاً ومتطابقاً في كل الواجهات.
+  return String(report.id).padStart(5, '0');
 }
 
 /**
@@ -79,6 +80,31 @@ export function assignReportDisplaySequences(reports: SavedReportView[]): SavedR
     ...r,
     displaySequence: idToSeq.get(r.id) ?? 1,
   }));
+}
+
+/** يبني خريطة تسلسل التقارير عالمياً: الأقدم = 1، الأحدث = N */
+export function buildReportSequenceMap(
+  rows: Array<{ id: unknown; created_at?: unknown }>,
+): Map<number, number> {
+  const normalized = rows
+    .map((row) => ({
+      id: Number(row.id),
+      createdAt: String(row.created_at ?? ''),
+    }))
+    .filter((r) => Number.isFinite(r.id));
+
+  normalized.sort((a, b) => {
+    const ta = new Date(a.createdAt).getTime();
+    const tb = new Date(b.createdAt).getTime();
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return a.id - b.id;
+  });
+
+  const seqById = new Map<number, number>();
+  normalized.forEach((row, idx) => {
+    seqById.set(row.id, idx + 1);
+  });
+  return seqById;
 }
 
 export function mapDbRowToSavedReportView(row: Record<string, unknown>, isInstallation: boolean): SavedReportView {

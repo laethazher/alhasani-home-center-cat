@@ -103,6 +103,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
     chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available' as VehicleStatus,
     license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
     has_logo: false,
+    has_toolkit: true,
   });
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -229,6 +230,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
       chassis_number: '', fuel_type: 'ديزل', odometer_km: '0', status: 'available',
       license_expiry: '', insurance_expiry: '', image_url: '', notes: '', assigned_driver_id: '',
       has_logo: false,
+      has_toolkit: true,
     });
     setEditingVehicle(null);
     setFormError('');
@@ -275,6 +277,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
       notes: v.notes || '',
       assigned_driver_id: v.assigned_driver_id || '',
       has_logo: v.has_logo ?? false,
+      has_toolkit: v.has_toolkit ?? true,
     });
     setShowForm(true);
     setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
@@ -303,6 +306,7 @@ export default function Vehicles({ profile }: VehiclesProps) {
       notes: formData.notes.trim() || null,
       assigned_driver_id: formData.assigned_driver_id || null,
       has_logo: formData.has_logo,
+      has_toolkit: formData.has_toolkit,
     };
 
     if (editingVehicle) {
@@ -943,6 +947,21 @@ export default function Vehicles({ profile }: VehiclesProps) {
                         className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all',
                           !formData.has_logo ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700' : 'border-stone-200 dark:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-700')}>
                         لا تحتوي
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-stone-500 mb-1 block">تحتوي على عُدّة</label>
+                    <div className="flex gap-2">
+                      <button onClick={() => setFormData({ ...formData, has_toolkit: true })}
+                        className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                          formData.has_toolkit ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700' : 'border-stone-200 dark:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-700')}>
+                        نعم
+                      </button>
+                      <button onClick={() => setFormData({ ...formData, has_toolkit: false })}
+                        className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                          !formData.has_toolkit ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 border-red-300 dark:border-red-700' : 'border-stone-200 dark:border-stone-600 hover:bg-stone-50 dark:hover:bg-stone-700')}>
+                        لا
                       </button>
                     </div>
                   </div>
