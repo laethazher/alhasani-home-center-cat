@@ -49,6 +49,7 @@ interface InspectionRecoveryRow {
   required_qty: number;
   actual_qty: number;
   missing_qty: number;
+  compensated_qty: number;
   status: RecoveryStatus;
   scheduled_date: string | null;
   resolved_at: string | null;
@@ -64,6 +65,23 @@ interface RecoveryGroupedCard {
   userId: string | null;
   userLabel: string;
   rows: InspectionRecoveryRow[];
+}
+
+interface InspectionRecoveryAction {
+  id: number;
+  recovery_id: number | null;
+  inspection_id: number;
+  vehicle_id: number;
+  user_id: string | null;
+  department: 'tajhiz' | 'installation';
+  item_name: string;
+  previous_status: RecoveryStatus | null;
+  next_status: RecoveryStatus;
+  action_type: 'manual' | 'auto';
+  compensated_qty: number | null;
+  reason: string | null;
+  scheduled_date: string | null;
+  acted_at: string;
 }
 
 function statusStyle(status: 'healthy' | 'warning' | 'critical') {
@@ -103,6 +121,7 @@ export interface InspectionIntelligenceDrawerProps {
   pageDepartment: DepartmentCode;
   onStartInspection: (vehicleId: number) => void;
   onOpenHistory: (vehicleId: number) => void;
+  canDeleteRecovery?: boolean;
 }
 
 export default function InspectionIntelligenceDrawer({
@@ -111,6 +130,7 @@ export default function InspectionIntelligenceDrawer({
   pageDepartment,
   onStartInspection,
   onOpenHistory,
+  canDeleteRecovery = false,
 }: InspectionIntelligenceDrawerProps) {
   const [qrVehicleId, setQrVehicleId] = useState<number | null>(null);
   const [deficitRows, setDeficitRows] = useState<DeficitRow[]>([]);
@@ -120,12 +140,18 @@ export default function InspectionIntelligenceDrawer({
   const [dueDatesByReport, setDueDatesByReport] = useState<Record<number, string>>({});
   const [intelTab, setIntelTab] = useState<'overview' | 'recovery'>('overview');
   const [recoveryRows, setRecoveryRows] = useState<InspectionRecoveryRow[]>([]);
+  const [recoveryActions, setRecoveryActions] = useState<InspectionRecoveryAction[]>([]);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryActionsLoading, setRecoveryActionsLoading] = useState(false);
   const [savingRecoveryId, setSavingRecoveryId] = useState<number | null>(null);
   const [backfillingRecovery, setBackfillingRecovery] = useState(false);
   const [recoveryActionNotice, setRecoveryActionNotice] = useState<string | null>(null);
+  const [recoverySubTab, setRecoverySubTab] = useState<'worklist' | 'archive'>('worklist');
+  const [recoverySelectionMode, setRecoverySelectionMode] = useState(false);
+  const [selectedRecoveryIds, setSelectedRecoveryIds] = useState<Set<number>>(new Set());
   const [recoveryReasonDrafts, setRecoveryReasonDrafts] = useState<Record<number, string>>({});
   const [recoveryScheduleDrafts, setRecoveryScheduleDrafts] = useState<Record<number, string>>({});
+  const [recoveryCompensatedDrafts, setRecoveryCompensatedDrafts] = useState<Record<number, string>>({});
   const [showNotCompensatedEditor, setShowNotCompensatedEditor] = useState<Record<number, boolean>>({});
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
@@ -137,6 +163,9 @@ export default function InspectionIntelligenceDrawer({
   useEffect(() => {
     if (!open) return;
     setIntelTab('overview');
+    setRecoverySubTab('worklist');
+    setRecoverySelectionMode(false);
+    setSelectedRecoveryIds(new Set());
   }, [open]);
 
   const client = useMemo(() => getDepartmentClient(department), [department]);
@@ -338,7 +367,7 @@ export default function InspectionIntelligenceDrawer({
       const { data, error } = await client
         .from('inspection_recovery')
         .select(
-          'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,status,scheduled_date,resolved_at,reason,created_at',
+          'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at',
         )
         .eq('department', department)
         .order('created_at', { ascending: false })
@@ -350,13 +379,17 @@ export default function InspectionIntelligenceDrawer({
       }));
       const defaultDates: Record<number, string> = {};
       const defaultReasons: Record<number, string> = {};
+      const defaultCompensated: Record<number, string> = {};
       for (const row of rows) {
         defaultDates[row.id] = row.scheduled_date ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         defaultReasons[row.id] = row.reason ?? '';
+        const remaining = Math.max(Number(row.missing_qty ?? 0) - Number(row.compensated_qty ?? 0), 0);
+        defaultCompensated[row.id] = String(Math.max(1, remaining));
       }
       setRecoveryRows(rows);
       setRecoveryScheduleDrafts(defaultDates);
       setRecoveryReasonDrafts(defaultReasons);
+      setRecoveryCompensatedDrafts((prev) => ({ ...prev, ...defaultCompensated }));
     } catch (e) {
       console.error('loadRecoveryRows failed', e);
     } finally {
@@ -367,6 +400,31 @@ export default function InspectionIntelligenceDrawer({
   useEffect(() => {
     void loadRecoveryRows();
   }, [loadRecoveryRows]);
+
+  const loadRecoveryActions = useCallback(async () => {
+    if (!open) return;
+    setRecoveryActionsLoading(true);
+    try {
+      const { data, error } = await client
+        .from('inspection_recovery_actions')
+        .select(
+          'id,recovery_id,inspection_id,vehicle_id,user_id,department,item_name,previous_status,next_status,action_type,compensated_qty,reason,scheduled_date,acted_at',
+        )
+        .eq('department', department)
+        .order('acted_at', { ascending: false })
+        .limit(5000);
+      if (error) throw error;
+      setRecoveryActions((data ?? []) as InspectionRecoveryAction[]);
+    } catch (e) {
+      console.error('loadRecoveryActions failed', e);
+    } finally {
+      setRecoveryActionsLoading(false);
+    }
+  }, [client, department, open]);
+
+  useEffect(() => {
+    void loadRecoveryActions();
+  }, [loadRecoveryActions]);
 
   const updateCompensationStatus = useCallback(
     async (row: DeficitRow, status: 'compensated' | 'not_compensated') => {
@@ -433,6 +491,7 @@ export default function InspectionIntelligenceDrawer({
           required_qty: item.required,
           actual_qty: item.available,
           missing_qty: item.deficit,
+          compensated_qty: 0,
           status: 'pending',
           scheduled_date: null,
           resolved_at: null,
@@ -482,15 +541,129 @@ export default function InspectionIntelligenceDrawer({
     return Array.from(grouped.values()).sort((a, b) => b.vehicleId - a.vehicleId);
   }, [analytics?.insightsSorted, mergedRecoveryRows]);
 
+  const worklistCards = useMemo<RecoveryGroupedCard[]>(
+    () =>
+      recoveryCards
+        .map((card) => ({
+          ...card,
+          rows: card.rows.filter((row) => getEffectiveRecoveryStatus(row) === 'pending'),
+        }))
+        .filter((card) => card.rows.length > 0),
+    [getEffectiveRecoveryStatus, recoveryCards],
+  );
+
+  const archiveCards = useMemo<RecoveryGroupedCard[]>(
+    () =>
+      recoveryCards
+        .map((card) => ({
+          ...card,
+          rows: card.rows.filter((row) => getEffectiveRecoveryStatus(row) !== 'pending'),
+        }))
+        .filter((card) => card.rows.length > 0),
+    [getEffectiveRecoveryStatus, recoveryCards],
+  );
+
+  const actionTimelineByCard = useMemo(() => {
+    const grouped = new Map<string, InspectionRecoveryAction[]>();
+    for (const action of recoveryActions) {
+      const userId = action.user_id ?? 'no-user';
+      const key = `${action.vehicle_id}-${userId}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)?.push(action);
+    }
+    return grouped;
+  }, [recoveryActions]);
+
+  const currentRecoveryRows = useMemo(
+    () =>
+      (recoverySubTab === 'worklist' ? worklistCards : archiveCards)
+        .flatMap((card) => card.rows)
+        .filter((row) => row.id > 0),
+    [archiveCards, recoverySubTab, worklistCards],
+  );
+
+  const allCurrentRecoveryIds = useMemo(
+    () => currentRecoveryRows.map((row) => row.id),
+    [currentRecoveryRows],
+  );
+
+  const selectedRecoveryCount = selectedRecoveryIds.size;
+
+  const compensatedTotalCount = useMemo(
+    () => mergedRecoveryRows.filter((row) => getEffectiveRecoveryStatus(row) === 'resolved').length,
+    [getEffectiveRecoveryStatus, mergedRecoveryRows],
+  );
+
   const derivedRecoveryRows = useMemo(
     () => mergedRecoveryRows.filter((row) => row.id < 0 || row.source_type === 'derived'),
     [mergedRecoveryRows],
   );
 
+  const getRemainingMissingQty = useCallback((row: InspectionRecoveryRow) => {
+    const missing = Number(row.missing_qty ?? 0);
+    const compensated = Number(row.compensated_qty ?? 0);
+    return Math.max(missing - compensated, 0);
+  }, []);
+
+  const logRecoveryAction = useCallback(
+    async (
+      row: InspectionRecoveryRow,
+      nextStatus: RecoveryStatus,
+      options?: { reason?: string; scheduledDate?: string; recoveryId?: number | null; compensatedQty?: number },
+    ) => {
+      const payload = {
+        recovery_id: options?.recoveryId ?? (row.id > 0 ? row.id : null),
+        inspection_id: row.inspection_id,
+        vehicle_id: row.vehicle_id,
+        user_id: row.user_id,
+        department: department as 'tajhiz' | 'installation',
+        item_name: row.item_name,
+        previous_status: row.status,
+        next_status: nextStatus,
+        action_type: 'manual',
+        compensated_qty: options?.compensatedQty ?? null,
+        reason: options?.reason ?? row.reason ?? null,
+        scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
+      };
+      const { error } = await client.from('inspection_recovery_actions').insert(payload);
+      if (error) throw error;
+    },
+    [client, department],
+  );
+
   const updateRecoveryStatus = useCallback(
-    async (row: InspectionRecoveryRow, nextStatus: RecoveryStatus, options?: { reason?: string; scheduledDate?: string }) => {
+    async (row: InspectionRecoveryRow, nextStatus: RecoveryStatus, options?: { reason?: string; scheduledDate?: string; compensatedQty?: number }) => {
       setSavingRecoveryId(row.id);
       try {
+        const nowIso = new Date().toISOString();
+        const optimisticRow: InspectionRecoveryRow = {
+          ...row,
+          compensated_qty: Math.min(
+            Number(row.missing_qty ?? 0),
+            Number(row.compensated_qty ?? 0) + Number(options?.compensatedQty ?? 0),
+          ),
+          status: nextStatus,
+          reason: options?.reason ?? row.reason ?? null,
+          scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
+          resolved_at: nextStatus === 'resolved' ? nowIso : null,
+        };
+
+        // Optimistic move between Worklist/Archive without waiting refresh.
+        setRecoveryRows((prev) => {
+          const hasStored = prev.some((item) => item.id === row.id);
+          if (hasStored) {
+            return prev.map((item) => (item.id === row.id ? optimisticRow : item));
+          }
+          if (row.id < 0) {
+            return [optimisticRow, ...prev];
+          }
+          return prev;
+        });
+        if (nextStatus === 'resolved') {
+          const nextCount = mergedRecoveryRows.filter((item) => getEffectiveRecoveryStatus(item) === 'resolved').length + 1;
+          setRecoveryActionNotice(`تم التعويض بنجاح. إجمالي العناصر المعوّضة: ${nextCount}`);
+        }
+
         if (row.id < 0) {
           const { data: created, error: createError } = await client
             .from('inspection_recovery')
@@ -503,18 +676,32 @@ export default function InspectionIntelligenceDrawer({
               required_qty: row.required_qty,
               actual_qty: row.actual_qty,
               missing_qty: row.missing_qty,
+              compensated_qty: Math.min(
+                Number(row.missing_qty ?? 0),
+                Number(row.compensated_qty ?? 0) + Number(options?.compensatedQty ?? 0),
+              ),
               status: nextStatus,
               action_type: 'manual',
-              reason: options?.reason ?? row.reason ?? null,
-              scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
-              resolved_at: nextStatus === 'resolved' ? new Date().toISOString() : null,
+              reason: optimisticRow.reason,
+              scheduled_date: optimisticRow.scheduled_date,
+              resolved_at: optimisticRow.resolved_at,
             })
             .select(
-              'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,status,scheduled_date,resolved_at,reason,created_at',
+              'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at',
             )
             .single();
           if (createError) throw createError;
-          setRecoveryRows((prev) => [created as InspectionRecoveryRow, ...prev]);
+          await logRecoveryAction(row, nextStatus, {
+            reason: options?.reason ?? row.reason ?? undefined,
+            scheduledDate: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? undefined : undefined,
+            recoveryId: Number((created as InspectionRecoveryRow)?.id ?? null),
+            compensatedQty: options?.compensatedQty,
+          });
+          setRecoveryRows((prev) => {
+            const withoutTemp = prev.filter((item) => item.id !== row.id);
+            return [created as InspectionRecoveryRow, ...withoutTemp];
+          });
+          await loadRecoveryActions();
           setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: false }));
           return;
         }
@@ -522,30 +709,40 @@ export default function InspectionIntelligenceDrawer({
         const payload: Record<string, unknown> = {
           status: nextStatus,
           action_type: 'manual',
-          reason: options?.reason ?? row.reason ?? null,
-          scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
-          resolved_at: nextStatus === 'resolved' ? new Date().toISOString() : null,
+          reason: optimisticRow.reason,
+          scheduled_date: optimisticRow.scheduled_date,
+          resolved_at: optimisticRow.resolved_at,
+          compensated_qty: optimisticRow.compensated_qty,
         };
         const { data, error } = await client
           .from('inspection_recovery')
           .update(payload)
           .eq('id', row.id)
           .select(
-            'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,status,scheduled_date,resolved_at,reason,created_at',
+            'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at',
           )
           .single();
         if (error) throw error;
+        await logRecoveryAction(row, nextStatus, {
+          reason: options?.reason ?? row.reason ?? undefined,
+          scheduledDate: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? undefined : undefined,
+          recoveryId: row.id,
+          compensatedQty: options?.compensatedQty,
+        });
         setRecoveryRows((prev) => prev.map((item) => (item.id === row.id ? ((data as InspectionRecoveryRow) ?? item) : item)));
+        await loadRecoveryActions();
         if (nextStatus !== 'scheduled') {
           setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: false }));
         }
       } catch (e) {
         console.error('updateRecoveryStatus failed', e);
+        // Rollback optimistic change by reloading the source of truth.
+        await loadRecoveryRows();
       } finally {
         setSavingRecoveryId(null);
       }
     },
-    [client, department],
+    [client, department, getEffectiveRecoveryStatus, loadRecoveryActions, loadRecoveryRows, logRecoveryAction, mergedRecoveryRows],
   );
 
   const backfillDerivedRecoveryRows = useCallback(async () => {
@@ -562,13 +759,36 @@ export default function InspectionIntelligenceDrawer({
         required_qty: row.required_qty,
         actual_qty: row.actual_qty,
         missing_qty: row.missing_qty,
+        compensated_qty: row.compensated_qty ?? 0,
         status: 'pending' as const,
         action_type: 'auto' as const,
         reason: row.reason ?? 'تم ترحيل نقص تاريخي من جرد سابق',
       }));
-      const { error } = await client.from('inspection_recovery').insert(payload);
+      const { data: insertedRows, error } = await client
+        .from('inspection_recovery')
+        .insert(payload)
+        .select('id,inspection_id,vehicle_id,user_id,item_name,status,scheduled_date,reason');
       if (error) throw error;
+      const actionPayload = ((insertedRows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+        recovery_id: Number(row.id),
+        inspection_id: Number(row.inspection_id),
+        vehicle_id: Number(row.vehicle_id),
+        user_id: row.user_id == null ? null : String(row.user_id),
+        department,
+        item_name: String(row.item_name ?? ''),
+        previous_status: null,
+        next_status: 'pending',
+        action_type: 'auto',
+        compensated_qty: row.compensated_qty ?? 0,
+        reason: row.reason == null ? null : String(row.reason),
+        scheduled_date: row.scheduled_date == null ? null : String(row.scheduled_date),
+      }));
+      if (actionPayload.length > 0) {
+        const { error: actionError } = await client.from('inspection_recovery_actions').insert(actionPayload);
+        if (actionError) throw actionError;
+      }
       await loadRecoveryRows();
+      await loadRecoveryActions();
       setRecoveryActionNotice(`تم ترحيل ${payload.length} نقص تاريخي إلى سجل التعويض بنجاح.`);
     } catch (e) {
       console.error('backfillDerivedRecoveryRows failed', e);
@@ -576,7 +796,52 @@ export default function InspectionIntelligenceDrawer({
     } finally {
       setBackfillingRecovery(false);
     }
-  }, [backfillingRecovery, client, department, derivedRecoveryRows, loadRecoveryRows]);
+  }, [backfillingRecovery, client, department, derivedRecoveryRows, loadRecoveryActions, loadRecoveryRows]);
+
+  const toggleRecoveryRowSelection = useCallback((rowId: number) => {
+    setSelectedRecoveryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAllRecoveryRows = useCallback(() => {
+    setSelectedRecoveryIds((prev) => {
+      const currentIds = allCurrentRecoveryIds;
+      if (currentIds.length === 0) return new Set<number>();
+      const allSelected = currentIds.every((id) => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        currentIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      const next = new Set(prev);
+      currentIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [allCurrentRecoveryIds]);
+
+  const deleteSelectedRecoveryRows = useCallback(async () => {
+    if (!canDeleteRecovery || selectedRecoveryIds.size === 0) return;
+    const ids = Array.from(selectedRecoveryIds);
+    const approved = window.confirm(`سيتم حذف ${ids.length} عنصر من نواقص الجرد وسجل حركاته. هل تريد المتابعة؟`);
+    if (!approved) return;
+    try {
+      const { error: deleteActionsError } = await client.from('inspection_recovery_actions').delete().in('recovery_id', ids);
+      if (deleteActionsError) throw deleteActionsError;
+      const { error: deleteRecoveryError } = await client.from('inspection_recovery').delete().in('id', ids);
+      if (deleteRecoveryError) throw deleteRecoveryError;
+      setSelectedRecoveryIds(new Set());
+      setRecoverySelectionMode(false);
+      await Promise.all([loadRecoveryRows(), loadRecoveryActions()]);
+      setRecoveryActionNotice(`تم حذف ${ids.length} عنصر من القائمة بنجاح.`);
+    } catch (e) {
+      console.error('deleteSelectedRecoveryRows failed', e);
+      setRecoveryActionNotice('تعذر حذف العناصر المحددة حالياً.');
+    }
+  }, [canDeleteRecovery, client, loadRecoveryActions, loadRecoveryRows, selectedRecoveryIds]);
 
   return (
     <AnimatePresence>
@@ -1036,6 +1301,9 @@ export default function InspectionIntelligenceDrawer({
                       <div className="flex items-center justify-between">
                         <p className="text-xs font-black text-stone-700 dark:text-stone-200">نواقص ما بعد الجرد</p>
                         <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                            المعوّض: {compensatedTotalCount}
+                          </span>
                           {derivedRecoveryRows.length > 0 && (
                             <button
                               type="button"
@@ -1054,23 +1322,85 @@ export default function InspectionIntelligenceDrawer({
                           )}
                           <button
                             type="button"
-                            onClick={() => void loadRecoveryRows()}
+                            onClick={() => {
+                              void loadRecoveryRows();
+                              void loadRecoveryActions();
+                            }}
                             className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
                           >
                             تحديث
                           </button>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2 p-1 rounded-xl bg-stone-100 dark:bg-stone-800">
+                        <button
+                          type="button"
+                          onClick={() => setRecoverySubTab('worklist')}
+                          className={cn(
+                            'flex-1 rounded-lg px-3 py-2 text-[11px] font-black',
+                            recoverySubTab === 'worklist'
+                              ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                              : 'text-stone-500 dark:text-stone-300',
+                          )}
+                        >
+                          قائمة العمل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRecoverySubTab('archive')}
+                          className={cn(
+                            'flex-1 rounded-lg px-3 py-2 text-[11px] font-black',
+                            recoverySubTab === 'archive'
+                              ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                              : 'text-stone-500 dark:text-stone-300',
+                          )}
+                        >
+                          الأرشيف / الحركات
+                        </button>
+                      </div>
+                      {canDeleteRecovery && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRecoverySelectionMode((prev) => !prev);
+                              setSelectedRecoveryIds(new Set());
+                            }}
+                            className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
+                          >
+                            {recoverySelectionMode ? 'إلغاء التحديد' : 'تحديد'}
+                          </button>
+                          {recoverySelectionMode && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={toggleSelectAllRecoveryRows}
+                                className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
+                              >
+                                تحديد الكل
+                              </button>
+                              <button
+                                type="button"
+                                disabled={selectedRecoveryCount === 0}
+                                onClick={() => void deleteSelectedRecoveryRows()}
+                                className="text-[10px] font-bold px-2 py-1 rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 disabled:opacity-60"
+                              >
+                                حذف المحدد ({selectedRecoveryCount})
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                       {recoveryLoading ? (
                         <div className="text-center py-8 text-xs font-bold text-stone-500">
                           <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
                           جاري تحميل نواقص الجرد...
                         </div>
-                      ) : recoveryCards.length === 0 ? (
+                      ) : recoverySubTab === 'worklist' && worklistCards.length === 0 ? (
                         <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد نواقص جرد مسجلة حالياً.</p>
-                      ) : (
+                      ) : recoverySubTab === 'worklist' ? (
                         <div className="space-y-3">
-                          {recoveryCards.map((card) => (
+                          {worklistCards.map((card) => (
                             <div key={card.key} className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 p-3 space-y-2">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs font-black">{card.vehicleLabel}</p>
@@ -1082,8 +1412,23 @@ export default function InspectionIntelligenceDrawer({
                                   const isEditorOpen = showNotCompensatedEditor[row.id] === true;
                                   const draftDate = recoveryScheduleDrafts[row.id] ?? '';
                                   const draftReason = recoveryReasonDrafts[row.id] ?? '';
+                                  const remainingMissing = getRemainingMissingQty(row);
+                                  const draftCompensatedRaw = Number(recoveryCompensatedDrafts[row.id] ?? remainingMissing);
+                                  const draftCompensated = Number.isFinite(draftCompensatedRaw)
+                                    ? Math.max(1, Math.min(remainingMissing, Math.floor(draftCompensatedRaw)))
+                                    : 1;
                                   return (
                                     <div key={row.id} className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/80 dark:bg-stone-950/40 p-2 space-y-2">
+                                      {recoverySelectionMode && row.id > 0 && (
+                                        <label className="inline-flex items-center gap-1 text-[10px] font-bold text-stone-500">
+                                          <input
+                                            type="checkbox"
+                                            checked={selectedRecoveryIds.has(row.id)}
+                                            onChange={() => toggleRecoveryRowSelection(row.id)}
+                                          />
+                                          تحديد
+                                        </label>
+                                      )}
                                       <div className="flex items-center justify-between gap-2">
                                         <p className="text-[11px] font-bold truncate">{row.item_name}</p>
                                         <span
@@ -1101,6 +1446,9 @@ export default function InspectionIntelligenceDrawer({
                                       </div>
                                       <p className="text-[10px] text-stone-600 dark:text-stone-300">
                                         مطلوب {row.required_qty} / موجود {row.actual_qty} / نقص {row.missing_qty}
+                                      </p>
+                                      <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">
+                                        تم تعويض {Number(row.compensated_qty ?? 0)} من {row.missing_qty} · المتبقي {remainingMissing}
                                       </p>
                                       {row.source_type === 'derived' && (
                                         <p className="text-[10px] font-bold text-violet-700 dark:text-violet-300">
@@ -1129,10 +1477,33 @@ export default function InspectionIntelligenceDrawer({
                                         </div>
                                       )}
                                       <div className="flex flex-wrap gap-2">
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={Math.max(1, remainingMissing)}
+                                          value={recoveryCompensatedDrafts[row.id] ?? String(Math.max(1, remainingMissing))}
+                                          onChange={(e) =>
+                                            setRecoveryCompensatedDrafts((prev) => ({ ...prev, [row.id]: e.target.value }))
+                                          }
+                                          className="w-24 rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                                          title="كمية التعويض"
+                                        />
                                         <button
                                           type="button"
-                                          disabled={savingRecoveryId === row.id}
-                                          onClick={() => void updateRecoveryStatus(row, 'resolved')}
+                                          disabled={savingRecoveryId === row.id || remainingMissing < 1}
+                                          onClick={() =>
+                                            void updateRecoveryStatus(
+                                              row,
+                                              draftCompensated >= remainingMissing ? 'resolved' : 'pending',
+                                              {
+                                                reason:
+                                                  draftCompensated >= remainingMissing
+                                                    ? `تم التعويض الكامل (${Number(row.compensated_qty ?? 0) + draftCompensated}/${row.missing_qty})`
+                                                    : `تم التعويض الجزئي (${Number(row.compensated_qty ?? 0) + draftCompensated}/${row.missing_qty})`,
+                                                compensatedQty: draftCompensated,
+                                              },
+                                            )
+                                          }
                                           className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-2 py-1.5 disabled:opacity-60"
                                         >
                                           تم التعويض
@@ -1182,6 +1553,70 @@ export default function InspectionIntelligenceDrawer({
                               </div>
                             </div>
                           ))}
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {(archiveCards.length === 0 && recoveryActions.length === 0) ? (
+                            <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد حركات مؤرشفة حالياً.</p>
+                          ) : (
+                            archiveCards.map((card) => {
+                              const timeline = actionTimelineByCard.get(card.key) ?? [];
+                              return (
+                                <div key={`archive-${card.key}`} className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 p-3 space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-black">{card.vehicleLabel}</p>
+                                    <p className="text-[10px] font-bold text-stone-500">{staffLabel}: {card.userLabel}</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {card.rows.map((row) => {
+                                      const effectiveStatus = getEffectiveRecoveryStatus(row);
+                                      return (
+                                        <div key={`arch-row-${row.id}`} className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/80 dark:bg-stone-950/40 p-2 space-y-1.5">
+                                          {recoverySelectionMode && row.id > 0 && (
+                                            <label className="inline-flex items-center gap-1 text-[10px] font-bold text-stone-500">
+                                              <input
+                                                type="checkbox"
+                                                checked={selectedRecoveryIds.has(row.id)}
+                                                onChange={() => toggleRecoveryRowSelection(row.id)}
+                                              />
+                                              تحديد
+                                            </label>
+                                          )}
+                                          <p className="text-[11px] font-bold truncate">{row.item_name}</p>
+                                          <p className="text-[10px] text-stone-600 dark:text-stone-300">
+                                            مطلوب {row.required_qty} / موجود {row.actual_qty} / نقص {row.missing_qty}
+                                          </p>
+                                          <p className="text-[10px] font-bold text-stone-500">
+                                            الحالة: {effectiveStatus} · آخر تحديث: {String(row.resolved_at ?? row.scheduled_date ?? row.created_at).slice(0, 10)}
+                                          </p>
+                                          {row.reason && (
+                                            <p className="text-[10px] text-stone-500 dark:text-stone-400">السبب: {row.reason}</p>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="rounded-xl border border-dashed border-stone-300 dark:border-stone-600 p-2">
+                                    <p className="text-[10px] font-black text-stone-600 dark:text-stone-300 mb-1">سجل الحركات</p>
+                                    {recoveryActionsLoading ? (
+                                      <p className="text-[10px] text-stone-400">جاري تحميل السجل...</p>
+                                    ) : timeline.length === 0 ? (
+                                      <p className="text-[10px] text-stone-400">لا توجد حركات مسجلة بعد.</p>
+                                    ) : (
+                                      <div className="space-y-1">
+                                        {timeline.slice(0, 8).map((action) => (
+                                          <p key={action.id} className="text-[10px] text-stone-600 dark:text-stone-300">
+                                            {String(action.acted_at).slice(0, 10)} · {action.item_name} · {action.previous_status ?? '—'} ← {action.next_status}
+                                            {action.reason ? ` · ${action.reason}` : ''}
+                                          </p>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
                         </div>
                       )}
                     </div>

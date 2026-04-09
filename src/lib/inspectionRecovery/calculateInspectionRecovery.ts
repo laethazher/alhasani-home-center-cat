@@ -17,6 +17,7 @@ interface RecoveryRowInsert {
   required_qty: number;
   actual_qty: number;
   missing_qty: number;
+  compensated_qty: number;
   status: 'pending';
   action_type: 'auto';
 }
@@ -97,6 +98,7 @@ export async function calculateInspectionRecovery({
       required_qty: requiredQty,
       actual_qty: actualQty,
       missing_qty: missingQty,
+      compensated_qty: 0,
       status: 'pending',
       action_type: 'auto',
     });

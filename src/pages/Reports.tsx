@@ -1935,6 +1935,7 @@ export default function Reports({
         open={intelligenceOpen}
         onClose={() => setIntelligenceOpen(false)}
         pageDepartment={department}
+        canDeleteRecovery={profile?.role === 'admin'}
         onStartInspection={(vehicleId) => {
           setSelectedVehicleId(String(vehicleId));
           setActiveTab('damage');
