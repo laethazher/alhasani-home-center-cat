@@ -24,6 +24,8 @@ import type {
 import { parseBubblesExcelBuffer } from '../lib/bubblesExcelParse';
 import { groupByDriverThenCustomer } from '../lib/bubblesGrouping';
 import { getStaffPickOptionsForBubbleDriver } from '../lib/bubblesDriverStaffMatch';
+import { partitionFollowUpBubbleRowIds, applyBubblesFollowUpClearance } from '../lib/bubblesFollowUpClearance';
+import { InlineToast } from '../components/InlineToast';
 import {
   SmartSearchBar,
   ChartsPanel,
@@ -236,6 +238,9 @@ export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
   const [violationModal, setViolationModal] = useState<BubblesViolationModalState | null>(null);
   const [violationReason, setViolationReason] = useState('');
   const [followUpBusy, setFollowUpBusy] = useState(false);
+  const [followUpToast, setFollowUpToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(
+    null,
+  );
 
   const debouncedSearch = useDebouncedValue(search, 250);
   const canManageBubblesFollowUp = isAdmin;
@@ -943,15 +948,7 @@ export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
 
   const clearFollowUpForDriver = useCallback(
     async (driverLabel: string, rows: BubblesRecord[]) => {
-      const liveIds = rows.filter((r) => /^\d+$/.test(String(r.id))).map((r) => r.id);
-      const archiveIds = rows
-        .filter((r) => String(r.id).startsWith('arc-'))
-        .map((r) => {
-          const raw = String(r.id).replace(/^arc-/, '');
-          const n = Number(raw);
-          return Number.isFinite(n) && n > 0 ? n : null;
-        })
-        .filter((x): x is number => x != null);
+      const { liveIds, archiveIds } = partitionFollowUpBubbleRowIds(rows);
 
       if (liveIds.length === 0 && archiveIds.length === 0) {
         window.alert('لا توجد سجلات لتطبيق المتابعة عليها.');
@@ -978,25 +975,10 @@ export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
 
       setFollowUpBusy(true);
       try {
-        if (liveIds.length > 0) {
-          const { error } = await supabase
-            .from('bubbles_records')
-            .update({ status: 'pending', reason: null })
-            .in('id', liveIds);
-          if (error) {
-            window.alert(error.message);
-            return;
-          }
-        }
-        if (archiveIds.length > 0) {
-          const { error } = await supabase
-            .from('bubbles_records_archive')
-            .update({ status: 'completed', reason: null })
-            .in('archive_id', archiveIds);
-          if (error) {
-            window.alert(error.message);
-            return;
-          }
+        const { error } = await applyBubblesFollowUpClearance(supabase, rows);
+        if (error) {
+          window.alert(error.message);
+          return;
         }
         await Promise.all([fetchRecords(), fetchArchiveData()]);
       } finally {
@@ -1010,12 +992,15 @@ export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
     if (!violationModal || !canManageBubblesFollowUp) return;
     const reason = violationReason.trim();
     if (!reason) {
-      window.alert('يرجى كتابة سبب المخالفة.');
+      setFollowUpToast({ kind: 'error', message: 'يرجى كتابة سبب المخالفة.' });
       return;
     }
     const staffId = violationModal.selectedStaffId?.trim();
     if (!staffId) {
-      window.alert('يرجى اختيار السائق من القائمة لمطابقته مع سجل الكادر.');
+      setFollowUpToast({
+        kind: 'error',
+        message: 'يرجى اختيار السائق من القائمة لمطابقته مع سجل الكادر.',
+      });
       return;
     }
     const notesBody = violationModal.rows
@@ -1024,24 +1009,40 @@ export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
           `${STATUS_AR[r.status]} | عميل: ${r.customer_name} | فاتورة: ${r.invoice_number ?? '—'} | سبب الببلز: ${r.reason ?? '—'}`,
       )
       .join('\n');
+    const rowsSnapshot = violationModal.rows;
     setFollowUpBusy(true);
-    const { error } = await supabase.from('violations').insert({
-      staff_id: Number(staffId),
-      violation_type: 'ببلز — متابعة',
-      violation_reason: reason,
-      violation_date: new Date().toISOString().split('T')[0],
-      notes: notesBody.slice(0, 8000),
-      created_by: userId || null,
-    });
-    setFollowUpBusy(false);
-    if (error) {
-      window.alert(error.message);
-      return;
+    try {
+      const { error } = await supabase.from('violations').insert({
+        staff_id: Number(staffId),
+        violation_type: 'ببلز — متابعة',
+        violation_reason: reason,
+        violation_date: new Date().toISOString().split('T')[0],
+        notes: notesBody.slice(0, 8000),
+        created_by: userId || null,
+      });
+      if (error) {
+        setFollowUpToast({ kind: 'error', message: error.message });
+        return;
+      }
+      const cleared = await applyBubblesFollowUpClearance(supabase, rowsSnapshot);
+      if (cleared.error) {
+        setFollowUpToast({
+          kind: 'error',
+          message: `تم حفظ المخالفة في السجل، لكن تعذر تحديث سجلات الببلز: ${cleared.error.message}`,
+        });
+      } else {
+        setFollowUpToast({
+          kind: 'success',
+          message: 'تم تسجيل المخالفة في سجل المخالفات وإزالة السجلات من «يحتاج متابعة».',
+        });
+      }
+      setViolationModal(null);
+      setViolationReason('');
+      await Promise.all([fetchRecords(), fetchArchiveData()]);
+    } finally {
+      setFollowUpBusy(false);
     }
-    setViolationModal(null);
-    setViolationReason('');
-    window.alert('تم تسجيل المخالفة في سجل المخالفات.');
-  }, [violationModal, violationReason, canManageBubblesFollowUp, userId]);
+  }, [violationModal, violationReason, canManageBubblesFollowUp, userId, fetchRecords, fetchArchiveData]);
 
   const exportHeaders =
     sourceTab === 'archive'
@@ -1138,6 +1139,12 @@ export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-1" dir="rtl">
+      <InlineToast
+        open={!!followUpToast}
+        message={followUpToast?.message ?? ''}
+        kind={followUpToast?.kind ?? 'success'}
+        onClose={() => setFollowUpToast(null)}
+      />
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-stone-900 dark:text-white flex items-center gap-3">

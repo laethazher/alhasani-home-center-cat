@@ -34,6 +34,14 @@ const DataTableEnhanced = lazy(() =>
 );
 
 /* ── Types ── */
+interface ManualViolationDetail {
+  id: number;
+  violation_type: string;
+  violation_reason: string;
+  notes: string | null;
+  violation_date: string;
+}
+
 interface ViolationRecord {
   requestId: string;
   exitDate: string;
@@ -43,6 +51,8 @@ interface ViolationRecord {
   delayText: string;
   returned: boolean;
   returnedAt: string | null;
+  /** مخالفة من جدول violations (ببلز، يدوي، …) */
+  manualDetail?: ManualViolationDetail;
 }
 
 interface StaffViolations {
@@ -129,10 +139,12 @@ export default function Violations({ department = 'tajhiz' }: Props) {
     const staffQuery = isInstallation
       ? supabase.from(tables.staffMembers).select('*').eq('role', 'technician').eq('is_active', true).order('full_name')
       : supabase.from(tables.staffMembers).select('*').eq('is_active', true).order('full_name');
+    // ربط الكادر: يظهر اسم السائق في المخالفات اليدوية/الببلز حتى لو لم يُحمَل في قائمة الموظفين النشطين
+    const violationsSelect = `*, ${tables.staffMembers}(id, full_name, role, is_active)`;
     const [reqRes, staffRes, violationsRes] = await Promise.all([
       supabase.from(tables.exitRequests).select('*').eq('exit_type', 'temporary').in('status', ['exited']).order('created_at', { ascending: false }),
       staffQuery,
-      supabase.from(violationsTable).select('*').order('violation_date', { ascending: false }),
+      supabase.from(violationsTable).select(violationsSelect).order('violation_date', { ascending: false }),
     ]);
     if (reqRes.data) setRequests(reqRes.data);
     if (staffRes.data) {
@@ -142,7 +154,9 @@ export default function Violations({ department = 'tajhiz' }: Props) {
       })) as StaffMember[];
       setStaff(normalizedStaff);
     }
-    if (violationsRes.data) setManualViolations(violationsRes.data);
+    if (violationsRes.data) {
+      setManualViolations(violationsRes.data as unknown as Violation[]);
+    }
     setLoading(false);
   }, [isInstallation, supabase, tables.exitRequests, tables.staffMembers, violationsTable]);
 
@@ -167,12 +181,30 @@ export default function Violations({ department = 'tajhiz' }: Props) {
     [profile?.role, fetchData, supabase, violationsTable]
   );
 
+  const exportManualViolationRow = useCallback((staffName: string, rec: ViolationRecord) => {
+    if (!rec.manualDetail) return;
+    const md = rec.manualDetail;
+    const rows: unknown[][] = [
+      ['الموظف', staffName],
+      ['نوع المخالفة', md.violation_type],
+      ['سبب المخالفة', md.violation_reason],
+      ['تاريخ المخالفة', md.violation_date],
+      ['ملاحظات / ملخص الببلز والسجلات', md.notes ?? '—'],
+    ];
+    const slug = staffName
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^\w\u0600-\u06FF_-]/g, '')
+      .slice(0, 36);
+    exportToExcel([['الحقل', 'القيمة'], ...rows], `تفاصيل_مخالفة_${slug || 'سجل'}_${md.id}`, 'المخالفة');
+  }, []);
+
   useEffect(() => { fetchData(); }, [fetchData]);
 
   /* ── Compute violations ── */
   const violationsMap = useMemo((): Map<string, StaffViolations> => {
     const map = new Map<string, StaffViolations>();
-    const staffMap = new Map<string, StaffMember>(staff.map((s) => [s.id, s]));
+    const staffMap = new Map<string, StaffMember>(staff.map((s) => [String(s.id), s]));
     const now = new Date();
 
     for (const req of requests) {
@@ -283,17 +315,26 @@ export default function Violations({ department = 'tajhiz' }: Props) {
       }
     }
 
-    // إضافة المخالفات اليدوية
+    // إضافة المخالفات اليدوية / ببلز (بدون تجاهل السجل إذا لم يُوجد الموظف في قائمة النشطين)
     for (const violation of manualViolations) {
+      const vrow = violation as Violation & Record<string, unknown>;
       const staffId = String(violation.staff_id);
+      const joined = vrow[tables.staffMembers] as
+        | { full_name?: string; role?: string; is_active?: boolean }
+        | null
+        | undefined;
       const staffMember = staffMap.get(staffId);
-      if (!staffMember) continue;
+      const displayName =
+        (joined?.full_name && String(joined.full_name).trim()) ||
+        staffMember?.full_name?.trim() ||
+        `موظف رقم ${staffId}`;
+      const roleRaw = joined?.role ?? staffMember?.role;
 
       if (!map.has(staffId)) {
         map.set(staffId, {
           staffId,
-          staffName: staffMember.full_name,
-          staffRole: toUiRole(staffMember.role),
+          staffName: displayName,
+          staffRole: toUiRole(roleRaw ?? 'assistant'),
           totalViolations: 0,
           totalDelayMinutes: 0,
           records: [],
@@ -310,11 +351,18 @@ export default function Violations({ department = 'tajhiz' }: Props) {
         delayText: '—',
         returned: true,
         returnedAt: violation.violation_date,
+        manualDetail: {
+          id: violation.id,
+          violation_type: violation.violation_type,
+          violation_reason: violation.violation_reason,
+          notes: violation.notes,
+          violation_date: violation.violation_date,
+        },
       });
     }
 
     return map;
-  }, [isInstallation, requests, staff, manualViolations]);
+  }, [isInstallation, requests, staff, manualViolations, tables.staffMembers]);
 
   /* ── Sorted + filtered list ── */
   const violationsList = useMemo((): StaffViolations[] => {
@@ -793,75 +841,132 @@ export default function Violations({ department = 'tajhiz' }: Props) {
                           <div
                             key={`${rec.requestId}-${i}`}
                             className={cn(
-                              'flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm',
-                              rec.returned
-                                ? 'bg-amber-50 dark:bg-amber-900/10'
-                                : 'bg-red-50 dark:bg-red-900/10'
+                              'flex flex-col gap-2 px-3 py-2.5 rounded-xl text-sm border',
+                              rec.manualDetail
+                                ? 'bg-violet-50/95 dark:bg-violet-950/30 border-violet-200/90 dark:border-violet-800/60'
+                                : rec.returned
+                                  ? 'border-transparent bg-amber-50 dark:bg-amber-900/10'
+                                  : 'border-transparent bg-red-50 dark:bg-red-900/10',
                             )}
                           >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <Calendar className="w-4 h-4 text-stone-400 flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-stone-700 dark:text-stone-300">
-                                    {new Date(rec.exitDate).toLocaleDateString('ar-IQ', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                                  </span>
-                                  <span className="text-stone-400 text-xs">
-                                    {new Date(rec.exitDate).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                  {rec.exitReason && (
-                                    <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
-                                      {rec.exitReason}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-3 flex-1 min-w-0">
+                                <Calendar className="w-4 h-4 text-stone-400 flex-shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-stone-700 dark:text-stone-300">
+                                      {new Date(rec.exitDate).toLocaleDateString('ar-IQ', {
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        year: 'numeric',
+                                      })}
                                     </span>
+                                    {!rec.manualDetail ? (
+                                      <span className="text-stone-400 text-xs">
+                                        {new Date(rec.exitDate).toLocaleTimeString('ar-IQ', {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                        })}
+                                      </span>
+                                    ) : null}
+                                    {!rec.manualDetail && rec.exitReason ? (
+                                      <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
+                                        {rec.exitReason}
+                                      </span>
+                                    ) : null}
+                                    {rec.manualDetail ? (
+                                      <span className="text-xs font-semibold text-violet-800 dark:text-violet-200 bg-violet-100 dark:bg-violet-900/50 px-2 py-0.5 rounded-full">
+                                        {rec.manualDetail.violation_type}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {!rec.manualDetail ? (
+                                    <div className="flex items-center gap-3 mt-0.5 text-xs text-stone-500 dark:text-stone-400">
+                                      <span>المدة المسموحة: {rec.allowedMinutes} دقيقة</span>
+                                      <span className="text-stone-300 dark:text-stone-600">|</span>
+                                      <span
+                                        className={cn(
+                                          'font-semibold',
+                                          rec.returned
+                                            ? 'text-amber-600 dark:text-amber-400'
+                                            : 'text-red-600 dark:text-red-400',
+                                        )}
+                                      >
+                                        تأخير: {rec.delayText}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <p className="mt-1 text-xs font-semibold text-stone-800 dark:text-stone-100 leading-relaxed">
+                                      سبب المخالفة: {rec.manualDetail.violation_reason}
+                                    </p>
                                   )}
-                                </div>
-                                <div className="flex items-center gap-3 mt-0.5 text-xs text-stone-500 dark:text-stone-400">
-                                  <span>المدة المسموحة: {rec.allowedMinutes} دقيقة</span>
-                                  <span className="text-stone-300 dark:text-stone-600">|</span>
-                                  <span className={cn(
-                                    'font-semibold',
-                                    rec.returned ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
-                                  )}>
-                                    تأخير: {rec.delayText}
-                                  </span>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              {profile?.role === 'admin' && rec.requestId.startsWith('manual-') && (
-                                <button
-                                  type="button"
-                                  title="حذف المخالفة اليدوية"
-                                  disabled={deletingManualId === Number(rec.requestId.replace(/^manual-/, ''))}
-                                  onClick={() => deleteManualViolation(rec.requestId)}
-                                  className="p-1.5 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
-                                >
-                                  {deletingManualId === Number(rec.requestId.replace(/^manual-/, '')) ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="w-4 h-4" />
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {rec.manualDetail ? (
+                                  <button
+                                    type="button"
+                                    title="تصدير تفاصيل هذه المخالفة (Excel)"
+                                    onClick={() => exportManualViolationRow(v.staffName, rec)}
+                                    className="p-1.5 rounded-lg text-stone-500 hover:text-violet-700 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900/40 transition-colors"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </button>
+                                ) : null}
+                                {profile?.role === 'admin' && rec.requestId.startsWith('manual-') ? (
+                                  <button
+                                    type="button"
+                                    title="حذف المخالفة اليدوية"
+                                    disabled={deletingManualId === Number(rec.requestId.replace(/^manual-/, ''))}
+                                    onClick={() => deleteManualViolation(rec.requestId)}
+                                    className="p-1.5 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+                                  >
+                                    {deletingManualId === Number(rec.requestId.replace(/^manual-/, '')) ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                ) : null}
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
+                                    rec.manualDetail
+                                      ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-800 dark:text-violet-200'
+                                      : rec.returned
+                                        ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
                                   )}
-                                </button>
-                              )}
-                              <span className={cn(
-                                'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                                rec.returned
-                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                  : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                              )}>
-                                {rec.returned ? (
-                                  <>
-                                    <Clock className="w-3 h-3" />
-                                    عاد متأخراً
-                                  </>
-                                ) : (
-                                  <>
-                                    <AlertTriangle className="w-3 h-3" />
-                                    لم يعُد بعد
-                                  </>
-                                )}
-                              </span>
+                                >
+                                  {rec.manualDetail ? (
+                                    <>
+                                      <FileText className="w-3 h-3" />
+                                      مسجّلة في السجل
+                                    </>
+                                  ) : rec.returned ? (
+                                    <>
+                                      <Clock className="w-3 h-3" />
+                                      عاد متأخراً
+                                    </>
+                                  ) : (
+                                    <>
+                                      <AlertTriangle className="w-3 h-3" />
+                                      لم يعُد بعد
+                                    </>
+                                  )}
+                                </span>
+                              </div>
                             </div>
+                            {rec.manualDetail?.notes ? (
+                              <div className="me-0 sm:me-7 rounded-xl bg-white/80 dark:bg-stone-900/60 border border-stone-200/90 dark:border-stone-700 p-3">
+                                <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400 mb-1.5">
+                                  ملاحظات / ملخص السجلات المرفقة
+                                </p>
+                                <pre className="text-[11px] whitespace-pre-wrap font-sans text-stone-600 dark:text-stone-300 max-h-44 overflow-y-auto leading-relaxed">
+                                  {rec.manualDetail.notes}
+                                </pre>
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
