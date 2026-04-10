@@ -23,6 +23,7 @@ import type {
 } from '../lib/supabaseClient';
 import { parseBubblesExcelBuffer } from '../lib/bubblesExcelParse';
 import { groupByDriverThenCustomer } from '../lib/bubblesGrouping';
+import { getStaffPickOptionsForBubbleDriver } from '../lib/bubblesDriverStaffMatch';
 import {
   SmartSearchBar,
   ChartsPanel,
@@ -56,6 +57,10 @@ function mapRow(r: Record<string, unknown>): BubblesRecord {
     reason: r.reason != null ? String(r.reason) : null,
     created_at: String(r.created_at),
     return_time: r.return_time != null ? String(r.return_time) : null,
+    gate_return_confirmed_at:
+      r.gate_return_confirmed_at != null && r.gate_return_confirmed_at !== ''
+        ? String(r.gate_return_confirmed_at)
+        : null,
   };
 }
 
@@ -73,7 +78,7 @@ function statusBadgeClass(s: BubblesRecordStatus): string {
   return 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300';
 }
 
-type TabKey = 'active' | 'delayed' | 'issues' | 'completed';
+type TabKey = 'active' | 'delayed' | 'issues' | 'completed' | 'followup';
 type SourceTab = 'live' | 'archive';
 type ArchiveTabKey = 'all' | 'completed' | 'delayed' | 'issues';
 
@@ -82,6 +87,7 @@ const TAB_LABEL_AR: Record<TabKey, string> = {
   delayed: 'متأخر',
   issues: 'مشاكل',
   completed: 'مكتمل',
+  followup: 'يحتاج متابعة',
 };
 
 const ARCHIVE_TAB_LABEL_AR: Record<ArchiveTabKey, string> = {
@@ -100,9 +106,7 @@ const BUBBLES_ISSUE_REASON_OPTIONS = [
 
 type KpiDrillKey = 'drivers' | 'completed' | 'delayed' | 'issues' | 'avgReturn' | 'total';
 
-type BubblesDetailModalState =
-  | { kind: 'kpi'; kpi: KpiDrillKey }
-  | { kind: 'followUp' };
+type BubblesDetailModalState = { kind: 'kpi'; kpi: KpiDrillKey };
 
 type DriverKpiSummaryRow = {
   name: string;
@@ -166,7 +170,41 @@ function mapArchiveRow(r: Record<string, unknown>): BubblesArchiveRecord {
   };
 }
 
-export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: Props) {
+/** بعد الأرشفة الفورية لا يبقى «مكتمل» في الجدول الحي — ندمج الأرشيف ليظهر تأكيد الحارس في واجهة الإدارة */
+function mergeLiveAndArchiveCompletedForAdmin(
+  records: BubblesRecord[],
+  archiveRecords: BubblesArchiveRecord[],
+): BubblesRecord[] {
+  const live = records.filter((r) => r.status === 'completed');
+  const liveIds = new Set(live.map((r) => r.id));
+  const fromArchive = archiveRecords.filter(
+    (a) => a.status === 'completed' && !(a.source_id && liveIds.has(a.source_id)),
+  );
+  return [...live, ...fromArchive];
+}
+
+/** سجلات تحتاج متابعة: متأخر/مشكلة في الحي + الأرشيف (بعد الأرشفة الفورية تنتقل «مشكلة» للأرشيف) */
+function mergeFollowUpList(
+  records: BubblesRecord[],
+  archiveRecords: BubblesArchiveRecord[],
+): BubblesRecord[] {
+  const live = records.filter((r) => r.status === 'delayed' || r.status === 'issue');
+  const liveIds = new Set(live.map((r) => r.id));
+  const fromArchive = archiveRecords.filter(
+    (a) =>
+      (a.status === 'delayed' || a.status === 'issue') && !(a.source_id && liveIds.has(a.source_id)),
+  );
+  return [...live, ...fromArchive];
+}
+
+type BubblesViolationModalState = {
+  driverDisplayName: string;
+  rows: BubblesRecord[];
+  staffOptions: { id: string; full_name: string }[];
+  selectedStaffId: string;
+};
+
+export default function Bubbles({ profile, userId, onOpenReportsHub }: Props) {
   const role = profile.role;
   const isAdmin = role === 'admin';
   const isGate = role === 'gate_guard';
@@ -184,15 +222,23 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [uploadBusy, setUploadBusy] = useState(false);
-  const [gateDriver, setGateDriver] = useState<string | null>(null);
+  /** مودال «لم يتم الإرجاع»: إما لكل سائق أو لسجل ببلز واحد (محاكاة الحالات المتفق عليها) */
+  const [gateIssueOpen, setGateIssueOpen] = useState<
+    { mode: 'driver'; driver: string } | { mode: 'records'; subject: string; ids: string[] } | null
+  >(null);
   const [gateIssueReason, setGateIssueReason] = useState('');
   const [gateBusy, setGateBusy] = useState(false);
   const [detailModal, setDetailModal] = useState<BubblesDetailModalState | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedBubbleIds, setSelectedBubbleIds] = useState<string[]>([]);
   const [bubbleBulkDeleting, setBubbleBulkDeleting] = useState(false);
+  const [staffDriversMatch, setStaffDriversMatch] = useState<{ id: string; full_name: string }[]>([]);
+  const [violationModal, setViolationModal] = useState<BubblesViolationModalState | null>(null);
+  const [violationReason, setViolationReason] = useState('');
+  const [followUpBusy, setFollowUpBusy] = useState(false);
 
   const debouncedSearch = useDebouncedValue(search, 250);
+  const canManageBubblesFollowUp = isAdmin;
 
   useEffect(() => {
     setSelectedBubbleIds([]);
@@ -281,6 +327,31 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
   }, [gateMinimalUi, tab]);
 
   useEffect(() => {
+    if (gateMinimalUi && tab === 'followup') setTab('active');
+  }, [gateMinimalUi, tab]);
+
+  useEffect(() => {
+    if (sourceTab === 'archive' && tab === 'followup') setTab('active');
+  }, [sourceTab, tab]);
+
+  useEffect(() => {
+    if (gateMinimalUi) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from('staff_members')
+        .select('id, full_name')
+        .eq('is_active', true)
+        .eq('role', 'driver');
+      if (cancelled || error) return;
+      setStaffDriversMatch((data ?? []) as { id: string; full_name: string }[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gateMinimalUi]);
+
+  useEffect(() => {
     if (!detailModal) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setDetailModal(null);
@@ -296,6 +367,21 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
   }, [sourceTab]);
 
   const filteredByTab = useMemo(() => {
+    if (gateMinimalUi && tab === 'completed') {
+      return archiveRecords.filter(
+        (a) =>
+          a.status === 'completed' &&
+          Boolean(a.return_time) &&
+          Boolean(a.gate_return_confirmed_at) &&
+          !(a.reason && String(a.reason).trim()),
+      );
+    }
+    if (!gateMinimalUi && tab === 'completed' && sourceTab === 'live') {
+      return mergeLiveAndArchiveCompletedForAdmin(records, archiveRecords);
+    }
+    if (!gateMinimalUi && tab === 'followup' && sourceTab === 'live') {
+      return mergeFollowUpList(records, archiveRecords);
+    }
     return records.filter((r) => {
       if (tab === 'active') return r.status === 'pending' || r.status === 'delayed';
       if (tab === 'delayed') return r.status === 'delayed';
@@ -303,7 +389,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
       if (tab === 'completed') return r.status === 'completed';
       return true;
     });
-  }, [records, tab]);
+  }, [records, archiveRecords, tab, gateMinimalUi, sourceTab]);
 
   const filteredByDate = useMemo(() => {
     if (gateMinimalUi) {
@@ -538,26 +624,10 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
       bad: v.bad,
     }));
     const best = [...list].filter((x) => x.completed > 0).sort((a, b) => b.score - a.score).slice(0, 5);
-    const worst = [...list].filter((x) => x.bad > 0).sort((a, b) => a.score - b.score).slice(0, 5);
-    return { best, worst };
+    return { best };
   }, [records]);
 
   const driverKpiSummaries = useMemo(() => buildDriverKpiSummaries(records), [records]);
-
-  const worstDriverNameSet = useMemo(
-    () => new Set(driverScores.worst.map((x) => x.name)),
-    [driverScores.worst]
-  );
-
-  const followUpDetailRecords = useMemo(
-    () =>
-      records.filter(
-        (r) =>
-          (r.status === 'delayed' || r.status === 'issue') &&
-          worstDriverNameSet.has(r.driver_name.trim() || '—')
-      ),
-    [records, worstDriverNameSet]
-  );
 
   const avgReturnDetailRecords = useMemo(
     () => records.filter((r) => bubblesRecordReturnHours(r) != null),
@@ -601,10 +671,10 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
         ]),
       };
     }
-    const rows = detailModal.kind === 'followUp' ? followUpDetailRecords : detailKpiRows;
+    const rows = detailKpiRows;
     return {
-      title: detailModal.kind === 'followUp' ? 'سجلات تحتاج متابعة' : KPI_MODAL_TITLE[detailModal.kpi],
-      sheetName: detailModal.kind === 'followUp' ? 'Bubbles_FollowUp' : `Bubbles_${detailModal.kpi}`,
+      title: KPI_MODAL_TITLE[detailModal.kpi],
+      sheetName: `Bubbles_${detailModal.kpi}`,
       headers: [
         'السائق',
         'العميل',
@@ -636,7 +706,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
         r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
       ]),
     };
-  }, [detailModal, sourceTab, driverKpiSummaries, followUpDetailRecords, detailKpiRows]);
+  }, [detailModal, sourceTab, driverKpiSummaries, detailKpiRows]);
 
   const gateDrivers = useMemo(() => {
     const todayKey = getBaghdadDateKey(new Date());
@@ -744,6 +814,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
         .update({
           status: 'completed',
           return_time: new Date().toISOString(),
+          gate_return_confirmed_at: new Date().toISOString(),
         })
         .in('id', ids);
       setGateBusy(false);
@@ -751,7 +822,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
         alert(error.message);
         return;
       }
-      await fetchRecords();
+      await Promise.all([fetchRecords(), fetchArchiveData()]);
       return;
     }
     const { error } = await supabase
@@ -767,11 +838,30 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
       alert(error.message);
       return;
     }
-    await fetchRecords();
+    await Promise.all([fetchRecords(), fetchArchiveData()]);
+  };
+
+  const markGateRecordsReturned = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setGateBusy(true);
+    const { error } = await supabase
+      .from('bubbles_records')
+      .update({
+        status: 'completed',
+        return_time: new Date().toISOString(),
+        gate_return_confirmed_at: new Date().toISOString(),
+      })
+      .in('id', ids);
+    setGateBusy(false);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    await Promise.all([fetchRecords(), fetchArchiveData()]);
   };
 
   const submitDriverIssue = async () => {
-    if (!gateDriver) return;
+    if (!gateIssueOpen) return;
     const reason = gateIssueReason.trim();
     const validReasons: readonly string[] = BUBBLES_ISSUE_REASON_OPTIONS;
     if (!reason || !validReasons.includes(reason)) {
@@ -780,48 +870,178 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
     }
     setGateBusy(true);
     const todayKey = getBaghdadDateKey(new Date());
+
+    if (gateIssueOpen.mode === 'records') {
+      const raw = gateIssueOpen.ids;
+      const ids = gateMinimalUi
+        ? raw.filter((id) => {
+            const r = records.find((x) => x.id === id);
+            return (
+              !!r &&
+              (r.status === 'pending' || r.status === 'delayed') &&
+              getBaghdadDateKey(r.created_at) === todayKey
+            );
+          })
+        : raw;
+      if (ids.length === 0) {
+        setGateBusy(false);
+        setGateIssueOpen(null);
+        return;
+      }
+      const { error } = await supabase.from('bubbles_records').update({ status: 'issue', reason }).in('id', ids);
+      setGateBusy(false);
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      setGateIssueOpen(null);
+      setGateIssueReason('');
+      await Promise.all([fetchRecords(), fetchArchiveData()]);
+      return;
+    }
+
     if (gateMinimalUi) {
       const ids = records
         .filter(
           (r) =>
-            (r.driver_name.trim() || '—') === (gateDriver.trim() || '—') &&
+            (r.driver_name.trim() || '—') === (gateIssueOpen.driver.trim() || '—') &&
             (r.status === 'pending' || r.status === 'delayed') &&
             getBaghdadDateKey(r.created_at) === todayKey
         )
         .map((r) => r.id);
       if (ids.length === 0) {
         setGateBusy(false);
-        setGateDriver(null);
+        setGateIssueOpen(null);
         return;
       }
-      const { error } = await supabase
-        .from('bubbles_records')
-        .update({ status: 'issue', reason })
-        .in('id', ids);
+      const { error } = await supabase.from('bubbles_records').update({ status: 'issue', reason }).in('id', ids);
       setGateBusy(false);
       if (error) {
         alert(error.message);
         return;
       }
-      setGateDriver(null);
+      setGateIssueOpen(null);
       setGateIssueReason('');
-      await fetchRecords();
+      await Promise.all([fetchRecords(), fetchArchiveData()]);
       return;
     }
+
     const { error } = await supabase
       .from('bubbles_records')
       .update({ status: 'issue', reason })
-      .eq('driver_name', gateDriver)
+      .eq('driver_name', gateIssueOpen.driver)
       .in('status', ['pending', 'delayed']);
     setGateBusy(false);
     if (error) {
       alert(error.message);
       return;
     }
-    setGateDriver(null);
+    setGateIssueOpen(null);
     setGateIssueReason('');
-    await fetchRecords();
+    await Promise.all([fetchRecords(), fetchArchiveData()]);
   };
+
+  const clearFollowUpForDriver = useCallback(
+    async (driverLabel: string, rows: BubblesRecord[]) => {
+      const liveIds = rows.filter((r) => /^\d+$/.test(String(r.id))).map((r) => r.id);
+      const archiveIds = rows
+        .filter((r) => String(r.id).startsWith('arc-'))
+        .map((r) => {
+          const raw = String(r.id).replace(/^arc-/, '');
+          const n = Number(raw);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })
+        .filter((x): x is number => x != null);
+
+      if (liveIds.length === 0 && archiveIds.length === 0) {
+        window.alert('لا توجد سجلات لتطبيق المتابعة عليها.');
+        return;
+      }
+
+      const summaryLines: string[] = [];
+      if (liveIds.length)
+        summaryLines.push(
+          `• ${liveIds.length} سجل على الجدول التشغيلي → «معلّق» ومسح سبب المشكلة`,
+        );
+      if (archiveIds.length)
+        summaryLines.push(
+          `• ${archiveIds.length} سجل مؤرشف → «مكتمل» ومسح سبب المشكلة (لم يعد يظهر تحت «يحتاج متابعة»)`,
+        );
+
+      if (
+        !window.confirm(
+          `تأكيد متابعة السائق «${driverLabel}»؟\n\n${summaryLines.join('\n')}`,
+        )
+      ) {
+        return;
+      }
+
+      setFollowUpBusy(true);
+      try {
+        if (liveIds.length > 0) {
+          const { error } = await supabase
+            .from('bubbles_records')
+            .update({ status: 'pending', reason: null })
+            .in('id', liveIds);
+          if (error) {
+            window.alert(error.message);
+            return;
+          }
+        }
+        if (archiveIds.length > 0) {
+          const { error } = await supabase
+            .from('bubbles_records_archive')
+            .update({ status: 'completed', reason: null })
+            .in('archive_id', archiveIds);
+          if (error) {
+            window.alert(error.message);
+            return;
+          }
+        }
+        await Promise.all([fetchRecords(), fetchArchiveData()]);
+      } finally {
+        setFollowUpBusy(false);
+      }
+    },
+    [fetchRecords, fetchArchiveData],
+  );
+
+  const submitViolationFromBubbles = useCallback(async () => {
+    if (!violationModal || !canManageBubblesFollowUp) return;
+    const reason = violationReason.trim();
+    if (!reason) {
+      window.alert('يرجى كتابة سبب المخالفة.');
+      return;
+    }
+    const staffId = violationModal.selectedStaffId?.trim();
+    if (!staffId) {
+      window.alert('يرجى اختيار السائق من القائمة لمطابقته مع سجل الكادر.');
+      return;
+    }
+    const notesBody = violationModal.rows
+      .map(
+        (r) =>
+          `${STATUS_AR[r.status]} | عميل: ${r.customer_name} | فاتورة: ${r.invoice_number ?? '—'} | سبب الببلز: ${r.reason ?? '—'}`,
+      )
+      .join('\n');
+    setFollowUpBusy(true);
+    const { error } = await supabase.from('violations').insert({
+      staff_id: Number(staffId),
+      violation_type: 'ببلز — متابعة',
+      violation_reason: reason,
+      violation_date: new Date().toISOString().split('T')[0],
+      notes: notesBody.slice(0, 8000),
+      created_by: userId || null,
+    });
+    setFollowUpBusy(false);
+    if (error) {
+      window.alert(error.message);
+      return;
+    }
+    setViolationModal(null);
+    setViolationReason('');
+    window.alert('تم تسجيل المخالفة في سجل المخالفات.');
+  }, [violationModal, violationReason, canManageBubblesFollowUp, userId]);
 
   const exportHeaders =
     sourceTab === 'archive'
@@ -996,25 +1216,43 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
       )}
 
       {sourceTab === 'live' ? (
-      <div className="flex flex-wrap gap-2">
-        {(gateMinimalUi
-          ? (['active', 'issues', 'completed'] as const)
-          : (['active', 'delayed', 'issues', 'completed'] as const)
-        ).map((k) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setTab(k)}
-            className={cn(
-              'px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all',
-              tab === k
-                ? 'bg-violet-600 text-white border-violet-600 shadow-md'
-                : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300'
-            )}
-          >
-            {gateMinimalUi ? `${TAB_LABEL_AR[k]} · اليوم` : TAB_LABEL_AR[k]}
-          </button>
-        ))}
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          {(gateMinimalUi
+            ? (['active', 'issues', 'completed'] as const)
+            : (['active', 'delayed', 'issues', 'completed', 'followup'] as const)
+          ).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setTab(k)}
+              className={cn(
+                'px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all',
+                tab === k
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-md'
+                  : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300'
+              )}
+            >
+              {gateMinimalUi ? `${TAB_LABEL_AR[k]} · اليوم` : TAB_LABEL_AR[k]}
+            </button>
+          ))}
+        </div>
+        {gateMinimalUi && tab === 'completed' && (
+          <p className="text-xs text-stone-500 dark:text-stone-400 max-w-3xl leading-relaxed">
+            يظهر «مكتمل» هنا فقط ما أكدتَ إرجاعه عبر زر «تم الإرجاع» اليوم (توقيت بغداد)، بلا حالة مشكلة ولا سبب مرفق على السجل المكتمل.
+          </p>
+        )}
+        {!gateMinimalUi && tab === 'completed' && (
+          <p className="text-xs text-stone-500 dark:text-stone-400 max-w-3xl leading-relaxed">
+            يتضمن «مكتمل» السجلات من التشغيل الحي والأرشيف؛ ما يؤكده الحارس بـ «تم الإرجاع» يُؤرشف فوراً ويظهر هنا للمتابعة.
+          </p>
+        )}
+        {!gateMinimalUi && tab === 'followup' && (
+          <p className="text-xs text-stone-500 dark:text-stone-400 max-w-3xl leading-relaxed">
+            مهام متابعة السجلات المتأخرة أو ذات المشكلة (التشغيل الحي والأرشيف)؛ الجدول يوضح الحالة وسبب المشكلة عند وجوده. أزرار «تمت المتابعة…» و«تصدير مخالفة» تظهر لحساب{' '}
+            <strong className="font-semibold text-stone-600 dark:text-stone-300">الأدمن</strong> فقط وتربط المخالفة بسجل الكادر عند تطابق اسم السائق.
+          </p>
+        )}
       </div>
       ) : (
         <div className="flex flex-wrap gap-2">
@@ -1174,51 +1412,20 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
         </div>
       )}
 
-      {!gateMinimalUi && sourceTab === 'live' && (driverScores.best.length > 0 || driverScores.worst.length > 0) && (
-        <div className="grid md:grid-cols-2 gap-4">
-          <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 p-4">
-            <h3 className="font-bold text-emerald-800 dark:text-emerald-200 mb-2">أفضل التزام (تقديري)</h3>
-            <ul className="text-sm space-y-1 text-stone-700 dark:text-stone-300">
-              {driverScores.best.map((x) => (
-                <li key={x.name}>
-                  {x.name} — مكتمل {x.completed} / مشاكل {x.bad}
-                </li>
-              ))}
-              {driverScores.best.length === 0 && <li>لا بيانات كافية</li>}
-            </ul>
-          </div>
-          <button
-            type="button"
-            disabled={driverScores.worst.length === 0}
-            onClick={() => driverScores.worst.length > 0 && setDetailModal({ kind: 'followUp' })}
-            aria-label="عرض تفاصيل السجلات التي تحتاج متابعة"
-            className={cn(
-              'rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/30 dark:bg-red-950/20 p-4 text-right w-full transition-all',
-              driverScores.worst.length > 0 &&
-                'cursor-pointer hover:border-red-400 dark:hover:border-red-700 hover:shadow-md',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900',
-              driverScores.worst.length === 0 && 'opacity-80 cursor-default'
-            )}
-          >
-            <h3 className="font-bold text-red-800 dark:text-red-200 mb-2 flex items-center justify-between gap-2">
-              يحتاج متابعة
-              {driverScores.worst.length > 0 ? (
-                <span className="text-xs font-semibold text-red-600 dark:text-red-300">معاينة التفاصيل</span>
-              ) : null}
-            </h3>
-            <ul className="text-sm space-y-1 text-stone-700 dark:text-stone-300">
-              {driverScores.worst.map((x) => (
-                <li key={x.name}>
-                  {x.name} — متأخر/مشكلة {x.bad}، مكتمل {x.completed}
-                </li>
-              ))}
-              {driverScores.worst.length === 0 && <li>لا مشاكل مسجّلة</li>}
-            </ul>
-          </button>
+      {!gateMinimalUi && sourceTab === 'live' && driverScores.best.length > 0 && (
+        <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 p-4">
+          <h3 className="font-bold text-emerald-800 dark:text-emerald-200 mb-2">أفضل التزام (تقديري)</h3>
+          <ul className="text-sm space-y-1 text-stone-700 dark:text-stone-300">
+            {driverScores.best.map((x) => (
+              <li key={x.name}>
+                {x.name} — مكتمل {x.completed} / مشاكل {x.bad}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
-      {canGate && sourceTab === 'live' && gateDrivers.length > 0 && (
+      {canGate && sourceTab === 'live' && tab === 'active' && gateDrivers.length > 0 && (
         <div className="rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50/40 dark:bg-blue-950/30 p-4 space-y-3">
           <h3 className="font-bold text-blue-900 dark:text-blue-100 flex items-center gap-2">
             <Package className="w-5 h-5" />
@@ -1249,7 +1456,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                     whileTap={{ scale: 0.98 }}
                     disabled={gateBusy}
                     onClick={() => {
-                      setGateDriver(d);
+                      setGateIssueOpen({ mode: 'driver', driver: d });
                       setGateIssueReason('');
                     }}
                     className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-50"
@@ -1334,7 +1541,13 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
           <Loader2 className="w-10 h-10 animate-spin text-violet-600" />
         </div>
       ) : displayGrouped.length === 0 ? (
-        <div className="text-center py-20 text-stone-500 dark:text-stone-400">لا توجد بيانات ضمن الفلاتر الحالية.</div>
+        <div className="text-center py-20 text-stone-500 dark:text-stone-400">
+          {gateMinimalUi && tab === 'completed'
+            ? 'لا توجد ببلز أكدتَ إرجاعها اليوم وفق الشروط أعلاه.'
+            : !gateMinimalUi && tab === 'followup'
+              ? 'لا توجد مهام متابعة ضمن الفلاتر الحالية.'
+              : 'لا توجد بيانات ضمن الفلاتر الحالية.'}
+        </div>
       ) : (
         <div className="space-y-4">
           {displayGrouped.map((g) => (
@@ -1350,6 +1563,43 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                   <span className="mr-2 text-xs text-violet-600 dark:text-violet-400 font-semibold">أرشيف</span>
                 ) : null}
               </div>
+              {!gateMinimalUi && tab === 'followup' && sourceTab === 'live' && canManageBubblesFollowUp ? (
+                <div className="px-4 py-3 border-b border-stone-200 dark:border-stone-700 bg-amber-50/50 dark:bg-amber-950/20 flex flex-wrap gap-2 justify-end">
+                  <button
+                    type="button"
+                    disabled={followUpBusy}
+                    onClick={() =>
+                      void clearFollowUpForDriver(
+                        g.driver_name,
+                        g.customers.flatMap((c) => c.items),
+                      )
+                    }
+                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-50"
+                  >
+                    تمت المتابعة ولا توجد مشكلة
+                  </button>
+                  <button
+                    type="button"
+                    disabled={followUpBusy}
+                    onClick={() => {
+                      setViolationReason('');
+                      const { options, suggestedId } = getStaffPickOptionsForBubbleDriver(
+                        staffDriversMatch,
+                        g.driver_name,
+                      );
+                      setViolationModal({
+                        driverDisplayName: g.driver_name,
+                        rows: g.customers.flatMap((c) => c.items),
+                        staffOptions: options,
+                        selectedStaffId: suggestedId ?? options[0]?.id ?? '',
+                      });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-50"
+                  >
+                    تصدير مخالفة
+                  </button>
+                </div>
+              ) : null}
               <div className="p-3 space-y-4">
                 {g.customers.map((c) => (
                   <div key={`${g.driver_name}-${c.customer_name}`}>
@@ -1372,6 +1622,9 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                             <th className="p-2">الموقع</th>
                             <th className="p-2">CBM</th>
                             <th className="p-2">الحالة</th>
+                            {gateMinimalUi && sourceTab === 'live' && tab === 'active' ? (
+                              <th className="p-2 min-w-[200px] whitespace-nowrap">إجراءات الحارس</th>
+                            ) : null}
                           </tr>
                         </thead>
                         <tbody>
@@ -1401,6 +1654,40 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                                   {STATUS_AR[r.status]}
                                 </span>
                               </td>
+                              {gateMinimalUi && sourceTab === 'live' && tab === 'active' ? (
+                                <td className="p-2 align-middle" onClick={(e) => e.stopPropagation()}>
+                                  {r.status === 'pending' || r.status === 'delayed' ? (
+                                    <div className="flex flex-wrap gap-1.5 justify-end">
+                                      <button
+                                        type="button"
+                                        disabled={gateBusy}
+                                        onClick={() => void markGateRecordsReturned([r.id])}
+                                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
+                                      >
+                                        تم الإرجاع
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={gateBusy}
+                                        onClick={() => {
+                                          const inv = r.invoice_number?.trim();
+                                          setGateIssueOpen({
+                                            mode: 'records',
+                                            subject: `${r.driver_name} · ${r.customer_name}${inv ? ` · فاتورة ${inv}` : ''}`,
+                                            ids: [r.id],
+                                          });
+                                          setGateIssueReason('');
+                                        }}
+                                        className="px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold disabled:opacity-50"
+                                      >
+                                        لم يتم الإرجاع
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-stone-400 dark:text-stone-500">—</span>
+                                  )}
+                                </td>
+                              ) : null}
                             </tr>
                           ))}
                         </tbody>
@@ -1434,9 +1721,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                   id="bubbles-detail-modal-title"
                   className="text-lg font-bold text-stone-900 dark:text-white"
                 >
-                  {detailModal.kind === 'followUp'
-                    ? 'سجلات تحتاج متابعة — التفاصيل'
-                    : KPI_MODAL_TITLE[detailModal.kpi]}
+                  {KPI_MODAL_TITLE[detailModal.kpi]}
                 </h3>
                 {detailModal.kind === 'kpi' && detailModal.kpi === 'completed' ? (
                   <p className="text-sm text-stone-500 dark:text-stone-400">
@@ -1451,11 +1736,6 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                 {detailModal.kind === 'kpi' && detailModal.kpi === 'drivers' ? (
                   <p className="text-sm text-stone-500 dark:text-stone-400">
                     ملخّص حسب السائق — يطابق عدد السائقين الفريدين في النظام
-                  </p>
-                ) : null}
-                {detailModal.kind === 'followUp' ? (
-                  <p className="text-sm text-stone-500 dark:text-stone-400">
-                    {followUpDetailRecords.length} سجل (متأخر أو مشكلة لسائقي قائمة «يحتاج متابعة»)
                   </p>
                 ) : null}
               </div>
@@ -1514,8 +1794,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                 </p>
               ) : (
                 (() => {
-                  const rows: BubblesRecord[] =
-                    detailModal.kind === 'followUp' ? followUpDetailRecords : detailKpiRows;
+                  const rows: BubblesRecord[] = detailKpiRows;
                   const showReturnHoursCol =
                     detailModal.kind === 'kpi' && detailModal.kpi === 'avgReturn';
                   if (rows.length === 0) {
@@ -1627,14 +1906,105 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
         </div>
       )}
 
-      {gateDriver && (
+      {violationModal && canManageBubblesFollowUp && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/50" role="dialog">
+          <motion.div
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-lg rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 p-6 space-y-4 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-stone-900 dark:text-white">
+              تسجيل مخالفة — {violationModal.driverDisplayName}
+            </h3>
+            <p className="text-xs text-stone-500 dark:text-stone-400">
+              اختر السائق من القائمة إن لزم الأمر؛ يُقترح تلقائياً حسب الاسم أو أول اسمين. يُحفظ السبب في سجل
+              المخالفات ويُضاف إلى عدد مخالفات السائق المختار.
+            </p>
+            <div className="space-y-1">
+              <label htmlFor="bubbles-violation-staff" className="text-sm font-medium text-stone-700 dark:text-stone-300">
+                السائق في سجل الكادر (إلزامي)
+              </label>
+              <select
+                id="bubbles-violation-staff"
+                value={violationModal.selectedStaffId}
+                onChange={(e) =>
+                  setViolationModal((m) =>
+                    m ? { ...m, selectedStaffId: e.target.value } : m,
+                  )
+                }
+                className="w-full rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 p-3 text-sm text-stone-900 dark:text-stone-100"
+              >
+                {violationModal.staffOptions.length === 0 ? (
+                  <option value="">لا يوجد سائقون نشطون في الكادر</option>
+                ) : (
+                  violationModal.staffOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="bubbles-violation-reason" className="text-sm font-medium text-stone-700 dark:text-stone-300">
+                سبب المخالفة (إلزامي)
+              </label>
+              <textarea
+                id="bubbles-violation-reason"
+                value={violationReason}
+                onChange={(e) => setViolationReason(e.target.value)}
+                rows={3}
+                placeholder="اكتب سبب المخالفة..."
+                className="w-full rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 p-3 text-sm text-stone-900 dark:text-stone-100 resize-y min-h-[88px]"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-stone-600 dark:text-stone-400">ملخص سجلات الببلز المرفقة (يُحفظ في الملاحظات)</p>
+              <pre className="text-[11px] leading-relaxed whitespace-pre-wrap rounded-xl border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-800/80 p-3 max-h-40 overflow-y-auto text-stone-700 dark:text-stone-300">
+                {violationModal.rows
+                  .map(
+                    (r) =>
+                      `${STATUS_AR[r.status]} | ${r.customer_name} | فاتورة: ${r.invoice_number ?? '—'} | ${r.reason ?? '—'}`,
+                  )
+                  .join('\n')}
+              </pre>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-600"
+                onClick={() => {
+                  setViolationModal(null);
+                  setViolationReason('');
+                }}
+                disabled={followUpBusy}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded-xl bg-red-600 text-white font-bold disabled:opacity-50"
+                onClick={() => void submitViolationFromBubbles()}
+                disabled={followUpBusy}
+              >
+                {followUpBusy ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'حفظ في سجل المخالفات'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {gateIssueOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50" role="dialog">
           <motion.div
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="w-full max-w-md rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 p-6 space-y-4 shadow-2xl"
           >
-            <h3 className="text-lg font-bold text-stone-900 dark:text-white">سبب عدم الإرجاع — {gateDriver}</h3>
+            <h3 className="text-lg font-bold text-stone-900 dark:text-white">
+              سبب عدم الإرجاع —{' '}
+              {gateIssueOpen.mode === 'driver' ? gateIssueOpen.driver : gateIssueOpen.subject}
+            </h3>
             <div className="space-y-1">
               <label htmlFor="bubbles-issue-reason" className="text-sm font-medium text-stone-700 dark:text-stone-300">
                 اختر السبب
@@ -1658,7 +2028,7 @@ export default function Bubbles({ profile, userId: _userId, onOpenReportsHub }: 
                 type="button"
                 className="px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-600"
                 onClick={() => {
-                  setGateDriver(null);
+                  setGateIssueOpen(null);
                   setGateIssueReason('');
                 }}
                 disabled={gateBusy}

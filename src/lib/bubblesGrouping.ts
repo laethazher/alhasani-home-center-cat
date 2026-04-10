@@ -1,5 +1,15 @@
 import type { BubblesRecord } from './supabaseClient';
 
+/** يزيل لاحقة عرض مثل (1.0h) من اسم السائق للتجميع والمطابقة مع الكادر */
+const DRIVER_HOURS_SUFFIX_RE = /\s*\([\d.,]+\s*h\)\s*$/i;
+
+export function normalizeBubblesDriverLabel(name: string): string {
+  return String(name ?? '')
+    .trim()
+    .replace(DRIVER_HOURS_SUFFIX_RE, '')
+    .trim() || '—';
+}
+
 export interface BubblesCustomerGroup {
   customer_name: string;
   items: BubblesRecord[];
@@ -15,7 +25,7 @@ export function groupByDriverThenCustomer(records: BubblesRecord[]): BubblesDriv
   const byDriver = new Map<string, Map<string, BubblesRecord[]>>();
 
   for (const r of records) {
-    const d = r.driver_name.trim() || '—';
+    const d = normalizeBubblesDriverLabel(r.driver_name);
     const c = (r.customer_name || '').trim() || '—';
     if (!byDriver.has(d)) byDriver.set(d, new Map());
     const cm = byDriver.get(d)!;

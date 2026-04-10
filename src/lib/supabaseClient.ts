@@ -101,6 +101,8 @@ export interface BubblesRecord {
   reason: string | null;
   created_at: string;
   return_time: string | null;
+  /** يُضبط عند ضغط الحارس «تم الإرجاع» (للفصل عن أي إكمال إداري) */
+  gate_return_confirmed_at: string | null;
 }
 
 export interface BubblesArchiveRecord extends BubblesRecord {

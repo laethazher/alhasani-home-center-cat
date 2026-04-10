@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Bell, CheckCheck, LogOut, Shield } from 'lucide-react';
+import { ArrowRight, Bell, CheckCheck, CircleDot, DoorOpen, LogOut, Shield } from 'lucide-react';
 import { getDepartmentClient } from '../data/supabaseSource';
 import type { UserProfile } from '../lib/supabaseClient';
 import StaffExit from './StaffExit';
 import InstallationStaffExit from './InstallationStaffExit';
+import Bubbles from './Bubbles';
 
 interface GateNotificationRow {
   id: number;
@@ -33,6 +34,8 @@ export default function GateGuardWorkspace({
   isDarkMode,
 }: GateGuardWorkspaceProps) {
   const [tab, setTab] = useState<'tajhiz' | 'installation'>('tajhiz');
+  /** داخل التجهيز: إخراج الكادر أو متابعة الببلز (نفس صلاحيات Layout دون الاعتماد على القائمة الجانبية) */
+  const [tajhizTool, setTajhizTool] = useState<'staff-exit' | 'bubbles'>('staff-exit');
   const [notifications, setNotifications] = useState<GateNotificationRow[]>([]);
   const supabase = getDepartmentClient('installation');
 
@@ -103,10 +106,18 @@ export default function GateGuardWorkspace({
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button onClick={() => setTab('tajhiz')} className={`px-4 h-9 rounded-xl text-sm font-bold border ${tab === 'tajhiz' ? 'bg-blue-600 text-white border-blue-600' : 'border-stone-300 text-stone-600'}`}>
+            <button
+              type="button"
+              onClick={() => setTab('tajhiz')}
+              className={`px-4 h-9 rounded-xl text-sm font-bold border ${tab === 'tajhiz' ? 'bg-blue-600 text-white border-blue-600' : 'border-stone-300 text-stone-600'}`}
+            >
               التجهيز {unreadTajhiz > 0 ? `(${unreadTajhiz})` : ''}
             </button>
-            <button onClick={() => setTab('installation')} className={`px-4 h-9 rounded-xl text-sm font-bold border ${tab === 'installation' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-stone-300 text-stone-600'}`}>
+            <button
+              type="button"
+              onClick={() => setTab('installation')}
+              className={`px-4 h-9 rounded-xl text-sm font-bold border ${tab === 'installation' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-stone-300 text-stone-600'}`}
+            >
               التركيب {unreadInstallation > 0 ? `(${unreadInstallation})` : ''}
             </button>
             <button onClick={markAllRead} className="mr-auto h-9 px-3 rounded-xl text-xs font-bold border border-stone-300 text-stone-600 flex items-center gap-1.5">
@@ -125,8 +136,48 @@ export default function GateGuardWorkspace({
           )}
         </motion.div>
 
+        {tab === 'tajhiz' && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-wrap gap-2 rounded-2xl border p-3"
+            style={{
+              background: isDarkMode ? 'rgba(13,20,31,0.85)' : '#f8fafc',
+              borderColor: isDarkMode ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.35)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setTajhizTool('staff-exit')}
+              className={`inline-flex items-center gap-2 px-4 h-10 rounded-xl text-sm font-bold border transition-colors ${
+                tajhizTool === 'staff-exit'
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300 bg-white dark:bg-stone-900'
+              }`}
+            >
+              <DoorOpen className="w-4 h-4 shrink-0" />
+              إخراج الكادر
+            </button>
+            <button
+              type="button"
+              onClick={() => setTajhizTool('bubbles')}
+              className={`inline-flex items-center gap-2 px-4 h-10 rounded-xl text-sm font-bold border transition-colors ${
+                tajhizTool === 'bubbles'
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300 bg-white dark:bg-stone-900'
+              }`}
+            >
+              <CircleDot className="w-4 h-4 shrink-0" />
+              الببلز — إرجاع وتسجيل المشاكل
+            </button>
+          </motion.div>
+        )}
+
         <div>
-          {tab === 'tajhiz' && <StaffExit profile={profile} userId={userId} unifiedGatePortal />}
+          {tab === 'tajhiz' && tajhizTool === 'staff-exit' && (
+            <StaffExit profile={profile} userId={userId} unifiedGatePortal />
+          )}
+          {tab === 'tajhiz' && tajhizTool === 'bubbles' && <Bubbles profile={profile} userId={userId} />}
           {tab === 'installation' && (
             <InstallationStaffExit profile={profile} userId={userId} unifiedGatePortal />
           )}

@@ -137,6 +137,10 @@ function mapBubblesRecordRow(row: Record<string, unknown>): BubblesRecord {
     created_at: String(row.created_at ?? ''),
     return_time:
       row.return_time != null && row.return_time !== '' ? String(row.return_time) : null,
+    gate_return_confirmed_at:
+      row.gate_return_confirmed_at != null && row.gate_return_confirmed_at !== ''
+        ? String(row.gate_return_confirmed_at)
+        : null,
   };
 }
 
@@ -161,6 +165,10 @@ function mapBubblesArchiveRow(row: Record<string, unknown>): BubblesRecord {
     created_at: archivedAt,
     return_time:
       row.return_time != null && row.return_time !== '' ? String(row.return_time) : null,
+    gate_return_confirmed_at:
+      row.gate_return_confirmed_at != null && row.gate_return_confirmed_at !== ''
+        ? String(row.gate_return_confirmed_at)
+        : null,
   };
 }
 
@@ -187,8 +195,7 @@ type BubbleDrillKey =
   | 'completed'
   | 'delayed'
   | 'issues_pending'
-  | 'compliance'
-  | 'follow_up';
+  | 'compliance';
 
 const VEHICLE_STATUS_AR: Record<string, string> = {
   available: 'متاحة',
@@ -1285,8 +1292,6 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         return 'تفاصيل المشاكل / المعلّق';
       case 'compliance':
         return 'تفاصيل السجلات المحتسبة في نسبة الاكتمال';
-      case 'follow_up':
-        return 'تفاصيل السجلات التي تحتاج متابعة';
       default:
         return 'تفاصيل';
     }
@@ -1294,14 +1299,13 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
 
   const bubbleDrillRows = useMemo(() => {
     if (!bubbleDrillModal || bubbleDrillModal === 'drivers') return [] as BubblesRecord[];
-    if (bubbleDrillModal === 'follow_up') return bubbleFollowUpRows;
     if (bubbleDrillModal === 'total') return filteredBubbleRows;
     if (bubbleDrillModal === 'completed') return filteredBubbleRows.filter((r) => r.status === 'completed');
     if (bubbleDrillModal === 'delayed') return filteredBubbleRows.filter((r) => r.status === 'delayed');
     if (bubbleDrillModal === 'issues_pending')
       return filteredBubbleRows.filter((r) => r.status === 'issue' || r.status === 'pending');
     return filteredBubbleRows.filter((r) => r.status === 'completed');
-  }, [bubbleDrillModal, filteredBubbleRows, bubbleFollowUpRows]);
+  }, [bubbleDrillModal, filteredBubbleRows]);
 
   const bubbleDriverSummaryRows = useMemo(() => {
     const map = new Map<
@@ -2299,13 +2303,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                           r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
                         ])
                   }
-                  sheetName={
-                    bubbleDrillModal === 'drivers'
-                      ? 'Bubbles_Drivers'
-                      : bubbleDrillModal === 'follow_up'
-                        ? 'Bubbles_FollowUp'
-                        : 'Bubbles_Details'
-                  }
+                  sheetName={bubbleDrillModal === 'drivers' ? 'Bubbles_Drivers' : 'Bubbles_Details'}
                 />
                 <button
                   type="button"
@@ -2446,27 +2444,63 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       ) : null}
 
       {activeDomain === 'bubbles' && showBubblesTab ? (
-        <button
-          type="button"
-          onClick={() => setBubbleDrillModal('follow_up')}
-          disabled={bubbleFollowUpDrivers.length === 0}
-          className="w-full rounded-2xl border border-red-200 dark:border-red-900/50 bg-red-50/30 dark:bg-red-950/20 p-4 text-right transition-all disabled:opacity-75 disabled:cursor-default enabled:hover:border-red-400 dark:enabled:hover:border-red-700 enabled:hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-stone-900"
-        >
-          <h3 className="font-bold text-red-800 dark:text-red-200 mb-2 flex items-center justify-between gap-2">
-            يحتاج متابعة
-            {bubbleFollowUpDrivers.length > 0 ? (
-              <span className="text-xs font-semibold text-red-600 dark:text-red-300">معاينة التفاصيل</span>
-            ) : null}
-          </h3>
-          <ul className="text-sm space-y-1 text-stone-700 dark:text-stone-300">
-            {bubbleFollowUpDrivers.map((x) => (
-              <li key={x.driver}>
-                {x.driver} — يحتاج متابعة {x.bad} (معلّق {x.pending} / متأخر {x.delayed} / مشكلة {x.issue})
-              </li>
-            ))}
-            {bubbleFollowUpDrivers.length === 0 ? <li>لا توجد حالات متابعة ضمن الفلاتر الحالية.</li> : null}
-          </ul>
-        </button>
+        <div className="w-full rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/35 dark:bg-amber-950/25 p-4 space-y-3">
+          <div>
+            <h3 className="font-bold text-amber-900 dark:text-amber-100 mb-1">متابعة الببلز</h3>
+            <p className="text-sm text-amber-900/85 dark:text-amber-100/90 leading-relaxed">
+              لمعالجة السجلات المتأخرة أو ذات المشكلة وربطها بسجل المخالفات، استخدم صفحة{' '}
+              <strong className="font-extrabold">ببلز</strong> ← تبويب <strong className="font-extrabold">يحتاج متابعة</strong>.
+            </p>
+          </div>
+          {bubbleFollowUpRows.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-200/60 dark:border-amber-800/50">
+              <span className="text-xs text-stone-600 dark:text-stone-400">
+                تصدير تقرير المتابعة ضمن الفلاتر الحالية:
+              </span>
+              <ExportMenu
+                meta={{
+                  title: 'ببلز — يحتاج متابعة (تقرير)',
+                  filterDescription: 'من التقارير الذكية — للمرجعية فقط',
+                  rowCount: bubbleFollowUpRows.length,
+                }}
+                headerRow={[
+                  'المصدر',
+                  'التاريخ',
+                  'السائق',
+                  'العميل',
+                  'النوع',
+                  'الكمية',
+                  'الفاتورة',
+                  'الموقع',
+                  'CBM',
+                  'الحالة',
+                  'السبب',
+                  'وقت الإرجاع',
+                ]}
+                dataRows={bubbleFollowUpRows.map((r) => [
+                  String(r.id).startsWith('arc-') ? 'أرشيف' : 'تشغيلي',
+                  new Date(r.created_at).toLocaleString('ar-IQ'),
+                  r.driver_name,
+                  r.customer_name,
+                  r.product_type ?? '—',
+                  r.quantity,
+                  r.invoice_number ?? '—',
+                  r.location ?? '—',
+                  r.cbm ?? '—',
+                  BUBBLE_STATUS_AR[r.status],
+                  r.reason ?? '—',
+                  r.return_time ? new Date(r.return_time).toLocaleString('ar-IQ') : '—',
+                ])}
+                sheetName="Bubbles_FollowUp_Report"
+                disabled={false}
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-stone-500 dark:text-stone-400 pt-1 border-t border-amber-200/60 dark:border-amber-800/50">
+              لا توجد صفوف متابعة ضمن الفلاتر الحالية للتصدير.
+            </p>
+          )}
+        </div>
       ) : null}
 
       {(activeDomain === 'attendance' || activeDomain === 'all') && (

@@ -638,6 +638,10 @@ export default function StaffExit({ profile, userId, unifiedGatePortal = false, 
   const [smartDateRange, setSmartDateRange] = useState<{ from: string; to: string } | null>(null);
   const [sortRelevance, setSortRelevance] = useState(false);
 
+  useEffect(() => {
+    if (isGateGuard) setSortRelevance(false);
+  }, [isGateGuard]);
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   /* Create form */
@@ -1435,7 +1439,7 @@ export default function StaffExit({ profile, userId, unifiedGatePortal = false, 
         <LiveClock />
       </div>
 
-      <InspectionAlertBanner department="tajhiz" onGoToReports={onOpenReports} />
+      {!isGateGuard && <InspectionAlertBanner department="tajhiz" onGoToReports={onOpenReports} />}
 
       {isAdmin && pendingIssueTodayCount > 0 && (
         <div
@@ -1847,15 +1851,17 @@ export default function StaffExit({ profile, userId, unifiedGatePortal = false, 
               </button>
             )}
           </div>
-          <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm cursor-pointer shrink-0">
-            <input
-              type="checkbox"
-              checked={sortRelevance}
-              onChange={(e) => setSortRelevance(e.target.checked)}
-              className="rounded border-stone-300"
-            />
-            <span className="text-stone-700 dark:text-stone-300">ترتيب حسب التطابق</span>
-          </label>
+          {!isGateGuard && (
+            <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-800 text-sm cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={sortRelevance}
+                onChange={(e) => setSortRelevance(e.target.checked)}
+                className="rounded border-stone-300"
+              />
+              <span className="text-stone-700 dark:text-stone-300">ترتيب حسب التطابق</span>
+            </label>
+          )}
         </div>
 
         {isAdmin && (
