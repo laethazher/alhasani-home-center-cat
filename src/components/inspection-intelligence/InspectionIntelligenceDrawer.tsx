@@ -1221,9 +1221,8 @@ export default function InspectionIntelligenceDrawer({
         currentIds.forEach((id) => next.delete(id));
         return next;
       }
-      const next = new Set(prev);
-      currentIds.forEach((id) => next.add(id));
-      return next;
+      /** تحديد الكل لهذا التبويب فقط — لا يدمج مع صفوف التبويب الآخر */
+      return new Set(currentIds);
     });
   }, [allCurrentRecoveryIds]);
 
