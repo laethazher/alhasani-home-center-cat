@@ -1,10 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DepartmentCode } from '../../data/department';
 import { TOOL_INVENTORY_ITEMS } from '../../constants';
+import { formatInventoryLabel } from '../inventoryDisplay';
 
 interface InventoryTemplateRow {
   id: number;
   item_name: string;
+  barcode?: string | null;
   required_quantity: number;
 }
 
@@ -63,7 +65,7 @@ export async function calculateInspectionRecovery({
 
   const { data: templates, error: templatesError } = await client
     .from('inventory_item_templates')
-    .select('id,item_name,required_quantity')
+    .select('id,item_name,barcode,required_quantity')
     .eq('department_code', safeDepartment)
     .eq('category', 'tools')
     .eq('is_active', true);
@@ -79,6 +81,7 @@ export async function calculateInspectionRecovery({
       : TOOL_INVENTORY_ITEMS.map((item) => ({
           id: item.id,
           item_name: item.name,
+          barcode: null,
           required_quantity: item.quantity,
         }));
 
@@ -94,7 +97,7 @@ export async function calculateInspectionRecovery({
       vehicle_id: vehicleId,
       user_id: userId,
       department: safeDepartment,
-      item_name: String(item.item_name ?? ''),
+      item_name: formatInventoryLabel(String(item.item_name ?? ''), item.barcode),
       required_qty: requiredQty,
       actual_qty: actualQty,
       missing_qty: missingQty,

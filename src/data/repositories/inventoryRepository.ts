@@ -6,6 +6,7 @@ export interface InventoryTemplateItem {
   department_code: DepartmentCode;
   category: string;
   item_name: string;
+  barcode?: string | null;
   required_quantity: number;
   sort_order: number;
   is_active: boolean;
@@ -36,6 +37,7 @@ export class InventoryRepository {
         department_code: department,
         category: item.category,
         item_name: item.item_name,
+        barcode: item.barcode ?? null,
         required_quantity: item.required_quantity,
         sort_order: item.sort_order,
         is_active: item.is_active,

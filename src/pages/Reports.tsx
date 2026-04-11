@@ -39,6 +39,7 @@ import { InspectionForm } from '../components/InspectionForm';
 import { ToolInventory } from '../components/ToolInventory';
 import { SignaturePad } from '../components/SignaturePad';
 import { cn } from '../lib/utils';
+import { formatInventoryLabel } from '../lib/inventoryDisplay';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
 import type { DepartmentCode } from '../data/department';
 import type { Report, StaffMember, Vehicle } from '../lib/supabaseClient';
@@ -71,6 +72,7 @@ interface ReportsProps {
 interface InventoryItemView {
   id: number;
   name: string;
+  barcode?: string | null;
   quantity: number;
   sortOrder: number;
 }
@@ -254,11 +256,13 @@ export default function Reports({
     TOOL_INVENTORY_ITEMS.map((item, index) => ({
       id: item.id,
       name: item.name,
+      barcode: null,
       quantity: item.quantity,
       sortOrder: index + 1,
     }))
   );
   const [templateName, setTemplateName] = useState('');
+  const [templateBarcode, setTemplateBarcode] = useState('');
   const [templateQuantity, setTemplateQuantity] = useState<number>(1);
   const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -589,7 +593,7 @@ export default function Reports({
   const fetchInventoryTemplates = useCallback(async () => {
     const { data, error } = await supabase
       .from(tables.inventoryTemplates)
-      .select('id, item_name, required_quantity, sort_order')
+      .select('id, item_name, barcode, required_quantity, sort_order')
       .eq('department_code', department)
       .eq('category', 'tools')
       .eq('is_active', true)
@@ -600,6 +604,7 @@ export default function Reports({
         TOOL_INVENTORY_ITEMS.map((item, index) => ({
           id: item.id,
           name: item.name,
+          barcode: null,
           quantity: item.quantity,
           sortOrder: index + 1,
         }))
@@ -612,6 +617,7 @@ export default function Reports({
         TOOL_INVENTORY_ITEMS.map((item, index) => ({
           id: item.id,
           name: item.name,
+          barcode: null,
           quantity: item.quantity,
           sortOrder: index + 1,
         }))
@@ -622,6 +628,7 @@ export default function Reports({
       rows.map((row) => ({
         id: Number(row.id),
         name: String(row.item_name ?? ''),
+        barcode: row.barcode != null && String(row.barcode).trim() ? String(row.barcode).trim() : null,
         quantity: Number(row.required_quantity ?? 0),
         sortOrder: Number(row.sort_order ?? 0),
       }))
@@ -645,6 +652,7 @@ export default function Reports({
 
   const resetTemplateForm = () => {
     setTemplateName('');
+    setTemplateBarcode('');
     setTemplateQuantity(1);
     setEditingTemplateId(null);
     setShowTemplateModal(false);
@@ -653,6 +661,7 @@ export default function Reports({
   const startEditTemplate = (item: InventoryItemView) => {
     setEditingTemplateId(item.id);
     setTemplateName(item.name);
+    setTemplateBarcode(item.barcode ?? '');
     setTemplateQuantity(item.quantity);
     setShowTemplateModal(true);
   };
@@ -660,12 +669,14 @@ export default function Reports({
   const startAddTemplate = () => {
     setEditingTemplateId(null);
     setTemplateName('');
+    setTemplateBarcode('');
     setTemplateQuantity(1);
     setShowTemplateModal(true);
   };
 
   const saveTemplate = async () => {
     const normalizedName = templateName.trim();
+    const normalizedBarcode = templateBarcode.trim() || null;
     const normalizedQty = Number(templateQuantity || 0);
     if (!normalizedName) {
       alert('يرجى إدخال اسم العنصر');
@@ -683,6 +694,7 @@ export default function Reports({
           .from(tables.inventoryTemplates)
           .update({
             item_name: normalizedName,
+            barcode: normalizedBarcode,
             required_quantity: normalizedQty,
             sort_order: target?.sortOrder ?? 0,
           })
@@ -696,6 +708,7 @@ export default function Reports({
           department_code: department,
           category: 'tools',
           item_name: normalizedName,
+          barcode: normalizedBarcode,
           required_quantity: normalizedQty,
           sort_order: maxSort + 1,
           is_active: true,
@@ -1380,8 +1393,15 @@ export default function Reports({
                                   >
                                     <div className="min-w-0 flex items-center gap-2">
                                       <GripVertical className="w-4 h-4 text-stone-400" />
-                                      <p className="text-sm font-bold text-stone-800 dark:text-stone-100 truncate">{item.name}</p>
-                                      <p className="text-xs text-stone-500 dark:text-stone-400">المطلوب: {item.quantity}</p>
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-bold text-stone-800 dark:text-stone-100 truncate">{item.name}</p>
+                                        {item.barcode ? (
+                                          <p className="text-[10px] font-mono text-stone-500 dark:text-stone-400 truncate">
+                                            باركود: {item.barcode}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                      <p className="text-xs text-stone-500 dark:text-stone-400 shrink-0">المطلوب: {item.quantity}</p>
                                     </div>
                                     <div className="flex items-center gap-1">
                                       <button
@@ -1420,6 +1440,7 @@ export default function Reports({
                         items={inventoryItems.map((item) => ({
                           id: item.id,
                           item_name: item.name,
+                          barcode: item.barcode ?? null,
                           required_quantity: item.quantity,
                         }))}
                       />
@@ -1496,6 +1517,17 @@ export default function Reports({
               </div>
 
               <div className="space-y-2">
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400">الباركود</label>
+                <input
+                  type="text"
+                  value={templateBarcode}
+                  onChange={(e) => setTemplateBarcode(e.target.value)}
+                  placeholder="اختياري"
+                  className="input-field font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-xs font-bold text-stone-500 dark:text-stone-400">الكمية المطلوبة</label>
                 <input
                   type="number"
@@ -1508,7 +1540,7 @@ export default function Reports({
 
               {editingTemplateId && (
                 <div className="text-xs text-stone-500 dark:text-stone-400">
-                  سيتم تحديث اسم العنصر والكمية مع الحفاظ على ترتيبه الحالي.
+                  سيتم تحديث اسم العنصر والباركود والكمية مع الحفاظ على ترتيبه الحالي.
                 </div>
               )}
 
@@ -1785,6 +1817,7 @@ export default function Reports({
                           return {
                             id: item.id,
                             name: item.name,
+                            barcode: item.barcode ?? null,
                             available,
                             required,
                             deficit: Math.max(required - available, 0),
@@ -1818,7 +1851,10 @@ export default function Reports({
                                   </p>
                                   <ul className="space-y-1 text-xs text-amber-800 dark:text-amber-200">
                                     {deficits.map((d) => (
-                                      <li key={`def-${d.id}`}>- {d.name}: مطلوب {d.required} / متوفر {d.available} / نقص {d.deficit}</li>
+                                      <li key={`def-${d.id}`}>
+                                        - {formatInventoryLabel(d.name, d.barcode)}: مطلوب {d.required} / متوفر {d.available} / نقص{' '}
+                                        {d.deficit}
+                                      </li>
                                     ))}
                                   </ul>
                                 </div>
@@ -1843,9 +1879,9 @@ export default function Reports({
                     {inventoryItems.map((item) => (
                       <div key={item.id} className="pdf-print-flow-row border border-stone-200 rounded-lg overflow-hidden">
                         <div className="flex items-center justify-between p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
-                          <div className="flex items-center gap-3">
-                            <Package className="w-4 h-4 text-stone-400 dark:text-stone-500" />
-                            <span className="font-medium">{item.name}</span>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Package className="w-4 h-4 text-stone-400 dark:text-stone-500 shrink-0" />
+                            <span className="font-medium">{formatInventoryLabel(item.name, item.barcode)}</span>
                           </div>
                           <div className="flex items-center gap-6">
                             <span className="text-xs text-stone-400 dark:text-stone-500 whitespace-nowrap">المطلوب: {item.quantity}</span>

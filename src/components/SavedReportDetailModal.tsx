@@ -12,10 +12,12 @@ import {
   type SavedReportView,
 } from '../lib/savedReportFromRow';
 import { getVehicleInspectionMapUrl } from '../lib/vehicleInspectionMapUrl';
+import { formatInventoryLabel } from '../lib/inventoryDisplay';
 
 interface InventoryItemView {
   id: number;
   name: string;
+  barcode?: string | null;
   quantity: number;
   sortOrder: number;
 }
@@ -90,6 +92,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
           TOOL_INVENTORY_ITEMS.map((item, index) => ({
             id: item.id,
             name: item.name,
+            barcode: null,
             quantity: item.quantity,
             sortOrder: index + 1,
           })),
@@ -99,6 +102,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
           rows.map((row) => ({
             id: Number(row.id),
             name: String(row.item_name ?? ''),
+            barcode: row.barcode != null && String(row.barcode).trim() ? String(row.barcode).trim() : null,
             quantity: Number(row.required_quantity ?? 0),
             sortOrder: Number(row.sort_order ?? 0),
           })),
@@ -367,9 +371,9 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                     {inventoryItems.map((item) => (
                       <div key={item.id} className="pdf-print-flow-row border border-stone-200 rounded-lg overflow-hidden">
                         <div className="flex items-center justify-between p-3 bg-white dark:bg-stone-800 border-b border-stone-100 dark:border-stone-700">
-                          <div className="flex items-center gap-3">
-                            <Package className="w-4 h-4 text-stone-400 dark:text-stone-500" />
-                            <span className="font-medium">{item.name}</span>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Package className="w-4 h-4 text-stone-400 dark:text-stone-500 shrink-0" />
+                            <span className="font-medium">{formatInventoryLabel(item.name, item.barcode)}</span>
                           </div>
                           <div className="flex items-center gap-6">
                             <span className="text-xs text-stone-400 dark:text-stone-500 whitespace-nowrap">المطلوب: {item.quantity}</span>

@@ -1,12 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, Brain, CalendarCheck2, History, Loader2, Play, QrCode, RefreshCw, Sparkles, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Brain,
+  CalendarCheck2,
+  Download,
+  History,
+  Loader2,
+  Play,
+  QrCode,
+  RefreshCw,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import QRCode from 'react-qr-code';
 import type { DepartmentCode } from '../../data/department';
 import { getDepartmentClient, getDepartmentTables } from '../../data/supabaseSource';
 import { useInspectionIntelligence } from '../../hooks/useInspectionIntelligence';
 import { buildInspectionDeepLink, type IntelligenceFilterKey } from '../../lib/inspectionIntelligence';
 import { cn } from '../../lib/utils';
+import {
+  enrichStoredInventoryLabel,
+  escapeHtmlForPdf,
+  formatInventoryLabel,
+  splitBarcodeAndNameFromDisplay,
+} from '../../lib/inventoryDisplay';
+import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../../lib/pdfExport';
 import { TOOL_INVENTORY_ITEMS, WEEKLY_INSPECTION_ITEMS } from '../../constants';
 
 const WEEKDAY_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -14,6 +33,7 @@ const WEEKDAY_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأ�
 interface DeficitItem {
   itemId: number;
   itemName: string;
+  barcode?: string | null;
   required: number;
   available: number;
   deficit: number;
@@ -153,6 +173,10 @@ export default function InspectionIntelligenceDrawer({
   const [recoveryScheduleDrafts, setRecoveryScheduleDrafts] = useState<Record<number, string>>({});
   const [recoveryCompensatedDrafts, setRecoveryCompensatedDrafts] = useState<Record<number, string>>({});
   const [showNotCompensatedEditor, setShowNotCompensatedEditor] = useState<Record<number, boolean>>({});
+  const [inventoryNameBarcodeMap, setInventoryNameBarcodeMap] = useState<Map<string, string | null>>(
+    () => new Map(),
+  );
+  const [exportingArchivePdf, setExportingArchivePdf] = useState(false);
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
 
@@ -190,6 +214,38 @@ export default function InspectionIntelligenceDrawer({
 
   const staffLabel = department === 'installation' ? 'فني' : 'سائق';
 
+  const loadInventoryBarcodeMap = useCallback(async () => {
+    if (!open) return;
+    try {
+      const { data, error } = await client
+        .from(tables.inventoryTemplates)
+        .select('item_name, barcode')
+        .eq('department_code', department)
+        .eq('category', 'tools')
+        .eq('is_active', true);
+      if (error) throw error;
+      const m = new Map<string, string | null>();
+      for (const row of (data ?? []) as Array<{ item_name?: string; barcode?: string | null }>) {
+        const name = String(row.item_name ?? '').trim();
+        if (!name) continue;
+        const bc = row.barcode != null && String(row.barcode).trim() ? String(row.barcode).trim() : null;
+        m.set(name, bc);
+      }
+      setInventoryNameBarcodeMap(m);
+    } catch (e) {
+      console.warn('loadInventoryBarcodeMap failed', e);
+    }
+  }, [open, client, tables.inventoryTemplates, department]);
+
+  useEffect(() => {
+    void loadInventoryBarcodeMap();
+  }, [loadInventoryBarcodeMap]);
+
+  const formatRecoveryItemDisplay = useCallback(
+    (storedName: string) => enrichStoredInventoryLabel(storedName, inventoryNameBarcodeMap),
+    [inventoryNameBarcodeMap],
+  );
+
   const heatMax = useMemo(() => {
     if (!analytics) return 1;
     return Math.max(1, ...Object.values(analytics.heatmap));
@@ -202,7 +258,7 @@ export default function InspectionIntelligenceDrawer({
       const [templatesRes, vehiclesRes, compensationRes] = await Promise.all([
         client
           .from(tables.inventoryTemplates)
-          .select('id,item_name,required_quantity')
+          .select('id,item_name,barcode,required_quantity')
           .eq('department_code', department)
           .eq('category', 'tools')
           .eq('is_active', true),
@@ -246,14 +302,30 @@ export default function InspectionIntelligenceDrawer({
         if (chunk.length < batchSize) break;
       }
 
-      const requiredMap = new Map<number, { name: string; required: number }>();
-      const templateRows = (templatesRes.data ?? []) as Array<{ id: number; item_name: string; required_quantity: number }>;
+      const requiredMap = new Map<number, { name: string; barcode: string | null; required: number }>();
+      const templateRows = (templatesRes.data ?? []) as Array<{
+        id: number;
+        item_name: string;
+        barcode?: string | null;
+        required_quantity: number;
+      }>;
       const sourceTemplates = templateRows.length > 0
-        ? templateRows.map((t) => ({ id: Number(t.id), name: String(t.item_name ?? ''), required: Number(t.required_quantity ?? 0) }))
-        : TOOL_INVENTORY_ITEMS.map((t) => ({ id: Number(t.id), name: t.name, required: Number(t.quantity ?? 0) }));
+        ? templateRows.map((t) => ({
+            id: Number(t.id),
+            name: String(t.item_name ?? ''),
+            barcode: t.barcode != null && String(t.barcode).trim() ? String(t.barcode).trim() : null,
+            required: Number(t.required_quantity ?? 0),
+          }))
+        : TOOL_INVENTORY_ITEMS.map((t) => ({
+            id: Number(t.id),
+            name: t.name,
+            barcode: null as string | null,
+            required: Number(t.quantity ?? 0),
+          }));
       for (const row of sourceTemplates) {
         requiredMap.set(Number(row.id), {
           name: String(row.name ?? ''),
+          barcode: row.barcode,
           required: Number(row.required ?? 0),
         });
       }
@@ -309,6 +381,7 @@ export default function InspectionIntelligenceDrawer({
             items.push({
               itemId,
               itemName: cfg.name,
+              barcode: cfg.barcode,
               required: cfg.required,
               available: safeAvailable,
               deficit,
@@ -487,7 +560,7 @@ export default function InspectionIntelligenceDrawer({
           inspection_id: inspectionId,
           vehicle_id: deficit.vehicleId,
           user_id: null,
-          item_name: item.itemName,
+          item_name: formatInventoryLabel(item.itemName, item.barcode),
           required_qty: item.required,
           actual_qty: item.available,
           missing_qty: item.deficit,
@@ -604,6 +677,119 @@ export default function InspectionIntelligenceDrawer({
     const compensated = Number(row.compensated_qty ?? 0);
     return Math.max(missing - compensated, 0);
   }, []);
+
+  const exportArchiveToPdf = useCallback(async () => {
+    setExportingArchivePdf(true);
+    try {
+    const deptTitle =
+      department === 'installation' ? 'تركيب' : department === 'operations' ? 'عمليات' : 'تجهيز';
+    const selectionActive = selectedRecoveryIds.size > 0;
+
+    const flatRows: Array<{ card: RecoveryGroupedCard; row: InspectionRecoveryRow }> = [];
+    for (const card of archiveCards) {
+      for (const row of card.rows) {
+        if (selectionActive) {
+          if (row.id <= 0 || !selectedRecoveryIds.has(row.id)) continue;
+        }
+        flatRows.push({ card, row });
+      }
+    }
+
+    const actionsForPdf = recoveryActions.filter((a) => {
+      if (!selectionActive) return true;
+      return a.recovery_id != null && selectedRecoveryIds.has(a.recovery_id);
+    });
+
+    if (flatRows.length === 0 && actionsForPdf.length === 0) {
+      window.alert(
+        selectionActive
+          ? 'لا توجد صفوف ضمن التحديد للتصدير. ألغِ التحديد أو حدّد صفوفاً من الأرشيف.'
+          : 'لا توجد بيانات أرشيف للتصدير.',
+      );
+      return;
+    }
+
+    const statusLabel = (row: InspectionRecoveryRow) => {
+      const eff = getEffectiveRecoveryStatus(row);
+      if (eff === 'resolved') return 'تم التعويض';
+      if (eff === 'scheduled') return 'مجدول أو لاحق';
+      return 'قيد الانتظار';
+    };
+
+    const rowsHtml = flatRows
+      .map(({ card, row }) => {
+        const display = formatRecoveryItemDisplay(row.item_name);
+        const { barcode, name } = splitBarcodeAndNameFromDisplay(display);
+        const rem = getRemainingMissingQty(row);
+        return `<tr>
+          <td>${escapeHtmlForPdf(card.vehicleLabel)}</td>
+          <td>${escapeHtmlForPdf(card.userLabel)}</td>
+          <td>${escapeHtmlForPdf(barcode)}</td>
+          <td>${escapeHtmlForPdf(name)}</td>
+          <td>${escapeHtmlForPdf(statusLabel(row))}</td>
+          <td>${row.required_qty}</td>
+          <td>${row.actual_qty}</td>
+          <td>${row.missing_qty}</td>
+          <td>${Number(row.compensated_qty ?? 0)}</td>
+          <td>${rem}</td>
+          <td>${escapeHtmlForPdf(row.reason ?? '—')}</td>
+        </tr>`;
+      })
+      .join('');
+
+    const actionsHtml = actionsForPdf
+      .slice(0, 500)
+      .map((a) => {
+        const display = formatRecoveryItemDisplay(a.item_name);
+        return `<tr>
+          <td>${escapeHtmlForPdf(String(a.acted_at).slice(0, 19))}</td>
+          <td>${a.vehicle_id}</td>
+          <td>${escapeHtmlForPdf(display)}</td>
+          <td>${escapeHtmlForPdf(String(a.previous_status ?? '—'))}</td>
+          <td>${escapeHtmlForPdf(String(a.next_status))}</td>
+          <td>${a.compensated_qty ?? '—'}</td>
+          <td>${escapeHtmlForPdf(a.reason ?? '—')}</td>
+        </tr>`;
+      })
+      .join('');
+
+    const title = `أرشيف نواقص الجرد والحركات — ${deptTitle}`;
+    const meta = `${new Date().toLocaleString('ar-EG')}${selectionActive ? ' · تصدير الصفوف المحددة فقط' : ''}`;
+
+    const html = `
+      <h1>${escapeHtmlForPdf(title)}</h1>
+      <p>${escapeHtmlForPdf(meta)}</p>
+      <h2>العناصر (الأرشيف)</h2>
+      <table>
+        <thead><tr>
+          <th>المركبة</th><th>${escapeHtmlForPdf(staffLabel)}</th><th>الباركود</th><th>اسم العنصر</th>
+          <th>حالة التعويض</th><th>مطلوب</th><th>موجود</th><th>نقص</th><th>تم تعويض</th><th>متبقي</th><th>ملاحظة</th>
+        </tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="11">—</td></tr>`}</tbody>
+      </table>
+      <h2>سجل الحركات</h2>
+      <table>
+        <thead><tr>
+          <th>التاريخ</th><th>مركبة</th><th>العنصر</th><th>من</th><th>إلى</th><th>كمية تعويض</th><th>سبب</th>
+        </tr></thead>
+        <tbody>${actionsHtml || `<tr><td colspan="7">—</td></tr>`}</tbody>
+      </table>
+    `;
+
+      await exportHtmlToPdf(wrapReportHtmlForPdf(html, window.location.origin), `jard-archive-${deptTitle}-${Date.now()}.pdf`, {});
+    } finally {
+      setExportingArchivePdf(false);
+    }
+  }, [
+    archiveCards,
+    recoveryActions,
+    selectedRecoveryIds,
+    formatRecoveryItemDisplay,
+    getEffectiveRecoveryStatus,
+    getRemainingMissingQty,
+    department,
+    staffLabel,
+  ]);
 
   const logRecoveryAction = useCallback(
     async (
@@ -1099,7 +1285,10 @@ export default function InspectionIntelligenceDrawer({
                               </div>
                               <div className="text-[10px] text-stone-600 dark:text-stone-300 leading-5">
                                 {row.items.slice(0, 3).map((item) => (
-                                  <div key={`${row.reportId}-${item.itemId}`}>- {item.itemName}: مطلوب {item.required} / متوفر {item.available} / نقص {item.deficit}</div>
+                                  <div key={`${row.reportId}-${item.itemId}`}>
+                                    - {formatRecoveryItemDisplay(item.itemName)}: مطلوب {item.required} / متوفر {item.available} / نقص{' '}
+                                    {item.deficit}
+                                  </div>
                                 ))}
                                 {row.items.length > 3 && <div>... +{row.items.length - 3} عناصر أخرى</div>}
                                 {row.nonCompliantItems.length > 0 && (
@@ -1325,6 +1514,7 @@ export default function InspectionIntelligenceDrawer({
                             onClick={() => {
                               void loadRecoveryRows();
                               void loadRecoveryActions();
+                              void loadInventoryBarcodeMap();
                             }}
                             className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
                           >
@@ -1358,6 +1548,26 @@ export default function InspectionIntelligenceDrawer({
                           الأرشيف / الحركات
                         </button>
                       </div>
+                      {recoverySubTab === 'archive' && (
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            disabled={
+                              exportingArchivePdf ||
+                              (archiveCards.length === 0 && recoveryActions.length === 0)
+                            }
+                            onClick={() => void exportArchiveToPdf()}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-[11px] font-black text-stone-800 dark:text-stone-100 disabled:opacity-50"
+                          >
+                            {exportingArchivePdf ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            تصدير PDF
+                          </button>
+                        </div>
+                      )}
                       {canDeleteRecovery && (
                         <div className="flex items-center gap-2 flex-wrap">
                           <button
@@ -1430,10 +1640,12 @@ export default function InspectionIntelligenceDrawer({
                                         </label>
                                       )}
                                       <div className="flex items-center justify-between gap-2">
-                                        <p className="text-[11px] font-bold truncate">{row.item_name}</p>
+                                        <p className="text-[11px] font-bold truncate" title={formatRecoveryItemDisplay(row.item_name)}>
+                                          {formatRecoveryItemDisplay(row.item_name)}
+                                        </p>
                                         <span
                                           className={cn(
-                                            'text-[10px] font-black px-2 py-1 rounded-md',
+                                            'text-[10px] font-black px-2 py-1 rounded-md shrink-0',
                                             effectiveStatus === 'resolved'
                                               ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
                                               : effectiveStatus === 'scheduled'
@@ -1582,7 +1794,9 @@ export default function InspectionIntelligenceDrawer({
                                               تحديد
                                             </label>
                                           )}
-                                          <p className="text-[11px] font-bold truncate">{row.item_name}</p>
+                                          <p className="text-[11px] font-bold truncate" title={formatRecoveryItemDisplay(row.item_name)}>
+                                            {formatRecoveryItemDisplay(row.item_name)}
+                                          </p>
                                           <p className="text-[10px] text-stone-600 dark:text-stone-300">
                                             مطلوب {row.required_qty} / موجود {row.actual_qty} / نقص {row.missing_qty}
                                           </p>
@@ -1606,7 +1820,8 @@ export default function InspectionIntelligenceDrawer({
                                       <div className="space-y-1">
                                         {timeline.slice(0, 8).map((action) => (
                                           <p key={action.id} className="text-[10px] text-stone-600 dark:text-stone-300">
-                                            {String(action.acted_at).slice(0, 10)} · {action.item_name} · {action.previous_status ?? '—'} ← {action.next_status}
+                                            {String(action.acted_at).slice(0, 10)} · {formatRecoveryItemDisplay(action.item_name)} ·{' '}
+                                            {action.previous_status ?? '—'} ← {action.next_status}
                                             {action.reason ? ` · ${action.reason}` : ''}
                                           </p>
                                         ))}
