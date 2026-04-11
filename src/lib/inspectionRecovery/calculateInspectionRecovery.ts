@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DepartmentCode } from '../../data/department';
+import { getDepartmentTables } from '../../data/supabaseSource';
 import { TOOL_INVENTORY_ITEMS } from '../../constants';
 import { formatInventoryLabel } from '../inventoryDisplay';
 
@@ -14,7 +15,7 @@ interface RecoveryRowInsert {
   inspection_id: number;
   vehicle_id: number;
   user_id: string;
-  department: 'tajhiz' | 'installation';
+  department: 'tajhiz' | 'installation' | 'operations';
   item_name: string;
   required_qty: number;
   actual_qty: number;
@@ -39,9 +40,10 @@ export interface CalculateInspectionRecoveryResult {
   insertedCount: number;
 }
 
-function normalizeDepartment(department: DepartmentCode): 'tajhiz' | 'installation' | null {
+function normalizeDepartment(department: DepartmentCode): 'tajhiz' | 'installation' | 'operations' | null {
   if (department === 'installation') return 'installation';
   if (department === 'tajhiz') return 'tajhiz';
+  if (department === 'operations') return 'operations';
   return null;
 }
 
@@ -63,10 +65,11 @@ export async function calculateInspectionRecovery({
     return { skippedNoToolkit: true, insertedCount: 0 };
   }
 
+  const inventoryTable = getDepartmentTables(department).inventoryTemplates;
   const { data: templates, error: templatesError } = await client
-    .from('inventory_item_templates')
+    .from(inventoryTable)
     .select('id,item_name,barcode,required_quantity')
-    .eq('department_code', safeDepartment)
+    .eq('department_code', department)
     .eq('category', 'tools')
     .eq('is_active', true);
 
@@ -107,7 +110,6 @@ export async function calculateInspectionRecovery({
     });
   }
 
-  // Keep only latest computed snapshot for the same inspection.
   const { error: deleteError } = await client
     .from('inspection_recovery')
     .delete()

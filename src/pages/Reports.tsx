@@ -77,6 +77,22 @@ interface InventoryItemView {
   sortOrder: number;
 }
 
+/** يملأ tool_values بكل مفاتيح قالب الجرد الحالي (بما فيها العناصر المضافة لاحقاً) — القيمة الافتراضية 0 إن لم يُدخل المستخدم شيئاً. */
+function buildNormalizedToolValuesForReport(
+  hasToolkit: boolean,
+  templates: InventoryItemView[],
+  draft: Record<number, number>,
+): Record<number, number> {
+  if (!hasToolkit) return {};
+  const out: Record<number, number> = {};
+  for (const item of templates) {
+    const raw = draft[item.id];
+    const n = raw !== undefined && raw !== null ? Number(raw) : 0;
+    out[item.id] = Number.isFinite(n) ? Math.max(0, n) : 0;
+  }
+  return out;
+}
+
 /**
  * عرض تفاصيل نواقص التعويض داخل التقرير نفسه مُعطّل؛
  * التفاصيل والإجراءات تُدار حصراً عبر واجهة "نواقص الجرد" في Inspection Intelligence.
@@ -807,6 +823,11 @@ export default function Reports({
     setIsSubmitting(true);
 
     try {
+      const normalizedToolValues = buildNormalizedToolValuesForReport(
+        selectedVehicleHasToolkit,
+        inventoryItems,
+        toolValues,
+      );
       const reportPayload = {
         user_id: userId,
         vehicle_id: selectedVehicle.id,
@@ -815,7 +836,7 @@ export default function Reports({
         date,
         damage_points: damagePoints,
         inspection_values: inspectionValues,
-        tool_values: selectedVehicleHasToolkit ? toolValues : {},
+        tool_values: normalizedToolValues,
         tool_images: selectedVehicleHasToolkit ? toolImages : {},
         driver_signature: driverSignature,
         equipment_manager: equipmentManagerSignature,
@@ -859,26 +880,27 @@ export default function Reports({
         return assignReportDisplaySequences([newView, ...rest]);
       });
 
-      try {
-        const recoveryResult = await calculateInspectionRecovery({
-          client: supabase,
-          department,
-          inspectionId: Number(newView.id),
-          vehicleId: Number(selectedVehicle.id),
-          userId,
-          hasToolkit: selectedVehicleHasToolkit,
-          toolValues: selectedVehicleHasToolkit ? toolValues : {},
-        });
-        if (recoveryResult.skippedNoToolkit) {
-          setPostSubmitNotice('لا تحتوي على عدة');
-        } else {
-          setPostSubmitNotice(null);
-        }
-      } catch (recoveryError) {
-        console.error('Post-inspection recovery failed:', recoveryError);
-      }
-
       setSubmitted(true);
+
+      void calculateInspectionRecovery({
+        client: supabase,
+        department,
+        inspectionId: Number(newView.id),
+        vehicleId: Number(selectedVehicle.id),
+        userId,
+        hasToolkit: selectedVehicleHasToolkit,
+        toolValues: normalizedToolValues,
+      })
+        .then((recoveryResult) => {
+          if (recoveryResult.skippedNoToolkit) {
+            setPostSubmitNotice('لا تحتوي على عدة');
+          } else {
+            setPostSubmitNotice(null);
+          }
+        })
+        .catch((recoveryError) => {
+          console.error('Post-inspection recovery failed:', recoveryError);
+        });
 
       const completedInspectionCount = Object.values(inspectionValues).filter(Boolean).length;
       const reportSummary = `تم إنشاء تقرير فحص للمركبة ${selectedVehicle.plate_number} للـ${staffLabel} ${driverName.trim()}`;

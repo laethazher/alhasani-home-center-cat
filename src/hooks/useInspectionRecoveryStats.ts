@@ -35,7 +35,10 @@ export function useInspectionRecoveryStats(department: DepartmentCode, enabled =
   const loadSeq = useRef(0);
 
   useEffect(() => {
-    if (!enabled || (department !== 'tajhiz' && department !== 'installation')) {
+    if (
+      !enabled ||
+      (department !== 'tajhiz' && department !== 'installation' && department !== 'operations')
+    ) {
       setStats(EMPTY_STATS);
       setLoading(false);
       return;

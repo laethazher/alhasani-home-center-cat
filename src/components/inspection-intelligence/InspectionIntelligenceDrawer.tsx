@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Brain,
   CalendarCheck2,
+  ChevronDown,
   Download,
   History,
   Loader2,
@@ -87,13 +88,38 @@ interface RecoveryGroupedCard {
   rows: InspectionRecoveryRow[];
 }
 
+interface StaffRecoveryGroup {
+  staffKey: string;
+  userLabel: string;
+  cards: RecoveryGroupedCard[];
+}
+
+function groupRecoveryCardsByStaff(cards: RecoveryGroupedCard[]): StaffRecoveryGroup[] {
+  const map = new Map<string, { userLabel: string; cards: RecoveryGroupedCard[] }>();
+  for (const card of cards) {
+    const staffKey =
+      card.userId != null && String(card.userId).trim() !== ''
+        ? String(card.userId)
+        : `anon-${card.vehicleId}`;
+    const cur = map.get(staffKey);
+    if (cur) {
+      cur.cards.push(card);
+    } else {
+      map.set(staffKey, { userLabel: card.userLabel, cards: [card] });
+    }
+  }
+  return Array.from(map.entries())
+    .map(([staffKey, v]) => ({ staffKey, userLabel: v.userLabel, cards: v.cards }))
+    .sort((a, b) => a.userLabel.localeCompare(b.userLabel, 'ar'));
+}
+
 interface InspectionRecoveryAction {
   id: number;
   recovery_id: number | null;
   inspection_id: number;
   vehicle_id: number;
   user_id: string | null;
-  department: 'tajhiz' | 'installation';
+  department: 'tajhiz' | 'installation' | 'operations';
   item_name: string;
   previous_status: RecoveryStatus | null;
   next_status: RecoveryStatus;
@@ -177,6 +203,8 @@ export default function InspectionIntelligenceDrawer({
     () => new Map(),
   );
   const [exportingArchivePdf, setExportingArchivePdf] = useState(false);
+  const [expandedWorklistStaff, setExpandedWorklistStaff] = useState<Set<string>>(new Set());
+  const [expandedArchiveStaff, setExpandedArchiveStaff] = useState<Set<string>>(new Set());
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
 
@@ -278,29 +306,22 @@ export default function InspectionIntelligenceDrawer({
         console.warn('inventory_deficit_compensations read failed; continuing without status map', compensationRes.error);
       }
 
-      // تحميل التقارير القديمة والجديدة على دفعات لضمان الشمول.
-      const reportRows: Array<Record<string, unknown>> = [];
-      const batchSize = 1000;
-      const maxReports = 10000;
-      for (let offset = 0; offset < maxReports; offset += batchSize) {
-        const query =
-          department === 'installation'
-            ? client
-                .from(tables.reports)
-                .select('id,vehicle_id,payload,created_at')
-                .order('created_at', { ascending: false })
-                .range(offset, offset + batchSize - 1)
-            : client
-                .from(tables.reports)
-                .select('id,vehicle_id,tool_values,inspection_values,created_at')
-                .order('created_at', { ascending: false })
-                .range(offset, offset + batchSize - 1);
-        const { data, error } = await query;
-        if (error) throw error;
-        const chunk = (data ?? []) as Array<Record<string, unknown>>;
-        reportRows.push(...chunk);
-        if (chunk.length < batchSize) break;
-      }
+      const reportLimit = 4000;
+      const reportQuery =
+        department === 'installation'
+          ? client
+              .from(tables.reports)
+              .select('id,vehicle_id,payload,created_at')
+              .order('created_at', { ascending: false })
+              .limit(reportLimit)
+          : client
+              .from(tables.reports)
+              .select('id,vehicle_id,tool_values,inspection_values,created_at')
+              .order('created_at', { ascending: false })
+              .limit(reportLimit);
+      const { data: reportData, error: reportError } = await reportQuery;
+      if (reportError) throw reportError;
+      const reportRows = (reportData ?? []) as Array<Record<string, unknown>>;
 
       const requiredMap = new Map<number, { name: string; barcode: string | null; required: number }>();
       const templateRows = (templatesRes.data ?? []) as Array<{
@@ -636,6 +657,27 @@ export default function InspectionIntelligenceDrawer({
     [getEffectiveRecoveryStatus, recoveryCards],
   );
 
+  const worklistByStaff = useMemo(() => groupRecoveryCardsByStaff(worklistCards), [worklistCards]);
+  const archiveByStaff = useMemo(() => groupRecoveryCardsByStaff(archiveCards), [archiveCards]);
+
+  const toggleWorklistStaff = useCallback((staffKey: string) => {
+    setExpandedWorklistStaff((prev) => {
+      const next = new Set(prev);
+      if (next.has(staffKey)) next.delete(staffKey);
+      else next.add(staffKey);
+      return next;
+    });
+  }, []);
+
+  const toggleArchiveStaff = useCallback((staffKey: string) => {
+    setExpandedArchiveStaff((prev) => {
+      const next = new Set(prev);
+      if (next.has(staffKey)) next.delete(staffKey);
+      else next.add(staffKey);
+      return next;
+    });
+  }, []);
+
   const actionTimelineByCard = useMemo(() => {
     const grouped = new Map<string, InspectionRecoveryAction[]>();
     for (const action of recoveryActions) {
@@ -832,7 +874,7 @@ export default function InspectionIntelligenceDrawer({
         inspection_id: row.inspection_id,
         vehicle_id: row.vehicle_id,
         user_id: row.user_id,
-        department: department as 'tajhiz' | 'installation',
+        department: department as 'tajhiz' | 'installation' | 'operations',
         item_name: row.item_name,
         previous_status: row.status,
         next_status: nextStatus,
@@ -1646,14 +1688,43 @@ export default function InspectionIntelligenceDrawer({
                       ) : recoverySubTab === 'worklist' && worklistCards.length === 0 ? (
                         <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد نواقص جرد مسجلة حالياً.</p>
                       ) : recoverySubTab === 'worklist' ? (
-                        <div className="space-y-3">
-                          {worklistCards.map((card) => (
-                            <div key={card.key} className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 p-3 space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-xs font-black">{card.vehicleLabel}</p>
-                                <p className="text-[10px] font-bold text-stone-500">{staffLabel}: {card.userLabel}</p>
-                              </div>
-                              <div className="space-y-2">
+                        <div className="space-y-2">
+                          {worklistByStaff.map((staffGroup) => {
+                            const rowCount = staffGroup.cards.reduce((acc, c) => acc + c.rows.length, 0);
+                            const workOpen = expandedWorklistStaff.has(staffGroup.staffKey);
+                            return (
+                              <div
+                                key={staffGroup.staffKey}
+                                className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 overflow-hidden"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => toggleWorklistStaff(staffGroup.staffKey)}
+                                  className="flex w-full items-center justify-between gap-2 px-3 py-3 text-right hover:bg-stone-100/80 dark:hover:bg-stone-800/50 transition-colors"
+                                >
+                                  <ChevronDown
+                                    className={cn(
+                                      'h-4 w-4 shrink-0 text-stone-500 transition-transform',
+                                      workOpen && 'rotate-180',
+                                    )}
+                                  />
+                                  <div className="flex min-w-0 flex-1 flex-col items-end gap-0.5">
+                                    <span className="text-sm font-black text-stone-900 dark:text-stone-100 truncate">
+                                      {staffGroup.userLabel}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-stone-500">
+                                      {rowCount} بند · {staffGroup.cards.length} مركبة
+                                    </span>
+                                  </div>
+                                </button>
+                                {workOpen && (
+                                  <div className="space-y-3 border-t border-stone-200 dark:border-stone-700 p-3">
+                                    {staffGroup.cards.map((card) => (
+                                      <div key={card.key} className="space-y-2">
+                                        <p className="text-[11px] font-black text-stone-700 dark:text-stone-200 border-b border-stone-100 dark:border-stone-700 pb-1">
+                                          {card.vehicleLabel}
+                                        </p>
+                                        <div className="space-y-2">
                                 {card.rows.map((row) => {
                                   const effectiveStatus = getEffectiveRecoveryStatus(row);
                                   const isEditorOpen = showNotCompensatedEditor[row.id] === true;
@@ -1799,23 +1870,57 @@ export default function InspectionIntelligenceDrawer({
                                     </div>
                                   );
                                 })}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="space-y-3">
                           {(archiveCards.length === 0 && recoveryActions.length === 0) ? (
                             <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد حركات مؤرشفة حالياً.</p>
                           ) : (
-                            archiveCards.map((card) => {
+                            archiveByStaff.map((staffGroup) => {
+                              const archRowCount = staffGroup.cards.reduce((acc, c) => acc + c.rows.length, 0);
+                              const archOpen = expandedArchiveStaff.has(staffGroup.staffKey);
+                              return (
+                                <div
+                                  key={`arch-staff-${staffGroup.staffKey}`}
+                                  className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 overflow-hidden"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleArchiveStaff(staffGroup.staffKey)}
+                                    className="flex w-full items-center justify-between gap-2 px-3 py-3 text-right hover:bg-stone-100/80 dark:hover:bg-stone-800/50 transition-colors"
+                                  >
+                                    <ChevronDown
+                                      className={cn(
+                                        'h-4 w-4 shrink-0 text-stone-500 transition-transform',
+                                        archOpen && 'rotate-180',
+                                      )}
+                                    />
+                                    <div className="flex min-w-0 flex-1 flex-col items-end gap-0.5">
+                                      <span className="text-sm font-black text-stone-900 dark:text-stone-100 truncate">
+                                        {staffGroup.userLabel}
+                                      </span>
+                                      <span className="text-[10px] font-bold text-stone-500">
+                                        {archRowCount} بند · {staffGroup.cards.length} مركبة
+                                      </span>
+                                    </div>
+                                  </button>
+                                  {archOpen && (
+                                    <div className="space-y-3 border-t border-stone-200 dark:border-stone-700 p-3">
+                                      {staffGroup.cards.map((card) => {
                               const timeline = actionTimelineByCard.get(card.key) ?? [];
                               return (
-                                <div key={`archive-${card.key}`} className="rounded-2xl border border-stone-200 dark:border-stone-700 bg-stone-50/70 dark:bg-stone-900/40 p-3 space-y-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <p className="text-xs font-black">{card.vehicleLabel}</p>
-                                    <p className="text-[10px] font-bold text-stone-500">{staffLabel}: {card.userLabel}</p>
-                                  </div>
+                                <div key={`archive-${card.key}`} className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/50 dark:bg-stone-950/30 p-3 space-y-2">
+                                  <p className="text-[11px] font-black text-stone-800 dark:text-stone-100 border-b border-stone-100 dark:border-stone-700 pb-1">
+                                    {card.vehicleLabel}
+                                  </p>
                                   <div className="space-y-2">
                                     {card.rows.map((row) => {
                                       const effectiveStatus = getEffectiveRecoveryStatus(row);
@@ -1865,6 +1970,11 @@ export default function InspectionIntelligenceDrawer({
                                       </div>
                                     )}
                                   </div>
+                                </div>
+                              );
+                                      })}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })
