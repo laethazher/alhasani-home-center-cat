@@ -729,7 +729,21 @@ export default function InspectionIntelligenceDrawer({
     [currentRecoveryRows],
   );
 
+  const currentTabRowIdSet = useMemo(
+    () => new Set(allCurrentRecoveryIds),
+    [allCurrentRecoveryIds],
+  );
+
+  const selectedRecoveryIdsInCurrentTab = useMemo(() => {
+    const next = new Set<number>();
+    selectedRecoveryIds.forEach((id) => {
+      if (currentTabRowIdSet.has(id)) next.add(id);
+    });
+    return next;
+  }, [selectedRecoveryIds, currentTabRowIdSet]);
+
   const selectedRecoveryCount = selectedRecoveryIds.size;
+  const selectedRecoveryCountInCurrentTab = selectedRecoveryIdsInCurrentTab.size;
 
   const compensatedTotalCount = useMemo(
     () => mergedRecoveryRows.filter((row) => getEffectiveRecoveryStatus(row) === 'resolved').length,
@@ -753,14 +767,28 @@ export default function InspectionIntelligenceDrawer({
       try {
         const deptTitle =
           department === 'installation' ? 'تركيب' : department === 'operations' ? 'عمليات' : 'تجهيز';
-        const selectionActive = selectedRecoveryIds.size > 0;
         const sourceCards = tab === 'worklist' ? worklistCards : archiveCards;
+        const tabRowIds = new Set(
+          sourceCards.flatMap((c) => c.rows.map((r) => r.id)).filter((id) => id > 0),
+        );
+        const selectedForThisTab = new Set(
+          [...selectedRecoveryIds].filter((id) => tabRowIds.has(id)),
+        );
+        /** تصدير جزئي فقط عند وضع التحديد ووجود صفوف محددة ضمن نفس التبويب المُصدَّر */
+        const selectionActive = recoverySelectionMode && selectedForThisTab.size > 0;
+
+        if (recoverySelectionMode && selectedRecoveryIds.size > 0 && selectedForThisTab.size === 0) {
+          window.alert(
+            'لا توجد صفوف محددة في هذا التبويب. حدّد صفوفاً في قائمة العمل أو الأرشيف (حسب التبويب الذي تريد تصديره) ثم أعد المحاولة.',
+          );
+          return;
+        }
 
         const flatRows: Array<{ card: RecoveryGroupedCard; row: InspectionRecoveryRow }> = [];
         for (const card of sourceCards) {
           for (const row of card.rows) {
             if (selectionActive) {
-              if (row.id <= 0 || !selectedRecoveryIds.has(row.id)) continue;
+              if (row.id <= 0 || !selectedForThisTab.has(row.id)) continue;
             }
             flatRows.push({ card, row });
           }
@@ -769,16 +797,19 @@ export default function InspectionIntelligenceDrawer({
         const worklistRecoveryIdSet = new Set(
           worklistCards.flatMap((c) => c.rows.map((r) => r.id)).filter((id) => id > 0),
         );
+        const archiveRecoveryIdSet = new Set(
+          archiveCards.flatMap((c) => c.rows.map((r) => r.id)).filter((id) => id > 0),
+        );
 
         const actionsForPdf = recoveryActions.filter((a) => {
           const rid = a.recovery_id != null ? Number(a.recovery_id) : null;
           if (selectionActive) {
-            return rid != null && selectedRecoveryIds.has(rid);
+            return rid != null && selectedForThisTab.has(rid);
           }
           if (tab === 'worklist') {
             return rid != null && worklistRecoveryIdSet.has(rid);
           }
-          return true;
+          return rid != null && archiveRecoveryIdSet.has(rid);
         });
 
         const tabLabel = tab === 'worklist' ? 'قائمة العمل' : 'الأرشيف والحركات';
@@ -842,7 +873,9 @@ export default function InspectionIntelligenceDrawer({
 
         const title = `نواقص الجرد — ${tabLabel} — ${deptTitle}`;
         const meta = `${new Date().toLocaleString('ar-EG')}${
-          selectionActive ? ' · تصدير الصفوف المحددة فقط' : ' · تصدير كامل التبويب الحالي'
+          selectionActive
+            ? ` · تصدير ${selectedForThisTab.size} صف محدد فقط (هذا التبويب)`
+            : ' · تصدير كامل التبويب الحالي'
         }`;
 
         const itemsSectionTitle = tab === 'worklist' ? 'العناصر (قائمة العمل — مفتوحة)' : 'العناصر (الأرشيف)';
@@ -881,6 +914,7 @@ export default function InspectionIntelligenceDrawer({
       archiveCards,
       worklistCards,
       recoveryActions,
+      recoverySelectionMode,
       selectedRecoveryIds,
       formatRecoveryItemDisplay,
       getEffectiveRecoveryStatus,
@@ -1773,9 +1807,9 @@ export default function InspectionIntelligenceDrawer({
                               >
                                 تحديد الكل ({recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
                               </button>
-                              {selectedRecoveryCount > 0 && (
+                              {selectedRecoveryCountInCurrentTab > 0 && (
                                 <span className="text-[10px] font-bold text-violet-700 dark:text-violet-300">
-                                  المحدد: {selectedRecoveryCount} — التصدير سيشمل المحدد فقط
+                                  محدد في هذا التبويب: {selectedRecoveryCountInCurrentTab} — التصدير سيشمل هؤلاء فقط
                                 </span>
                               )}
                             </>
