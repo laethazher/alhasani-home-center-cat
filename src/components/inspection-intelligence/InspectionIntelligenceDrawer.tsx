@@ -705,6 +705,21 @@ export default function InspectionIntelligenceDrawer({
     });
   }, []);
 
+  /** صفوف التبويب الحالي ضمن مجموعات السائق/الفني المفتوحة فقط (لـ «تحديد الكل» التراكمي). */
+  const expandedTabRecoveryRowIds = useMemo(() => {
+    const groups = recoverySubTab === 'worklist' ? worklistByStaff : archiveByStaff;
+    const ids: number[] = [];
+    for (const group of groups) {
+      if (!expandedRecoveryStaffKeys.has(group.staffKey)) continue;
+      for (const card of group.cards) {
+        for (const row of card.rows) {
+          if (row.id > 0) ids.push(row.id);
+        }
+      }
+    }
+    return ids;
+  }, [archiveByStaff, expandedRecoveryStaffKeys, recoverySubTab, worklistByStaff]);
+
   const actionTimelineByCard = useMemo(() => {
     const grouped = new Map<string, InspectionRecoveryAction[]>();
     for (const action of recoveryActions) {
@@ -1212,19 +1227,23 @@ export default function InspectionIntelligenceDrawer({
   }, []);
 
   const toggleSelectAllRecoveryRows = useCallback(() => {
+    const scopeIds = expandedTabRecoveryRowIds;
+    if (scopeIds.length === 0) {
+      window.alert('افتح قائمة سائق/فني على الأقل ثم أعد المحاولة.');
+      return;
+    }
     setSelectedRecoveryIds((prev) => {
-      const currentIds = allCurrentRecoveryIds;
-      if (currentIds.length === 0) return new Set<number>();
-      const allSelected = currentIds.every((id) => prev.has(id));
+      const allSelected = scopeIds.every((id) => prev.has(id));
       if (allSelected) {
         const next = new Set(prev);
-        currentIds.forEach((id) => next.delete(id));
+        scopeIds.forEach((id) => next.delete(id));
         return next;
       }
-      /** تحديد الكل لهذا التبويب فقط — لا يدمج مع صفوف التبويب الآخر */
-      return new Set(currentIds);
+      const next = new Set(prev);
+      scopeIds.forEach((id) => next.add(id));
+      return next;
     });
-  }, [allCurrentRecoveryIds]);
+  }, [expandedTabRecoveryRowIds]);
 
   const deleteSelectedRecoveryRows = useCallback(async () => {
     if (!canDeleteRecovery || selectedRecoveryIds.size === 0) return;
@@ -1803,12 +1822,15 @@ export default function InspectionIntelligenceDrawer({
                                 type="button"
                                 onClick={toggleSelectAllRecoveryRows}
                                 className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
+                                title="يحدد صفوف القوائم المفتوحة فقط؛ يمكن الجمع بين أكثر من سائق/فني عند فتح عدة قوائم."
                               >
-                                تحديد الكل ({recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
+                                تحديد الكل — القوائم المفتوحة (
+                                {recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
                               </button>
                               {selectedRecoveryCountInCurrentTab > 0 && (
                                 <span className="text-[10px] font-bold text-violet-700 dark:text-violet-300">
-                                  محدد في هذا التبويب: {selectedRecoveryCountInCurrentTab} — التصدير سيشمل هؤلاء فقط
+                                  محدد في {recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'}:{' '}
+                                  {selectedRecoveryCountInCurrentTab} — التصدير يشمل المحدد فقط في هذا التبويب
                                 </span>
                               )}
                             </>
