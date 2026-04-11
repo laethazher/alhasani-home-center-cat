@@ -678,50 +678,68 @@ export default function InspectionIntelligenceDrawer({
     return Math.max(missing - compensated, 0);
   }, []);
 
-  const exportArchiveToPdf = useCallback(async () => {
-    setExportingArchivePdf(true);
-    try {
-    const deptTitle =
-      department === 'installation' ? 'تركيب' : department === 'operations' ? 'عمليات' : 'تجهيز';
-    const selectionActive = selectedRecoveryIds.size > 0;
+  const exportRecoveryTabToPdf = useCallback(
+    async (tab: 'worklist' | 'archive') => {
+      setExportingArchivePdf(true);
+      try {
+        const deptTitle =
+          department === 'installation' ? 'تركيب' : department === 'operations' ? 'عمليات' : 'تجهيز';
+        const selectionActive = selectedRecoveryIds.size > 0;
+        const sourceCards = tab === 'worklist' ? worklistCards : archiveCards;
 
-    const flatRows: Array<{ card: RecoveryGroupedCard; row: InspectionRecoveryRow }> = [];
-    for (const card of archiveCards) {
-      for (const row of card.rows) {
-        if (selectionActive) {
-          if (row.id <= 0 || !selectedRecoveryIds.has(row.id)) continue;
+        const flatRows: Array<{ card: RecoveryGroupedCard; row: InspectionRecoveryRow }> = [];
+        for (const card of sourceCards) {
+          for (const row of card.rows) {
+            if (selectionActive) {
+              if (row.id <= 0 || !selectedRecoveryIds.has(row.id)) continue;
+            }
+            flatRows.push({ card, row });
+          }
         }
-        flatRows.push({ card, row });
-      }
-    }
 
-    const actionsForPdf = recoveryActions.filter((a) => {
-      if (!selectionActive) return true;
-      return a.recovery_id != null && selectedRecoveryIds.has(a.recovery_id);
-    });
+        const worklistRecoveryIdSet = new Set(
+          worklistCards.flatMap((c) => c.rows.map((r) => r.id)).filter((id) => id > 0),
+        );
 
-    if (flatRows.length === 0 && actionsForPdf.length === 0) {
-      window.alert(
-        selectionActive
-          ? 'لا توجد صفوف ضمن التحديد للتصدير. ألغِ التحديد أو حدّد صفوفاً من الأرشيف.'
-          : 'لا توجد بيانات أرشيف للتصدير.',
-      );
-      return;
-    }
+        const actionsForPdf = recoveryActions.filter((a) => {
+          const rid = a.recovery_id != null ? Number(a.recovery_id) : null;
+          if (selectionActive) {
+            return rid != null && selectedRecoveryIds.has(rid);
+          }
+          if (tab === 'worklist') {
+            return rid != null && worklistRecoveryIdSet.has(rid);
+          }
+          return true;
+        });
 
-    const statusLabel = (row: InspectionRecoveryRow) => {
-      const eff = getEffectiveRecoveryStatus(row);
-      if (eff === 'resolved') return 'تم التعويض';
-      if (eff === 'scheduled') return 'مجدول أو لاحق';
-      return 'قيد الانتظار';
-    };
+        const tabLabel = tab === 'worklist' ? 'قائمة العمل' : 'الأرشيف والحركات';
+        const emptyMsg =
+          tab === 'worklist'
+            ? selectionActive
+              ? 'لا توجد صفوف ضمن التحديد في قائمة العمل. ألغِ التحديد أو حدّد صفوفاً من القائمة.'
+              : 'لا توجد بيانات في قائمة العمل للتصدير.'
+            : selectionActive
+              ? 'لا توجد صفوف ضمن التحديد في الأرشيف. ألغِ التحديد أو حدّد صفوفاً من الأرشيف.'
+              : 'لا توجد بيانات أرشيف للتصدير.';
 
-    const rowsHtml = flatRows
-      .map(({ card, row }) => {
-        const display = formatRecoveryItemDisplay(row.item_name);
-        const { barcode, name } = splitBarcodeAndNameFromDisplay(display);
-        const rem = getRemainingMissingQty(row);
-        return `<tr>
+        if (flatRows.length === 0 && actionsForPdf.length === 0) {
+          window.alert(emptyMsg);
+          return;
+        }
+
+        const statusLabel = (row: InspectionRecoveryRow) => {
+          const eff = getEffectiveRecoveryStatus(row);
+          if (eff === 'resolved') return 'تم التعويض';
+          if (eff === 'scheduled') return 'مجدول أو لاحق';
+          return 'قيد الانتظار';
+        };
+
+        const rowsHtml = flatRows
+          .map(({ card, row }) => {
+            const display = formatRecoveryItemDisplay(row.item_name);
+            const { barcode, name } = splitBarcodeAndNameFromDisplay(display);
+            const rem = getRemainingMissingQty(row);
+            return `<tr>
           <td>${escapeHtmlForPdf(card.vehicleLabel)}</td>
           <td>${escapeHtmlForPdf(card.userLabel)}</td>
           <td>${escapeHtmlForPdf(barcode)}</td>
@@ -734,14 +752,14 @@ export default function InspectionIntelligenceDrawer({
           <td>${rem}</td>
           <td>${escapeHtmlForPdf(row.reason ?? '—')}</td>
         </tr>`;
-      })
-      .join('');
+          })
+          .join('');
 
-    const actionsHtml = actionsForPdf
-      .slice(0, 500)
-      .map((a) => {
-        const display = formatRecoveryItemDisplay(a.item_name);
-        return `<tr>
+        const actionsHtml = actionsForPdf
+          .slice(0, 500)
+          .map((a) => {
+            const display = formatRecoveryItemDisplay(a.item_name);
+            return `<tr>
           <td>${escapeHtmlForPdf(String(a.acted_at).slice(0, 19))}</td>
           <td>${a.vehicle_id}</td>
           <td>${escapeHtmlForPdf(display)}</td>
@@ -750,16 +768,20 @@ export default function InspectionIntelligenceDrawer({
           <td>${a.compensated_qty ?? '—'}</td>
           <td>${escapeHtmlForPdf(a.reason ?? '—')}</td>
         </tr>`;
-      })
-      .join('');
+          })
+          .join('');
 
-    const title = `أرشيف نواقص الجرد والحركات — ${deptTitle}`;
-    const meta = `${new Date().toLocaleString('ar-EG')}${selectionActive ? ' · تصدير الصفوف المحددة فقط' : ''}`;
+        const title = `نواقص الجرد — ${tabLabel} — ${deptTitle}`;
+        const meta = `${new Date().toLocaleString('ar-EG')}${
+          selectionActive ? ' · تصدير الصفوف المحددة فقط' : ' · تصدير كامل التبويب الحالي'
+        }`;
 
-    const html = `
+        const itemsSectionTitle = tab === 'worklist' ? 'العناصر (قائمة العمل — مفتوحة)' : 'العناصر (الأرشيف)';
+
+        const html = `
       <h1>${escapeHtmlForPdf(title)}</h1>
       <p>${escapeHtmlForPdf(meta)}</p>
-      <h2>العناصر (الأرشيف)</h2>
+      <h2>${escapeHtmlForPdf(itemsSectionTitle)}</h2>
       <table>
         <thead><tr>
           <th>المركبة</th><th>${escapeHtmlForPdf(staffLabel)}</th><th>الباركود</th><th>اسم العنصر</th>
@@ -767,7 +789,7 @@ export default function InspectionIntelligenceDrawer({
         </tr></thead>
         <tbody>${rowsHtml || `<tr><td colspan="11">—</td></tr>`}</tbody>
       </table>
-      <h2>سجل الحركات</h2>
+      <h2>سجل الحركات (ذات الصلة)</h2>
       <table>
         <thead><tr>
           <th>التاريخ</th><th>مركبة</th><th>العنصر</th><th>من</th><th>إلى</th><th>كمية تعويض</th><th>سبب</th>
@@ -776,20 +798,28 @@ export default function InspectionIntelligenceDrawer({
       </table>
     `;
 
-      await exportHtmlToPdf(wrapReportHtmlForPdf(html, window.location.origin), `jard-archive-${deptTitle}-${Date.now()}.pdf`, {});
-    } finally {
-      setExportingArchivePdf(false);
-    }
-  }, [
-    archiveCards,
-    recoveryActions,
-    selectedRecoveryIds,
-    formatRecoveryItemDisplay,
-    getEffectiveRecoveryStatus,
-    getRemainingMissingQty,
-    department,
-    staffLabel,
-  ]);
+        const fileSlug = tab === 'worklist' ? 'worklist' : 'archive';
+        await exportHtmlToPdf(
+          wrapReportHtmlForPdf(html, window.location.origin),
+          `jard-${fileSlug}-${deptTitle}-${Date.now()}.pdf`,
+          {},
+        );
+      } finally {
+        setExportingArchivePdf(false);
+      }
+    },
+    [
+      archiveCards,
+      worklistCards,
+      recoveryActions,
+      selectedRecoveryIds,
+      formatRecoveryItemDisplay,
+      getEffectiveRecoveryStatus,
+      getRemainingMissingQty,
+      department,
+      staffLabel,
+    ],
+  );
 
   const logRecoveryAction = useCallback(
     async (
@@ -1548,28 +1578,8 @@ export default function InspectionIntelligenceDrawer({
                           الأرشيف / الحركات
                         </button>
                       </div>
-                      {recoverySubTab === 'archive' && (
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            disabled={
-                              exportingArchivePdf ||
-                              (archiveCards.length === 0 && recoveryActions.length === 0)
-                            }
-                            onClick={() => void exportArchiveToPdf()}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-[11px] font-black text-stone-800 dark:text-stone-100 disabled:opacity-50"
-                          >
-                            {exportingArchivePdf ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Download className="h-3.5 w-3.5" />
-                            )}
-                            تصدير PDF
-                          </button>
-                        </div>
-                      )}
-                      {canDeleteRecovery && (
-                        <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
                             onClick={() => {
@@ -1587,20 +1597,47 @@ export default function InspectionIntelligenceDrawer({
                                 onClick={toggleSelectAllRecoveryRows}
                                 className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
                               >
-                                تحديد الكل
+                                تحديد الكل ({recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
                               </button>
-                              <button
-                                type="button"
-                                disabled={selectedRecoveryCount === 0}
-                                onClick={() => void deleteSelectedRecoveryRows()}
-                                className="text-[10px] font-bold px-2 py-1 rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 disabled:opacity-60"
-                              >
-                                حذف المحدد ({selectedRecoveryCount})
-                              </button>
+                              {selectedRecoveryCount > 0 && (
+                                <span className="text-[10px] font-bold text-violet-700 dark:text-violet-300">
+                                  المحدد: {selectedRecoveryCount} — التصدير سيشمل المحدد فقط
+                                </span>
+                              )}
                             </>
                           )}
+                          {canDeleteRecovery && recoverySelectionMode && (
+                            <button
+                              type="button"
+                              disabled={selectedRecoveryCount === 0}
+                              onClick={() => void deleteSelectedRecoveryRows()}
+                              className="text-[10px] font-bold px-2 py-1 rounded-lg border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 disabled:opacity-60"
+                            >
+                              حذف المحدد ({selectedRecoveryCount})
+                            </button>
+                          )}
                         </div>
-                      )}
+                        <div className="flex items-center gap-2 justify-end">
+                          <button
+                            type="button"
+                            disabled={
+                              exportingArchivePdf ||
+                              (recoverySubTab === 'worklist'
+                                ? worklistCards.length === 0
+                                : archiveCards.length === 0 && recoveryActions.length === 0)
+                            }
+                            onClick={() => void exportRecoveryTabToPdf(recoverySubTab)}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-[11px] font-black text-stone-800 dark:text-stone-100 disabled:opacity-50"
+                          >
+                            {exportingArchivePdf ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            تصدير PDF ({recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
+                          </button>
+                        </div>
+                      </div>
                       {recoveryLoading ? (
                         <div className="text-center py-8 text-xs font-bold text-stone-500">
                           <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
