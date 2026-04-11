@@ -190,6 +190,8 @@ export interface InspectionIntelligenceDrawerProps {
   canDeleteRecovery?: boolean;
   /** إعادة احتساب سجل التعويض من كل التقارير المحفوظة (صلاحيات مطابقة لسياسات insert على inspection_recovery). */
   canRebuildRecovery?: boolean;
+  initialTab?: 'overview' | 'recovery';
+  initialRecoverySubTab?: 'worklist' | 'archive';
 }
 
 export default function InspectionIntelligenceDrawer({
@@ -200,6 +202,8 @@ export default function InspectionIntelligenceDrawer({
   onOpenHistory,
   canDeleteRecovery = false,
   canRebuildRecovery = false,
+  initialTab = 'overview',
+  initialRecoverySubTab = 'worklist',
 }: InspectionIntelligenceDrawerProps) {
   const [qrVehicleId, setQrVehicleId] = useState<number | null>(null);
   const [deficitRows, setDeficitRows] = useState<DeficitRow[]>([]);
@@ -245,12 +249,12 @@ export default function InspectionIntelligenceDrawer({
 
   useEffect(() => {
     if (!open) return;
-    setIntelTab('overview');
-    setRecoverySubTab('worklist');
+    setIntelTab(initialTab);
+    setRecoverySubTab(initialRecoverySubTab);
     setRecoverySelectionMode(false);
     setSelectedRecoveryIds(new Set());
     setExpandedRecoveryStaffKeys(new Set());
-  }, [open]);
+  }, [initialRecoverySubTab, initialTab, open]);
 
   useEffect(() => {
     if (!open) setRebuildWizardOpen(false);

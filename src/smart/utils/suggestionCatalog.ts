@@ -52,8 +52,25 @@ const VIOLATIONS_HUB: CatalogItem[] = [
   { label: 'مساعد', insertText: 'مساعد' },
 ];
 
+const INVENTORY_RECOVERY_HUB: CatalogItem[] = [
+  { label: 'قائمة العمل', insertText: 'قائمة العمل' },
+  { label: 'الأرشيف', insertText: 'الأرشيف' },
+  { label: 'نقص مفتوح', insertText: 'pending' },
+  { label: 'مجدول', insertText: 'scheduled' },
+  { label: 'تم التعويض', insertText: 'resolved' },
+  { label: 'مستحق اليوم', insertText: 'مستحق' },
+  { label: 'تعويض جزئي', insertText: 'جزئي' },
+  { label: 'مركبة', insertText: 'مركبة' },
+];
+
 /** نطاقات مركز التقارير الذكية — اقتراحات حسب التبويب */
-export type ReportsHubDomain = 'all' | 'attendance' | 'vehicles' | 'violations' | 'bubbles';
+export type ReportsHubDomain =
+  | 'all'
+  | 'attendance'
+  | 'vehicles'
+  | 'violations'
+  | 'bubbles'
+  | 'inventory_recovery';
 
 export function getCatalogForReportsHubDomain(domain: ReportsHubDomain): CatalogItem[] {
   switch (domain) {
@@ -64,6 +81,7 @@ export function getCatalogForReportsHubDomain(domain: ReportsHubDomain): Catalog
         ...ATTENDANCE_REPORTS,
         ...VEHICLES,
         ...VIOLATIONS_HUB.slice(0, 6),
+        ...INVENTORY_RECOVERY_HUB.slice(0, 6),
         ...BUBBLES.slice(0, 4),
         ...DEFAULT_GENERAL,
       ];
@@ -73,6 +91,8 @@ export function getCatalogForReportsHubDomain(domain: ReportsHubDomain): Catalog
       return [...VEHICLES, ...DEFAULT_GENERAL];
     case 'violations':
       return [...VIOLATIONS_HUB, ...STAFF_EXIT.slice(0, 4), ...DEFAULT_GENERAL];
+    case 'inventory_recovery':
+      return [...INVENTORY_RECOVERY_HUB, ...DEFAULT_GENERAL];
     default:
       return DEFAULT_GENERAL;
   }

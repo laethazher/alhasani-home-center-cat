@@ -263,6 +263,8 @@ export default function Reports({
   const tables = getDepartmentTables(department);
   const [activeTab, setActiveTab] = useState<Tab>('damage');
   const [intelligenceOpen, setIntelligenceOpen] = useState(false);
+  const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'recovery'>('overview');
+  const [drawerInitialRecoveryTab, setDrawerInitialRecoveryTab] = useState<'worklist' | 'archive'>('worklist');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [postSubmitNotice, setPostSubmitNotice] = useState<string | null>(null);
@@ -298,6 +300,21 @@ export default function Reports({
   const [selectedReportIds, setSelectedStaffIds] = useState<number[]>([]);
   const [exportingSelected, setExportingSelected] = useState(false);
   const [deletingReportsBulk, setDeletingReportsBulk] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('intelRecovery') !== '1') return;
+    const recoveryTab = params.get('recoveryTab');
+    setDrawerInitialTab('recovery');
+    setDrawerInitialRecoveryTab(recoveryTab === 'archive' ? 'archive' : 'worklist');
+    setIntelligenceOpen(true);
+    params.delete('intelRecovery');
+    params.delete('recoveryTab');
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, []);
 
   const toggleSelectAll = () => {
     if (selectedReportIds.length === savedReports.length) {
@@ -2001,6 +2018,8 @@ export default function Reports({
         pageDepartment={department}
         canDeleteRecovery={profile?.role === 'admin'}
         canRebuildRecovery={canRebuildRecovery}
+        initialTab={drawerInitialTab}
+        initialRecoverySubTab={drawerInitialRecoveryTab}
         onStartInspection={(vehicleId) => {
           setSelectedVehicleId(String(vehicleId));
           setActiveTab('damage');

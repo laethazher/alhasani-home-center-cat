@@ -59,6 +59,7 @@ import { buildHubViolationStaffRows, type HubViolationStaffRow } from './reports
 import { advancedFilterTags, FilterTags } from '../smart/components/FilterTags';
 import type { ColumnDef } from '../smart/components/DataTableEnhanced';
 import { useInspectionRecoveryStats } from '../hooks/useInspectionRecoveryStats';
+import { type RecoveryHubRow, useInspectionRecoveryHubRows } from '../hooks/useInspectionRecoveryHubRows';
 
 const AdvancedFilterPanel = lazy(() =>
   import('../smart/components/AdvancedFilterPanel').then((m) => ({ default: m.AdvancedFilterPanel }))
@@ -197,12 +198,21 @@ type BubbleDrillKey =
   | 'issues_pending'
   | 'compliance';
 
+type RecoveryHubTab = 'worklist' | 'archive';
+
 const VEHICLE_STATUS_AR: Record<string, string> = {
   available: 'متاحة',
   maintenance: 'صيانة',
   broken: 'معطلة',
   reserved: 'محجوزة',
 };
+
+function formatDateTimeCell(value: string | null): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('ar-IQ', { dateStyle: 'short', timeStyle: 'short' });
+}
 
 export interface VehicleHubRow {
   id: number;
@@ -271,12 +281,14 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [activeDomain, setActiveDomain] = useState<ReportsHubDomain>('attendance');
+  const [recoveryViewTab, setRecoveryViewTab] = useState<RecoveryHubTab>('worklist');
   const [hubSearch, setHubSearch] = useState({
     all: '',
     attendance: '',
     vehicles: '',
     violations: '',
     bubbles: '',
+    inventory_recovery: '',
   });
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -289,11 +301,18 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
   const [selectedVehicleKeys, setSelectedVehicleKeys] = useState<Set<string>>(() => new Set());
   const [selectedViolationKeys, setSelectedViolationKeys] = useState<Set<string>>(() => new Set());
   const [selectedBubbleKeys, setSelectedBubbleKeys] = useState<Set<string>>(() => new Set());
+  const [selectedRecoveryKeys, setSelectedRecoveryKeys] = useState<Set<string>>(() => new Set());
   const [bubbleBulkDeleting, setBubbleBulkDeleting] = useState(false);
 
   const showViolationsTab = profile?.role === 'admin';
   const showBubblesTab = (profile?.role === 'admin' || profile?.role === 'manager') && department === 'tajhiz';
   const { stats: recoveryStats } = useInspectionRecoveryStats(department, true);
+  const {
+    rows: recoveryHubRows,
+    loading: recoveryHubLoading,
+    error: recoveryHubError,
+    refresh: refreshRecoveryHubRows,
+  } = useInspectionRecoveryHubRows(department, true);
   const isInstallation = department === 'installation';
   const attendanceDriverLabel = isInstallation ? 'فني' : 'سائق';
   const attendanceAssistantLabel = isInstallation ? 'مساعد فني' : 'مساعد سائق';
@@ -309,6 +328,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     setSelectedVehicleKeys(new Set());
     setSelectedViolationKeys(new Set());
     setSelectedBubbleKeys(new Set());
+    setSelectedRecoveryKeys(new Set());
   }, [activeDomain]);
   useEffect(() => {
     if (activeDomain !== 'bubbles') setBubbleDrillModal(null);
@@ -322,6 +342,8 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
           ? hubSearch.violations
           : activeDomain === 'bubbles'
             ? hubSearch.bubbles
+            : activeDomain === 'inventory_recovery'
+              ? hubSearch.inventory_recovery
             : hubSearch.attendance;
   const setTableSearch = useCallback(
     (v: string) => {
@@ -330,6 +352,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         if (activeDomain === 'vehicles') return { ...prev, vehicles: v };
         if (activeDomain === 'violations') return { ...prev, violations: v };
         if (activeDomain === 'bubbles') return { ...prev, bubbles: v };
+        if (activeDomain === 'inventory_recovery') return { ...prev, inventory_recovery: v };
         return { ...prev, attendance: v };
       });
     },
@@ -971,6 +994,40 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     violSortDir,
   ]);
 
+  const recoveryRowsInTab = useMemo(
+    () =>
+      recoveryHubRows.filter((row) =>
+        recoveryViewTab === 'worklist' ? row.sourceList === 'worklist' : row.sourceList === 'archive'
+      ),
+    [recoveryHubRows, recoveryViewTab]
+  );
+
+  const mergedRecoveryFilters = useMemo(
+    (): StructuredSearchFilters => ({
+      ...structuredForVehicles,
+      nameContains: structuredForVehicles.nameContains || nlVeh.nameContains,
+      plateContains: structuredForVehicles.plateContains || nlVeh.plateContains,
+      dateFrom: structuredForVehicles.dateFrom || nlVeh.dateFrom,
+      dateTo: structuredForVehicles.dateTo || nlVeh.dateTo,
+      freeText: structuredForVehicles.freeText,
+    }),
+    [structuredForVehicles, nlVeh]
+  );
+
+  const filteredRecoveryRows = useMemo(() => {
+    let rows = applyStructuredFilters(recoveryRowsInTab, mergedRecoveryFilters, {
+      getName: (r) => `${r.responsibleName} ${r.plateNumber}`,
+      getPlate: (r) => r.plateNumber.replace(/\s+/g, ''),
+      getDate: (r) => r.detectedAt,
+      getSearchBlob: (r) => r.searchBlob,
+    });
+    const q = activeDomain === 'all' ? hubSearch.all : hubSearch.inventory_recovery;
+    if (q.trim()) {
+      rows = rows.filter((r) => rowMatchesHubQuery(r.searchBlob, q));
+    }
+    return rows;
+  }, [recoveryRowsInTab, mergedRecoveryFilters, activeDomain, hubSearch.all, hubSearch.inventory_recovery]);
+
   const vehicleInsights = useMemo(
     () => insightsFromVehicles(filteredVehicleRows.map((r) => ({ status: r.status }))),
     [filteredVehicleRows]
@@ -1027,6 +1084,16 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     [bubblesRecords]
   );
 
+  const recoveryNameSuggestions = useMemo(
+    () =>
+      [
+        ...new Set(
+          recoveryHubRows.flatMap((r) => [r.plateNumber, r.responsibleName, r.itemName].filter(Boolean))
+        ),
+      ].slice(0, 60),
+    [recoveryHubRows]
+  );
+
   const dataSuggestionsForDomain = useMemo(() => {
     if (activeDomain === 'all') {
       return [
@@ -1034,6 +1101,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
           ...reportNameSuggestions,
           ...vehicleNameSuggestions,
           ...violationNameSuggestions,
+          ...recoveryNameSuggestions.slice(0, 20),
           ...bubbleNameSuggestions.slice(0, 15),
         ]),
       ].slice(0, 60);
@@ -1041,6 +1109,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     if (activeDomain === 'vehicles') return vehicleNameSuggestions;
     if (activeDomain === 'violations') return violationNameSuggestions;
     if (activeDomain === 'bubbles') return bubbleNameSuggestions;
+    if (activeDomain === 'inventory_recovery') return recoveryNameSuggestions;
     return reportNameSuggestions;
   }, [
     activeDomain,
@@ -1048,6 +1117,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     vehicleNameSuggestions,
     violationNameSuggestions,
     bubbleNameSuggestions,
+    recoveryNameSuggestions,
   ]);
 
   const kpis = useMemo(() => {
@@ -1188,6 +1258,31 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       },
     ],
     [hubSearch.bubbles]
+  );
+
+  const recoveryHubColumns: ColumnDef<RecoveryHubRow>[] = useMemo(
+    () => [
+      { id: 'plate', header: 'المركبة', accessor: (r) => r.plateNumber },
+      {
+        id: 'responsible',
+        header: isInstallation ? 'الفني/المسؤول' : 'السائق/المسؤول',
+        accessor: (r) => <HighlightText text={r.responsibleName} query={hubSearch.inventory_recovery} />,
+      },
+      { id: 'item', header: 'العنصر', accessor: (r) => r.itemName },
+      { id: 'qty', header: 'مطلوب / موجود / نقص', accessor: (r) => `${r.requiredQty} / ${r.actualQty} / ${r.missingQty}` },
+      { id: 'comp', header: 'المعوّض / المتبقي', accessor: (r) => `${r.compensatedQty} / ${r.remainingQty}` },
+      {
+        id: 'status',
+        header: 'الحالة',
+        accessor: (r) =>
+          r.statusEffective === 'resolved' ? 'تم التعويض' : r.statusEffective === 'scheduled' ? 'مجدول' : 'مفتوح',
+      },
+      { id: 'inspectionAt', header: 'تاريخ الجرد', accessor: (r) => formatDateTimeCell(r.inspectionCreatedAt) },
+      { id: 'detectedAt', header: 'تاريخ ظهور النقص', accessor: (r) => formatDateTimeCell(r.detectedAt) },
+      { id: 'resolvedAt', header: 'تاريخ التعويض', accessor: (r) => formatDateTimeCell(r.resolvedAt) },
+      { id: 'scheduledAt', header: 'تاريخ الجدولة', accessor: (r) => r.scheduledDate ?? '—' },
+    ],
+    [hubSearch.inventory_recovery, isInstallation]
   );
 
   const kpisVehicles = useMemo(() => {
@@ -1373,6 +1468,54 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     };
   }, [filteredBubbleRows, bubbleSnapshots]);
 
+  const recoveryInsights = useMemo(() => {
+    const rows = filteredRecoveryRows;
+    const openCount = rows.filter((r) => r.statusEffective === 'pending').length;
+    const scheduledCount = rows.filter((r) => r.statusEffective === 'scheduled').length;
+    const resolvedCount = rows.filter((r) => r.statusEffective === 'resolved').length;
+    const dueNowCount = rows.filter((r) => r.isDueNow).length;
+    const missingSum = rows.reduce((s, r) => s + r.missingQty, 0);
+    const remainingSum = rows.reduce((s, r) => s + r.remainingQty, 0);
+    const avgResolutionDays =
+      rows
+        .filter((r) => r.resolvedAt && r.detectedAt)
+        .map((r) => {
+          const from = new Date(r.detectedAt).getTime();
+          const to = new Date(String(r.resolvedAt)).getTime();
+          if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return null;
+          return Math.round((to - from) / 86400000);
+        })
+        .filter((v): v is number => v != null).reduce((a, b, _, arr) => a + b / Math.max(1, arr.length), 0);
+    const byItem = new Map<string, number>();
+    for (const row of rows) {
+      byItem.set(row.itemName, (byItem.get(row.itemName) ?? 0) + row.remainingQty);
+    }
+    const bar = [...byItem.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, value]) => ({ name, value }));
+    const pie = [
+      { name: 'مفتوح', value: openCount },
+      { name: 'مجدول', value: scheduledCount },
+      { name: 'معوّض', value: resolvedCount },
+    ].filter((p) => p.value > 0);
+    return {
+      metrics: [
+        { label: 'صفوف النواقص', value: rows.length },
+        { label: 'مجموع النقص', value: missingSum },
+        { label: 'المتبقي للتعويض', value: remainingSum },
+        { label: 'مستحق الآن', value: dueNowCount },
+        { label: 'متوسط أيام التعويض', value: Number.isFinite(avgResolutionDays) ? avgResolutionDays.toFixed(1) : '—' },
+      ] as { label: string; value: string | number }[],
+      alerts: [
+        ...(dueNowCount > 0 ? [`يوجد ${dueNowCount} حالة تعويض مجدولة حان موعدها.`] : []),
+        ...(openCount > 0 && recoveryViewTab === 'worklist' ? [`هناك ${openCount} بنداً مفتوحاً في قائمة العمل.`] : []),
+      ],
+      bar: bar.length ? bar : [{ name: 'لا توجد بيانات', value: 0 }],
+      pie: pie.length ? pie : [{ name: 'لا توجد بيانات', value: 0 }],
+    };
+  }, [filteredRecoveryRows, recoveryViewTab]);
+
   const panelInsights = useMemo(() => {
     if (activeDomain === 'all') {
       const bar = [
@@ -1404,6 +1547,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       };
     }
     if (activeDomain === 'bubbles') return bubbleInsights;
+    if (activeDomain === 'inventory_recovery') return recoveryInsights;
     if (activeDomain === 'vehicles') return vehicleInsights;
     if (activeDomain === 'violations') return violationInsights;
     return reportTableInsights;
@@ -1414,6 +1558,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     filteredViolationRows.length,
     showViolationsTab,
     bubbleInsights,
+    recoveryInsights,
     vehicleInsights,
     violationInsights,
     reportTableInsights,
@@ -1475,6 +1620,17 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         { label: 'نسبة مكتمل (%)', value: bubbleKpis.compliancePct, icon: BarChart3 },
       ] as const;
     }
+    if (activeDomain === 'inventory_recovery') {
+      const openCount = filteredRecoveryRows.filter((r) => r.statusEffective === 'pending').length;
+      const scheduledCount = filteredRecoveryRows.filter((r) => r.statusEffective === 'scheduled').length;
+      const resolvedCount = filteredRecoveryRows.filter((r) => r.statusEffective === 'resolved').length;
+      return [
+        { label: 'عدد بنود النقص', value: filteredRecoveryRows.length, icon: LayoutGrid },
+        { label: 'مفتوح', value: openCount, icon: Shield },
+        { label: 'مجدول', value: scheduledCount, icon: BarChart3 },
+        { label: 'تم التعويض', value: resolvedCount, icon: Package },
+      ] as const;
+    }
     return [
       { label: 'موظفون (بعد الفلتر)', value: kpis.staffCount, icon: Users },
       { label: 'مجموع أيام حاضر', value: kpis.presentSum, icon: BarChart3 },
@@ -1487,6 +1643,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     kpisVehicles,
     kpisViolations,
     bubbleKpis,
+    filteredRecoveryRows,
     filteredStaffStats.length,
     filteredVehicleRows.length,
     filteredViolationRows.length,
@@ -1504,6 +1661,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     const staffForExport = pickRowsByKeySet(filteredStaffStats, selectedAttendanceKeys, (s) => String(s.staff_id));
     const vehicleForExport = pickRowsByKeySet(filteredVehicleRows, selectedVehicleKeys, (v) => String(v.id));
     const violForExport = pickRowsByKeySet(filteredViolationRows, selectedViolationKeys, (v) => String(v.staffId));
+    const recoveryForExport = pickRowsByKeySet(filteredRecoveryRows, selectedRecoveryKeys, (r) => r.id);
 
     let selectionNoteHtml = '';
     if (activeDomain === 'all') {
@@ -1520,6 +1678,8 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">تصدير ${vehicleForExport.length} صف محدد من أصل ${filteredVehicleRows.length}</p>`;
     } else if (activeDomain === 'violations' && selectedViolationKeys.size > 0) {
       selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">تصدير ${violForExport.length} صف محدد من أصل ${filteredViolationRows.length}</p>`;
+    } else if (activeDomain === 'inventory_recovery' && selectedRecoveryKeys.size > 0) {
+      selectionNoteHtml = `<p style="text-align:center;color:#0369a1;margin:6px 0 14px;font-size:13px;font-weight:600">تصدير ${recoveryForExport.length} صف محدد من أصل ${filteredRecoveryRows.length}</p>`;
     }
 
     const ins = panelInsights;
@@ -1620,6 +1780,40 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       v.totalViolations,
       v.totalDelayMinutes,
     ]);
+    const recoveryHeaders = [
+      'المصدر',
+      'المركبة',
+      'المسؤول',
+      'العنصر',
+      'مطلوب',
+      'موجود',
+      'نقص',
+      'معوض',
+      'متبقي',
+      'الحالة',
+      'تاريخ الجرد',
+      'تاريخ ظهور النقص',
+      'تاريخ التعويض',
+      'تاريخ الجدولة',
+      'ملاحظات',
+    ];
+    const recoveryRowsForExport = recoveryForExport.map((r) => [
+      recoveryViewTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف',
+      r.plateNumber,
+      r.responsibleName,
+      r.itemName,
+      r.requiredQty,
+      r.actualQty,
+      r.missingQty,
+      r.compensatedQty,
+      r.remainingQty,
+      r.statusEffective === 'resolved' ? 'تم التعويض' : r.statusEffective === 'scheduled' ? 'مجدول' : 'مفتوح',
+      formatDateTimeCell(r.inspectionCreatedAt),
+      formatDateTimeCell(r.detectedAt),
+      formatDateTimeCell(r.resolvedAt),
+      r.scheduledDate ?? '—',
+      r.reason ?? '—',
+    ]);
 
     let headers: string[] = [];
     let rows: (string | number)[][] = [];
@@ -1707,6 +1901,14 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       fileSlug = `مخالفات_${df}_${dt}`;
       headers = violHeaders;
       rows = violRows;
+    } else if (activeDomain === 'inventory_recovery') {
+      if (recoveryRowsForExport.length === 0) {
+        alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
+        return;
+      }
+      fileSlug = `نواقص_الجرد_${recoveryViewTab === 'worklist' ? 'قائمة_العمل' : 'الأرشيف'}_${df}_${dt}`;
+      headers = recoveryHeaders;
+      rows = recoveryRowsForExport;
     } else if (activeDomain === 'bubbles') {
       if (filteredBubbleRows.length === 0) {
         alert('لا توجد بيانات للتصدير (تحقق من الفلاتر أو من التحديد)');
@@ -1813,11 +2015,13 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
 
   const searchPlaceholder =
     activeDomain === 'all'
-      ? 'بحث موحّد: أسماء، أرقام لوحات، حالات، تواريخ، أرقام… (يطبق على الحضور والمركبات والمخالفات وBubbles)'
+      ? 'بحث موحّد: أسماء، أرقام لوحات، حالات، تواريخ، أرقام… (يشمل الحضور والمركبات والمخالفات ونواقص الجرد وBubbles)'
       : activeDomain === 'vehicles'
         ? `بحث باللوحة أو ${vehicleDriverHeader} أو الحالة أو العداد أو «متاح»…`
         : activeDomain === 'violations'
           ? 'بحث باسم الموظف أو عدد مخالفات أو دقائق تأخير…'
+          : activeDomain === 'inventory_recovery'
+            ? 'بحث بالمركبة أو السائق أو العنصر أو حالة التعويض أو التواريخ…'
           : activeDomain === 'bubbles'
             ? 'بحث بالسائق أو العميل أو الحالة أو الفاتورة أو الموقع…'
             : 'بحث بالاسم أو الأرقام أو عبارات مثل «متأخر هذا الأسبوع»…';
@@ -1831,6 +2035,8 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         ? filteredVehicleRows.length
         : activeDomain === 'violations'
           ? filteredViolationRows.length
+          : activeDomain === 'inventory_recovery'
+            ? filteredRecoveryRows.length
           : activeDomain === 'bubbles'
             ? filteredBubbleRows.length
             : filteredStaffStats.length;
@@ -1840,7 +2046,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold text-stone-900 dark:text-white">التقارير الذكية</h1>
         <p className="text-sm text-stone-600 dark:text-stone-400 max-w-3xl">
-          مركز موحّد للبحث والفلترة والتصدير عبر الحضور والمركبات
+          مركز موحّد للبحث والفلترة والتصدير عبر الحضور والمركبات ونواقص الجرد
           {showViolationsTab ? ' والمخالفات' : ''}
           {showBubblesTab ? ' وBubbles' : ''}. البيانات تُجلب كما في الصفحات التفصيلية دون تغيير صلاحيات
           الخادم.
@@ -1856,6 +2062,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
             ['all', 'الكل', LayoutGrid],
             ['attendance', 'الكادر والحضور', Users],
             ['vehicles', 'المركبات', Truck],
+            ['inventory_recovery', 'نواقص الجرد', Package],
             ...(showBubblesTab ? ([['bubbles', 'Bubbles', CircleDot]] as const) : []),
             ...(showViolationsTab ? ([['violations', 'المخالفات', Shield]] as const) : []),
           ] as const
@@ -1984,6 +2191,10 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                 <span className="text-xs text-stone-500 dark:text-stone-400 px-1">
                   ترتيب: الأحدث أولاً — استخدم البحث والفلاتر أعلاه
                 </span>
+              ) : activeDomain === 'inventory_recovery' ? (
+                <span className="text-xs text-stone-500 dark:text-stone-400 px-1">
+                  ترتيب: قائمة العمل أولاً ثم الأحدث — يمكن التبديل بين قائمة العمل والأرشيف
+                </span>
               ) : (
                 <>
                   <select
@@ -2042,6 +2253,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                 dom === 'vehicles' ||
                 dom === 'violations' ||
                 dom === 'all' ||
+                dom === 'inventory_recovery' ||
                 dom === 'bubbles'
               ) {
                 setActiveDomain(dom);
@@ -2055,6 +2267,10 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                   vehicles: typeof o.vehicles === 'string' ? o.vehicles : hubSearch.vehicles,
                   violations: typeof o.violations === 'string' ? o.violations : hubSearch.violations,
                   bubbles: typeof o.bubbles === 'string' ? o.bubbles : hubSearch.bubbles,
+                  inventory_recovery:
+                    typeof o.inventory_recovery === 'string'
+                      ? o.inventory_recovery
+                      : hubSearch.inventory_recovery,
                 });
               } else if (typeof p.tableSearch === 'string') {
                 setHubSearch((prev) => ({ ...prev, attendance: p.tableSearch as string }));
@@ -2503,6 +2719,57 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
         </div>
       ) : null}
 
+      {activeDomain === 'inventory_recovery' ? (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/35 dark:bg-rose-950/20 p-4 shadow-sm space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-rose-700 dark:text-rose-300" />
+              <h3 className="font-bold text-stone-900 dark:text-white">نواقص الجرد والتعويض</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshRecoveryHubRows()}
+              className="px-3 py-2 rounded-xl border border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-100 dark:hover:bg-rose-900/30"
+            >
+              تحديث البيانات
+            </button>
+          </div>
+          <div className="flex items-center gap-2 p-1 rounded-xl bg-stone-100 dark:bg-stone-800 w-fit">
+            <button
+              type="button"
+              onClick={() => setRecoveryViewTab('worklist')}
+              className={cn(
+                'rounded-lg px-3 py-2 text-[11px] font-black',
+                recoveryViewTab === 'worklist'
+                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                  : 'text-stone-500 dark:text-stone-300'
+              )}
+            >
+              قائمة العمل
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecoveryViewTab('archive')}
+              className={cn(
+                'rounded-lg px-3 py-2 text-[11px] font-black',
+                recoveryViewTab === 'archive'
+                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                  : 'text-stone-500 dark:text-stone-300'
+              )}
+            >
+              الأرشيف
+            </button>
+          </div>
+          {recoveryHubError ? (
+            <p className="text-xs font-bold text-red-700 dark:text-red-300">تعذر تحميل بيانات النواقص: {recoveryHubError}</p>
+          ) : null}
+        </motion.div>
+      ) : null}
+
       {(activeDomain === 'attendance' || activeDomain === 'all') && (
         <motion.div
           initial={{ opacity: 0, y: 6 }}
@@ -2622,6 +2889,8 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
                   ? 'جدول المركبات (بعد الفلاتر)'
                   : activeDomain === 'violations'
                     ? 'جدول المخالفات المجمّع (بعد الفلاتر)'
+                    : activeDomain === 'inventory_recovery'
+                      ? `جدول نواقص الجرد — ${recoveryViewTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'}`
                     : activeDomain === 'bubbles'
                       ? 'جدول Bubbles (بعد الفلاتر)'
                       : 'جدول مجمّع — الكادر والحضور'}
@@ -2695,6 +2964,25 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
               selectedKeys={selectedVehicleKeys}
               onSelectedKeysChange={setSelectedVehicleKeys}
             />
+          ) : activeDomain === 'inventory_recovery' ? (
+            recoveryHubLoading ? (
+              <div className="flex items-center justify-center py-12 text-stone-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+              </div>
+            ) : (
+              <DataTableEnhanced
+                rows={filteredRecoveryRows as unknown as Record<string, unknown>[]}
+                columns={recoveryHubColumns as unknown as ColumnDef<unknown>[]}
+                getRowKey={(r) => (r as RecoveryHubRow).id}
+                defaultPageSize={25}
+                pageSizeOptions={[10, 25, 50, 100]}
+                emptyLabel="لا توجد نواقص جرد تطابق الفلاتر الحالية"
+                className="bg-white dark:bg-stone-800 border-0 rounded-none"
+                selectionEnabled
+                selectedKeys={selectedRecoveryKeys}
+                onSelectedKeysChange={setSelectedRecoveryKeys}
+              />
+            )
           ) : activeDomain === 'bubbles' ? (
             <DataTableEnhanced
               rows={filteredBubbleRows as unknown as Record<string, unknown>[]}
