@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Download,
   History,
+  KeyRound,
   Loader2,
   Play,
   QrCode,
@@ -28,8 +29,22 @@ import {
 } from '../../lib/inventoryDisplay';
 import { exportHtmlToPdf, wrapReportHtmlForPdf } from '../../lib/pdfExport';
 import { TOOL_INVENTORY_ITEMS, WEEKLY_INSPECTION_ITEMS } from '../../constants';
+import {
+  dateInputsToCreatedAtRange,
+  rebuildInspectionRecoveryForAllReports,
+} from '../../lib/inspectionRecovery/calculateInspectionRecovery';
 
 const WEEKDAY_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+/** رمز واجهة فقط — لا يغني عن سياسات RLS في Supabase. */
+const REBUILD_GUARD_PIN = '0000';
+
+function defaultRebuildDateRange(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 30);
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
 
 interface DeficitItem {
   itemId: number;
@@ -94,13 +109,18 @@ interface StaffRecoveryGroup {
   cards: RecoveryGroupedCard[];
 }
 
+/** تجميع حسب اسم السائق المعروض؛ احتياط: userId ثم مركبة. */
+function staffGroupKeyFromCard(card: RecoveryGroupedCard): string {
+  const raw = String(card.userLabel ?? '').trim();
+  if (raw && raw !== '—') return `name:${raw}`;
+  if (card.userId != null && String(card.userId).trim() !== '') return `uid:${String(card.userId)}`;
+  return `veh:${card.vehicleId}`;
+}
+
 function groupRecoveryCardsByStaff(cards: RecoveryGroupedCard[]): StaffRecoveryGroup[] {
   const map = new Map<string, { userLabel: string; cards: RecoveryGroupedCard[] }>();
   for (const card of cards) {
-    const staffKey =
-      card.userId != null && String(card.userId).trim() !== ''
-        ? String(card.userId)
-        : `anon-${card.vehicleId}`;
+    const staffKey = staffGroupKeyFromCard(card);
     const cur = map.get(staffKey);
     if (cur) {
       cur.cards.push(card);
@@ -168,6 +188,8 @@ export interface InspectionIntelligenceDrawerProps {
   onStartInspection: (vehicleId: number) => void;
   onOpenHistory: (vehicleId: number) => void;
   canDeleteRecovery?: boolean;
+  /** إعادة احتساب سجل التعويض من كل التقارير المحفوظة (صلاحيات مطابقة لسياسات insert على inspection_recovery). */
+  canRebuildRecovery?: boolean;
 }
 
 export default function InspectionIntelligenceDrawer({
@@ -177,6 +199,7 @@ export default function InspectionIntelligenceDrawer({
   onStartInspection,
   onOpenHistory,
   canDeleteRecovery = false,
+  canRebuildRecovery = false,
 }: InspectionIntelligenceDrawerProps) {
   const [qrVehicleId, setQrVehicleId] = useState<number | null>(null);
   const [deficitRows, setDeficitRows] = useState<DeficitRow[]>([]);
@@ -191,6 +214,14 @@ export default function InspectionIntelligenceDrawer({
   const [recoveryActionsLoading, setRecoveryActionsLoading] = useState(false);
   const [savingRecoveryId, setSavingRecoveryId] = useState<number | null>(null);
   const [backfillingRecovery, setBackfillingRecovery] = useState(false);
+  const [rebuildingAllRecovery, setRebuildingAllRecovery] = useState(false);
+  const [rebuildAllProgress, setRebuildAllProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [rebuildWizardOpen, setRebuildWizardOpen] = useState(false);
+  const [rebuildWizardStep, setRebuildWizardStep] = useState<'dates' | 'pin' | 'confirm'>('dates');
+  const [rebuildDateFrom, setRebuildDateFrom] = useState('');
+  const [rebuildDateTo, setRebuildDateTo] = useState('');
+  const [rebuildFullLog, setRebuildFullLog] = useState(false);
+  const [rebuildPin, setRebuildPin] = useState('');
   const [recoveryActionNotice, setRecoveryActionNotice] = useState<string | null>(null);
   const [recoverySubTab, setRecoverySubTab] = useState<'worklist' | 'archive'>('worklist');
   const [recoverySelectionMode, setRecoverySelectionMode] = useState(false);
@@ -203,8 +234,8 @@ export default function InspectionIntelligenceDrawer({
     () => new Map(),
   );
   const [exportingArchivePdf, setExportingArchivePdf] = useState(false);
-  const [expandedWorklistStaff, setExpandedWorklistStaff] = useState<Set<string>>(new Set());
-  const [expandedArchiveStaff, setExpandedArchiveStaff] = useState<Set<string>>(new Set());
+  /** مفتاح موحّد لقائمة العمل والأرشيف (نفس السائق يبقى مفتوحاً عند تبديل التبويب). */
+  const [expandedRecoveryStaffKeys, setExpandedRecoveryStaffKeys] = useState<Set<string>>(new Set());
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
 
@@ -218,6 +249,11 @@ export default function InspectionIntelligenceDrawer({
     setRecoverySubTab('worklist');
     setRecoverySelectionMode(false);
     setSelectedRecoveryIds(new Set());
+    setExpandedRecoveryStaffKeys(new Set());
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) setRebuildWizardOpen(false);
   }, [open]);
 
   const client = useMemo(() => getDepartmentClient(department), [department]);
@@ -660,17 +696,8 @@ export default function InspectionIntelligenceDrawer({
   const worklistByStaff = useMemo(() => groupRecoveryCardsByStaff(worklistCards), [worklistCards]);
   const archiveByStaff = useMemo(() => groupRecoveryCardsByStaff(archiveCards), [archiveCards]);
 
-  const toggleWorklistStaff = useCallback((staffKey: string) => {
-    setExpandedWorklistStaff((prev) => {
-      const next = new Set(prev);
-      if (next.has(staffKey)) next.delete(staffKey);
-      else next.add(staffKey);
-      return next;
-    });
-  }, []);
-
-  const toggleArchiveStaff = useCallback((staffKey: string) => {
-    setExpandedArchiveStaff((prev) => {
+  const toggleRecoveryStaff = useCallback((staffKey: string) => {
+    setExpandedRecoveryStaffKeys((prev) => {
       const next = new Set(prev);
       if (next.has(staffKey)) next.delete(staffKey);
       else next.add(staffKey);
@@ -1055,6 +1082,91 @@ export default function InspectionIntelligenceDrawer({
       setBackfillingRecovery(false);
     }
   }, [backfillingRecovery, client, department, derivedRecoveryRows, loadRecoveryActions, loadRecoveryRows]);
+
+  const openRebuildWizard = useCallback(() => {
+    const d = defaultRebuildDateRange();
+    setRebuildDateFrom(d.from);
+    setRebuildDateTo(d.to);
+    setRebuildFullLog(false);
+    setRebuildPin('');
+    setRebuildWizardStep('dates');
+    setRebuildWizardOpen(true);
+  }, []);
+
+  const executeRebuildAllRecovery = useCallback(
+    async (createdAtBetween: { startIso: string; endIso: string } | null) => {
+      if (!canRebuildRecovery || rebuildingAllRecovery) return;
+      setRebuildWizardOpen(false);
+      setRebuildingAllRecovery(true);
+      setRebuildAllProgress({ processed: 0, total: 0 });
+      setRecoveryActionNotice(null);
+      try {
+        const summary = await rebuildInspectionRecoveryForAllReports({
+          client,
+          department,
+          batchSize: 500,
+          createdAtBetween,
+          onProgress: (processed, total) => {
+            setRebuildAllProgress({ processed, total });
+          },
+        });
+        const errPart =
+          summary.errors.length > 0
+            ? ` — تنبيه: تعذر معالجة ${summary.errors.length} تقرير (تفاصيل في وحدة التحكم).`
+            : '';
+        setRecoveryActionNotice(
+          `تمت إعادة الاحتساب: عُالج ${summary.processed} تقرير، صفوف مدرجة بالتعويض ${summary.insertedRows}، تخطي بدون عدة ${summary.skippedNoToolkit}.${errPart}`,
+        );
+        await loadRecoveryRows();
+        await loadRecoveryActions();
+        await loadDeficits();
+        if (summary.errors.length > 0) {
+          console.warn('rebuildInspectionRecovery partial errors', summary.errors);
+        }
+      } catch (e) {
+        console.error('executeRebuildAllRecovery', e);
+        setRecoveryActionNotice('تعذر إعادة احتساب السجل. تحقق من الصلاحيات أو الشبكة.');
+      } finally {
+        setRebuildingAllRecovery(false);
+        setRebuildAllProgress(null);
+      }
+    },
+    [
+      canRebuildRecovery,
+      client,
+      department,
+      loadDeficits,
+      loadRecoveryActions,
+      loadRecoveryRows,
+      rebuildingAllRecovery,
+    ],
+  );
+
+  const onRebuildWizardContinueToPin = useCallback(() => {
+    if (rebuildFullLog) {
+      setRebuildWizardStep('pin');
+      setRebuildPin('');
+      return;
+    }
+    if (!rebuildDateFrom.trim() || !rebuildDateTo.trim()) {
+      window.alert('يرجى تحديد تاريخي البداية والنهاية، أو تفعيل «كامل السجل».');
+      return;
+    }
+    if (rebuildDateFrom > rebuildDateTo) {
+      window.alert('تاريخ البداية يجب أن يكون قبل أو يساوي تاريخ النهاية.');
+      return;
+    }
+    setRebuildWizardStep('pin');
+    setRebuildPin('');
+  }, [rebuildDateFrom, rebuildDateTo, rebuildFullLog]);
+
+  const onRebuildWizardPinNext = useCallback(() => {
+    if (rebuildPin !== REBUILD_GUARD_PIN) {
+      window.alert('رمز التأكيد غير صحيح. يجب إدخال: 0000');
+      return;
+    }
+    setRebuildWizardStep('confirm');
+  }, [rebuildPin]);
 
   const toggleRecoveryRowSelection = useCallback((rowId: number) => {
     setSelectedRecoveryIds((prev) => {
@@ -1559,40 +1671,60 @@ export default function InspectionIntelligenceDrawer({
                           </p>
                         </div>
                       )}
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-black text-stone-700 dark:text-stone-200">نواقص ما بعد الجرد</p>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
-                            المعوّض: {compensatedTotalCount}
-                          </span>
-                          {derivedRecoveryRows.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className="text-xs font-black text-stone-700 dark:text-stone-200">نواقص ما بعد الجرد</p>
+                          <div className="flex items-center gap-2 flex-wrap justify-end">
+                            <span className="text-[10px] font-black px-2 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                              المعوّض: {compensatedTotalCount}
+                            </span>
+                            {canRebuildRecovery && (
+                              <button
+                                type="button"
+                                disabled={rebuildingAllRecovery || backfillingRecovery}
+                                onClick={openRebuildWizard}
+                                className="text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-200 disabled:opacity-60"
+                              >
+                                {rebuildingAllRecovery
+                                  ? 'جاري إعادة الاحتساب...'
+                                  : 'إعادة احتساب السجل من التقارير'}
+                              </button>
+                            )}
+                            {derivedRecoveryRows.length > 0 && (
+                              <button
+                                type="button"
+                                disabled={backfillingRecovery || rebuildingAllRecovery}
+                                onClick={() => {
+                                  const approved = window.confirm(
+                                    `سيتم تثبيت ${derivedRecoveryRows.length} نقص تاريخي داخل سجل التعويض. هل تريد المتابعة؟`,
+                                  );
+                                  if (!approved) return;
+                                  void backfillDerivedRecoveryRows();
+                                }}
+                                className="text-[10px] font-bold px-2 py-1 rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 disabled:opacity-60"
+                              >
+                                {backfillingRecovery ? 'جاري الترحيل...' : `تثبيت التاريخي (${derivedRecoveryRows.length})`}
+                              </button>
+                            )}
                             <button
                               type="button"
-                              disabled={backfillingRecovery}
+                              disabled={rebuildingAllRecovery}
                               onClick={() => {
-                                const approved = window.confirm(
-                                  `سيتم تثبيت ${derivedRecoveryRows.length} نقص تاريخي داخل سجل التعويض. هل تريد المتابعة؟`,
-                                );
-                                if (!approved) return;
-                                void backfillDerivedRecoveryRows();
+                                void loadRecoveryRows();
+                                void loadRecoveryActions();
+                                void loadInventoryBarcodeMap();
                               }}
-                              className="text-[10px] font-bold px-2 py-1 rounded-lg border border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300 disabled:opacity-60"
+                              className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600 disabled:opacity-60"
                             >
-                              {backfillingRecovery ? 'جاري الترحيل...' : `تثبيت التاريخي (${derivedRecoveryRows.length})`}
+                              تحديث
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void loadRecoveryRows();
-                              void loadRecoveryActions();
-                              void loadInventoryBarcodeMap();
-                            }}
-                            className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600"
-                          >
-                            تحديث
-                          </button>
+                          </div>
                         </div>
+                        {rebuildingAllRecovery && rebuildAllProgress && rebuildAllProgress.total > 0 && (
+                          <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">
+                            جاري المعالجة: {rebuildAllProgress.processed} / {rebuildAllProgress.total} تقرير
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 p-1 rounded-xl bg-stone-100 dark:bg-stone-800">
                         <button
@@ -1691,7 +1823,7 @@ export default function InspectionIntelligenceDrawer({
                         <div className="space-y-2">
                           {worklistByStaff.map((staffGroup) => {
                             const rowCount = staffGroup.cards.reduce((acc, c) => acc + c.rows.length, 0);
-                            const workOpen = expandedWorklistStaff.has(staffGroup.staffKey);
+                            const workOpen = expandedRecoveryStaffKeys.has(staffGroup.staffKey);
                             return (
                               <div
                                 key={staffGroup.staffKey}
@@ -1699,7 +1831,7 @@ export default function InspectionIntelligenceDrawer({
                               >
                                 <button
                                   type="button"
-                                  onClick={() => toggleWorklistStaff(staffGroup.staffKey)}
+                                  onClick={() => toggleRecoveryStaff(staffGroup.staffKey)}
                                   className="flex w-full items-center justify-between gap-2 px-3 py-3 text-right hover:bg-stone-100/80 dark:hover:bg-stone-800/50 transition-colors"
                                 >
                                   <ChevronDown
@@ -1886,7 +2018,7 @@ export default function InspectionIntelligenceDrawer({
                           ) : (
                             archiveByStaff.map((staffGroup) => {
                               const archRowCount = staffGroup.cards.reduce((acc, c) => acc + c.rows.length, 0);
-                              const archOpen = expandedArchiveStaff.has(staffGroup.staffKey);
+                              const archOpen = expandedRecoveryStaffKeys.has(staffGroup.staffKey);
                               return (
                                 <div
                                   key={`arch-staff-${staffGroup.staffKey}`}
@@ -1894,7 +2026,7 @@ export default function InspectionIntelligenceDrawer({
                                 >
                                   <button
                                     type="button"
-                                    onClick={() => toggleArchiveStaff(staffGroup.staffKey)}
+                                    onClick={() => toggleRecoveryStaff(staffGroup.staffKey)}
                                     className="flex w-full items-center justify-between gap-2 px-3 py-3 text-right hover:bg-stone-100/80 dark:hover:bg-stone-800/50 transition-colors"
                                   >
                                     <ChevronDown
@@ -1991,6 +2123,172 @@ export default function InspectionIntelligenceDrawer({
               دورة الجرد الافتراضية: 7 أيام · تحليل محلي بدون AI خارجي
             </footer>
           </motion.aside>
+
+          {rebuildWizardOpen && (
+            <div
+              className="fixed inset-0 z-[142] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="rebuild-wizard-title"
+              dir="rtl"
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+                aria-label="إغلاق"
+                onClick={() => setRebuildWizardOpen(false)}
+              />
+              <div className="relative w-full max-w-md rounded-2xl border border-stone-200/80 dark:border-stone-700/80 bg-white dark:bg-stone-900 shadow-2xl p-5 space-y-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 id="rebuild-wizard-title" className="text-sm font-black text-stone-900 dark:text-stone-100">
+                      إعادة احتساب نواقص الجرد
+                    </h3>
+                    <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400 mt-1">
+                      {rebuildWizardStep === 'dates' && 'اختر نطاق التاريخ أو كامل السجل.'}
+                      {rebuildWizardStep === 'pin' && 'أدخل رمز التأكيد للمتابعة.'}
+                      {rebuildWizardStep === 'confirm' && 'راجع النطاق ثم أكّد التشغيل.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRebuildWizardOpen(false)}
+                    className="shrink-0 p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500"
+                    aria-label="إغلاق"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {rebuildWizardStep === 'dates' && (
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                      <input
+                        type="checkbox"
+                        checked={rebuildFullLog}
+                        onChange={(e) => setRebuildFullLog(e.target.checked)}
+                        className="rounded border-stone-300"
+                      />
+                      كامل السجل (جميع التقارير المحفوظة في هذا القسم)
+                    </label>
+                    {!rebuildFullLog && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-stone-500 mb-1">من تاريخ</label>
+                          <input
+                            type="date"
+                            value={rebuildDateFrom}
+                            onChange={(e) => setRebuildDateFrom(e.target.value)}
+                            className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-950 px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-stone-500 mb-1">إلى تاريخ</label>
+                          <input
+                            type="date"
+                            value={rebuildDateTo}
+                            onChange={(e) => setRebuildDateTo(e.target.value)}
+                            className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-950 px-2 py-1.5 text-[11px]"
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {rebuildFullLog && (
+                      <p className="text-[10px] text-amber-800 dark:text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5">
+                        سيتم معالجة كل التقارير حسب صلاحياتك؛ قد يستغرق ذلك وقتاً.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {rebuildWizardStep === 'pin' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-stone-600 dark:text-stone-400">
+                      <KeyRound className="h-4 w-4 shrink-0" />
+                      <span className="text-[11px] font-bold">رمز التأكيد (واجهة فقط — لا يغني عن سياسات الخادم)</span>
+                    </div>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={rebuildPin}
+                      onChange={(e) => setRebuildPin(e.target.value)}
+                      placeholder="0000"
+                      className="w-full rounded-lg border border-stone-200 dark:border-stone-600 bg-white dark:bg-stone-950 px-3 py-2 text-sm font-mono tracking-widest text-center"
+                    />
+                  </div>
+                )}
+
+                {rebuildWizardStep === 'confirm' && (
+                  <div className="rounded-xl border border-rose-200/80 dark:border-rose-800/80 bg-rose-500/5 p-3 space-y-2">
+                    <p className="text-[11px] font-bold text-stone-800 dark:text-stone-200">
+                      {rebuildFullLog
+                        ? 'سيتم إعادة احتساب نواقص الجرد من جميع التقارير في هذا القسم وحفظها في سجل التعويض.'
+                        : `سيتم إعادة الاحتساب للتقارير التي تاريخ إنشائها بين ${rebuildDateFrom} و ${rebuildDateTo} (شامل).`}
+                    </p>
+                    <p className="text-[10px] text-stone-600 dark:text-stone-400">
+                      لا يُحذف سجل التعويض تلقائياً بالكامل؛ تُعاد معالجة التقارير المطابقة للنطاق. تأكد من الشبكة والصلاحيات.
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setRebuildWizardOpen(false)}
+                    className="text-[11px] font-bold px-3 py-2 rounded-lg border border-stone-300 dark:border-stone-600 text-stone-700 dark:text-stone-300"
+                  >
+                    إلغاء
+                  </button>
+                  <div className="flex gap-2">
+                    {rebuildWizardStep !== 'dates' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRebuildWizardStep((s) => (s === 'confirm' ? 'pin' : 'dates'))
+                        }
+                        className="text-[11px] font-bold px-3 py-2 rounded-lg border border-stone-300 dark:border-stone-600"
+                      >
+                        رجوع
+                      </button>
+                    )}
+                    {rebuildWizardStep === 'dates' && (
+                      <button
+                        type="button"
+                        onClick={onRebuildWizardContinueToPin}
+                        className="text-[11px] font-bold px-3 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700"
+                      >
+                        التالي
+                      </button>
+                    )}
+                    {rebuildWizardStep === 'pin' && (
+                      <button
+                        type="button"
+                        onClick={onRebuildWizardPinNext}
+                        className="text-[11px] font-bold px-3 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700"
+                      >
+                        التالي
+                      </button>
+                    )}
+                    {rebuildWizardStep === 'confirm' && (
+                      <button
+                        type="button"
+                        disabled={rebuildingAllRecovery}
+                        onClick={() =>
+                          void executeRebuildAllRecovery(
+                            rebuildFullLog ? null : dateInputsToCreatedAtRange(rebuildDateFrom, rebuildDateTo),
+                          )
+                        }
+                        className="text-[11px] font-bold px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-60"
+                      >
+                        تأكيد وتشغيل
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </AnimatePresence>

@@ -253,6 +253,12 @@ export default function Reports({
     profile?.role === 'manager' ||
     (department === 'installation' && profile?.role === 'installation_department');
   const canDeleteReports = profile?.role === 'admin';
+  const canRebuildRecovery =
+    profile?.role === 'admin' ||
+    profile?.role === 'manager' ||
+    profile?.role === 'maintenance_manager' ||
+    profile?.role === 'logistics' ||
+    (department === 'installation' && profile?.role === 'installation_department');
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const [activeTab, setActiveTab] = useState<Tab>('damage');
@@ -1994,6 +2000,7 @@ export default function Reports({
         onClose={() => setIntelligenceOpen(false)}
         pageDepartment={department}
         canDeleteRecovery={profile?.role === 'admin'}
+        canRebuildRecovery={canRebuildRecovery}
         onStartInspection={(vehicleId) => {
           setSelectedVehicleId(String(vehicleId));
           setActiveTab('damage');
