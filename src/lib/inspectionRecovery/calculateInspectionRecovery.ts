@@ -21,6 +21,9 @@ interface RecoveryRowInsert {
   actual_qty: number;
   missing_qty: number;
   compensated_qty: number;
+  baseline_actual_qty?: number | null;
+  is_repeat_shortage?: boolean;
+  delta_since_last_compensation?: number;
   status: 'pending';
   action_type: 'auto';
 }
@@ -35,6 +38,8 @@ export interface CalculateInspectionRecoveryParams {
   toolValues: Record<number, number>;
   /** إن وُجدت تُستخدم بدل جلب القوالب من القاعدة (لتسريع إعادة بناء السجل). */
   templatesOverride?: InventoryTemplateRow[] | null;
+  /** عند التعطيل لا تتم مقارنة النقص الحالي بآخر تعويض (مفيد لإعادة البناء الضخم). */
+  compareWithPreviousRecovery?: boolean;
 }
 
 export interface CalculateInspectionRecoveryResult {
@@ -104,29 +109,101 @@ function buildRecoveryRowInserts(params: {
   userId: string | null;
   sourceTemplates: InventoryTemplateRow[];
   toolValues: Record<number, number>;
+  previousByItemName: Map<
+    string,
+    {
+      required_qty: number;
+      actual_qty: number;
+      compensated_qty: number;
+      status: 'pending' | 'scheduled' | 'resolved';
+    }
+  >;
 }): RecoveryRowInsert[] {
-  const { safeDepartment, inspectionId, vehicleId, userId, sourceTemplates, toolValues } = params;
+  const { safeDepartment, inspectionId, vehicleId, userId, sourceTemplates, toolValues, previousByItemName } = params;
   const recoveryRows: RecoveryRowInsert[] = [];
   for (const item of sourceTemplates) {
     const requiredQty = Number(item.required_quantity ?? 0);
     const actualQty = getActualQty(toolValues, Number(item.id));
     const missingQty = Math.max(requiredQty - actualQty, 0);
     if (missingQty < 1) continue;
+    const itemLabel = formatInventoryLabel(String(item.item_name ?? ''), item.barcode);
+    const previous = previousByItemName.get(itemLabel);
+    const previousEffectiveActual = previous
+      ? Math.min(
+          Math.max(Number(previous.required_qty ?? requiredQty), 0),
+          Math.max(Number(previous.actual_qty ?? 0), 0) + Math.max(Number(previous.compensated_qty ?? 0), 0),
+        )
+      : null;
+    const deltaSinceLastCompensation =
+      previousEffectiveActual != null ? Math.max(previousEffectiveActual - actualQty, 0) : 0;
+    const isRepeatShortage = previous?.status === 'resolved' && deltaSinceLastCompensation > 0 && missingQty > 0;
+
     recoveryRows.push({
       inspection_id: inspectionId,
       vehicle_id: vehicleId,
       user_id: userId,
       department: safeDepartment,
-      item_name: formatInventoryLabel(String(item.item_name ?? ''), item.barcode),
+      item_name: itemLabel,
       required_qty: requiredQty,
       actual_qty: actualQty,
       missing_qty: missingQty,
       compensated_qty: 0,
+      baseline_actual_qty: previousEffectiveActual,
+      is_repeat_shortage: isRepeatShortage,
+      delta_since_last_compensation: deltaSinceLastCompensation,
       status: 'pending',
       action_type: 'auto',
     });
   }
   return recoveryRows;
+}
+
+async function fetchLatestRecoveryByItemName(
+  client: SupabaseClient,
+  safeDepartment: 'tajhiz' | 'installation' | 'operations',
+  vehicleId: number,
+): Promise<
+  Map<
+    string,
+    {
+      required_qty: number;
+      actual_qty: number;
+      compensated_qty: number;
+      status: 'pending' | 'scheduled' | 'resolved';
+    }
+  >
+> {
+  const { data, error } = await client
+    .from('inspection_recovery')
+    .select('item_name,required_qty,actual_qty,compensated_qty,status,created_at')
+    .eq('department', safeDepartment)
+    .eq('vehicle_id', vehicleId)
+    .order('created_at', { ascending: false })
+    .limit(1500);
+  if (error) throw error;
+  const map = new Map<
+    string,
+    {
+      required_qty: number;
+      actual_qty: number;
+      compensated_qty: number;
+      status: 'pending' | 'scheduled' | 'resolved';
+    }
+  >();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const itemName = String(row.item_name ?? '').trim();
+    if (!itemName || map.has(itemName)) continue;
+    const statusRaw = String(row.status ?? 'pending');
+    const status: 'pending' | 'scheduled' | 'resolved' =
+      statusRaw === 'resolved' || statusRaw === 'scheduled' ? statusRaw : 'pending';
+    map.set(itemName, {
+      required_qty: Number(row.required_qty ?? 0),
+      actual_qty: Number(row.actual_qty ?? 0),
+      compensated_qty: Number(row.compensated_qty ?? 0),
+      status,
+    });
+  }
+  return map;
 }
 
 async function deleteInspectionRecoveryForInspection(
@@ -161,6 +238,7 @@ export async function calculateInspectionRecovery({
   hasToolkit,
   toolValues,
   templatesOverride,
+  compareWithPreviousRecovery = true,
 }: CalculateInspectionRecoveryParams): Promise<CalculateInspectionRecoveryResult> {
   const safeDepartment = normalizeDepartment(department);
   if (!safeDepartment) {
@@ -178,6 +256,17 @@ export async function calculateInspectionRecovery({
       : await fetchActiveInventoryTemplates(client, department);
 
   const toolValuesNorm = normalizeToolValuesRecord(toolValues as unknown);
+  const previousByItemName = compareWithPreviousRecovery
+    ? await fetchLatestRecoveryByItemName(client, safeDepartment, vehicleId)
+    : new Map<
+        string,
+        {
+          required_qty: number;
+          actual_qty: number;
+          compensated_qty: number;
+          status: 'pending' | 'scheduled' | 'resolved';
+        }
+      >();
 
   const recoveryRows = buildRecoveryRowInserts({
     safeDepartment,
@@ -186,6 +275,7 @@ export async function calculateInspectionRecovery({
     userId: userId != null && String(userId).trim() !== '' ? String(userId) : null,
     sourceTemplates,
     toolValues: toolValuesNorm,
+    previousByItemName,
   });
 
   await deleteInspectionRecoveryForInspection(client, safeDepartment, inspectionId);
@@ -345,6 +435,7 @@ export async function rebuildInspectionRecoveryForAllReports(
           hasToolkit,
           toolValues,
           templatesOverride: templates,
+          compareWithPreviousRecovery: false,
         });
         summary.processed += 1;
         if (result.skippedNoToolkit) {

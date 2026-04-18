@@ -8,12 +8,17 @@ interface RecoveryRow {
   vehicle_id: number;
   user_id: string | null;
   missing_qty: number;
+  compensated_qty: number;
   status: RecoveryStatus;
   scheduled_date: string | null;
 }
 
 export interface InspectionRecoveryStats {
   totalMissing: number;
+  compensatedTotal: number;
+  remainingTotal: number;
+  compensationRate: number;
+  spendRate: number;
   vehicleRiskScore: number;
   userGapCount: number;
   pendingCount: number;
@@ -22,6 +27,10 @@ export interface InspectionRecoveryStats {
 
 const EMPTY_STATS: InspectionRecoveryStats = {
   totalMissing: 0,
+  compensatedTotal: 0,
+  remainingTotal: 0,
+  compensationRate: 0,
+  spendRate: 0,
   vehicleRiskScore: 0,
   userGapCount: 0,
   pendingCount: 0,
@@ -51,7 +60,7 @@ export function useInspectionRecoveryStats(department: DepartmentCode, enabled =
       try {
         const { data, error } = await client
           .from('inspection_recovery')
-          .select('vehicle_id,user_id,missing_qty,status,scheduled_date')
+          .select('vehicle_id,user_id,missing_qty,compensated_qty,status,scheduled_date')
           .eq('department', department)
           .order('created_at', { ascending: false })
           .limit(4000);
@@ -59,13 +68,19 @@ export function useInspectionRecoveryStats(department: DepartmentCode, enabled =
 
         const rows = (data ?? []) as RecoveryRow[];
         let totalMissing = 0;
+        let compensatedTotal = 0;
+        let remainingTotal = 0;
         let pendingCount = 0;
         let dueReminderCount = 0;
         const riskyVehicles = new Set<number>();
         const usersWithGap = new Set<string>();
         for (const row of rows) {
           const missing = Number(row.missing_qty ?? 0);
+          const compensated = Math.max(0, Number(row.compensated_qty ?? 0));
+          const remaining = Math.max(0, missing - compensated);
           totalMissing += missing;
+          compensatedTotal += compensated;
+          remainingTotal += remaining;
           const effectivePending = row.status === 'pending' || (row.status === 'scheduled' && !!row.scheduled_date && row.scheduled_date <= todayIso);
           if (effectivePending) {
             pendingCount += 1;
@@ -79,6 +94,10 @@ export function useInspectionRecoveryStats(department: DepartmentCode, enabled =
         if (seq === loadSeq.current) {
           setStats({
             totalMissing,
+            compensatedTotal,
+            remainingTotal,
+            compensationRate: totalMissing > 0 ? Math.round((compensatedTotal / totalMissing) * 100) : 0,
+            spendRate: totalMissing > 0 ? Math.round(((totalMissing - remainingTotal) / totalMissing) * 100) : 0,
             vehicleRiskScore: riskyVehicles.size,
             userGapCount: usersWithGap.size,
             pendingCount,

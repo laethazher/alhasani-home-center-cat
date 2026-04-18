@@ -33,17 +33,62 @@ import {
   dateInputsToCreatedAtRange,
   rebuildInspectionRecoveryForAllReports,
 } from '../../lib/inspectionRecovery/calculateInspectionRecovery';
+import {
+  RecoveryReasonsRepository,
+  type RecoveryCompensationReason,
+  type RecoveryReasonCategory,
+} from '../../data/repositories/recoveryReasonsRepository';
 
 const WEEKDAY_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
 /** رمز واجهة فقط — لا يغني عن سياسات RLS في Supabase. */
 const REBUILD_GUARD_PIN = '0000';
+const recoveryReasonCategoryLabel: Record<RecoveryReasonCategory, string> = {
+  customer_compensation: 'تعويض لدى زبون',
+  sale: 'صرف/بيع',
+  damage: 'تالف',
+  loss: 'مفقود',
+  other: 'أخرى',
+};
 
 function defaultRebuildDateRange(): { from: string; to: string } {
   const to = new Date();
   const from = new Date();
   from.setDate(from.getDate() - 30);
   return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
+
+function buildDefaultCompensationReasonDraft(): RecoveryCompensationReasonDraft {
+  return {
+    category: '',
+    details: '',
+    customerName: '',
+    invoiceNumber: '',
+    compensatedItemName: '',
+    compensatedItemBarcode: '',
+  };
+}
+
+function buildSuggestedCompensationReasonDraft(row: InspectionRecoveryRow): RecoveryCompensationReasonDraft {
+  const draft = buildDefaultCompensationReasonDraft();
+  const parsed = splitBarcodeAndNameFromDisplay(row.item_name);
+  draft.compensatedItemName = parsed.name || row.item_name;
+  draft.compensatedItemBarcode = parsed.barcode || '';
+  const delta = Number(row.delta_since_last_compensation ?? 0);
+  if (row.is_repeat_shortage) {
+    draft.category = 'other';
+    draft.details = `مقارنة آلية: نقص متكرر بعد تعويض سابق${delta > 0 ? ` (فرق: ${delta})` : ''}.`;
+    return draft;
+  }
+  if (delta > 0) {
+    draft.category = 'other';
+    draft.details = `مقارنة آلية: انخفاض عن آخر حالة بعد التعويض بمقدار ${delta}.`;
+    return draft;
+  }
+  if (row.reason && row.reason.trim()) {
+    draft.details = row.reason.trim();
+  }
+  return draft;
 }
 
 interface DeficitItem {
@@ -91,7 +136,19 @@ interface InspectionRecoveryRow {
   resolved_at: string | null;
   reason: string | null;
   created_at: string;
+  baseline_actual_qty?: number | null;
+  is_repeat_shortage?: boolean;
+  delta_since_last_compensation?: number;
   source_type?: 'stored' | 'derived';
+}
+
+interface RecoveryCompensationReasonDraft {
+  category: RecoveryReasonCategory | '';
+  details: string;
+  customerName: string;
+  invoiceNumber: string;
+  compensatedItemName: string;
+  compensatedItemBarcode: string;
 }
 
 interface RecoveryGroupedCard {
@@ -227,13 +284,23 @@ export default function InspectionIntelligenceDrawer({
   const [rebuildFullLog, setRebuildFullLog] = useState(false);
   const [rebuildPin, setRebuildPin] = useState('');
   const [recoveryActionNotice, setRecoveryActionNotice] = useState<string | null>(null);
-  const [recoverySubTab, setRecoverySubTab] = useState<'worklist' | 'archive'>('worklist');
+  const [recoverySubTab, setRecoverySubTab] = useState<'worklist' | 'archive' | 'reasons'>('worklist');
   const [recoverySelectionMode, setRecoverySelectionMode] = useState(false);
   const [selectedRecoveryIds, setSelectedRecoveryIds] = useState<Set<number>>(new Set());
   const [recoveryReasonDrafts, setRecoveryReasonDrafts] = useState<Record<number, string>>({});
   const [recoveryScheduleDrafts, setRecoveryScheduleDrafts] = useState<Record<number, string>>({});
   const [recoveryCompensatedDrafts, setRecoveryCompensatedDrafts] = useState<Record<number, string>>({});
   const [showNotCompensatedEditor, setShowNotCompensatedEditor] = useState<Record<number, boolean>>({});
+  const [recoveryReasonDetailDrafts, setRecoveryReasonDetailDrafts] = useState<
+    Record<number, RecoveryCompensationReasonDraft>
+  >({});
+  const [recoveryReasons, setRecoveryReasons] = useState<RecoveryCompensationReason[]>([]);
+  const [recoveryReasonsLoading, setRecoveryReasonsLoading] = useState(false);
+  const [reasonFilterDriver, setReasonFilterDriver] = useState('');
+  const [reasonFilterItem, setReasonFilterItem] = useState('');
+  const [reasonFilterCategory, setReasonFilterCategory] = useState<RecoveryReasonCategory | 'all'>('all');
+  const [reasonDateFrom, setReasonDateFrom] = useState('');
+  const [reasonDateTo, setReasonDateTo] = useState('');
   const [inventoryNameBarcodeMap, setInventoryNameBarcodeMap] = useState<Map<string, string | null>>(
     () => new Map(),
   );
@@ -242,6 +309,7 @@ export default function InspectionIntelligenceDrawer({
   const [expandedRecoveryStaffKeys, setExpandedRecoveryStaffKeys] = useState<Set<string>>(new Set());
   /** مرتبط بمساحة العمل الحالية فقط — لا تبديل إلى القسم الآخر (عزل تجهيز / تركيب). */
   const department = pageDepartment;
+  const reasonsRepository = useMemo(() => new RecoveryReasonsRepository(), []);
 
   useEffect(() => {
     if (open) setQrVehicleId(null);
@@ -501,7 +569,7 @@ export default function InspectionIntelligenceDrawer({
       const { data, error } = await client
         .from('inspection_recovery')
         .select(
-          'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at',
+          'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at,baseline_actual_qty,is_repeat_shortage,delta_since_last_compensation',
         )
         .eq('department', department)
         .order('created_at', { ascending: false })
@@ -514,16 +582,19 @@ export default function InspectionIntelligenceDrawer({
       const defaultDates: Record<number, string> = {};
       const defaultReasons: Record<number, string> = {};
       const defaultCompensated: Record<number, string> = {};
+      const defaultReasonDetails: Record<number, RecoveryCompensationReasonDraft> = {};
       for (const row of rows) {
         defaultDates[row.id] = row.scheduled_date ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         defaultReasons[row.id] = row.reason ?? '';
         const remaining = Math.max(Number(row.missing_qty ?? 0) - Number(row.compensated_qty ?? 0), 0);
         defaultCompensated[row.id] = String(Math.max(1, remaining));
+        defaultReasonDetails[row.id] = buildSuggestedCompensationReasonDraft(row);
       }
       setRecoveryRows(rows);
       setRecoveryScheduleDrafts(defaultDates);
       setRecoveryReasonDrafts(defaultReasons);
       setRecoveryCompensatedDrafts((prev) => ({ ...prev, ...defaultCompensated }));
+      setRecoveryReasonDetailDrafts((prev) => ({ ...defaultReasonDetails, ...prev }));
     } catch (e) {
       console.error('loadRecoveryRows failed', e);
     } finally {
@@ -559,6 +630,23 @@ export default function InspectionIntelligenceDrawer({
   useEffect(() => {
     void loadRecoveryActions();
   }, [loadRecoveryActions]);
+
+  const loadRecoveryReasons = useCallback(async () => {
+    if (!open) return;
+    setRecoveryReasonsLoading(true);
+    try {
+      const rows = await reasonsRepository.listByDepartment(department, 6000);
+      setRecoveryReasons(rows);
+    } catch (e) {
+      console.error('loadRecoveryReasons failed', e);
+    } finally {
+      setRecoveryReasonsLoading(false);
+    }
+  }, [department, open, reasonsRepository]);
+
+  useEffect(() => {
+    void loadRecoveryReasons();
+  }, [loadRecoveryReasons]);
 
   const updateCompensationStatus = useCallback(
     async (row: DeficitRow, status: 'compensated' | 'not_compensated') => {
@@ -737,7 +825,11 @@ export default function InspectionIntelligenceDrawer({
 
   const currentRecoveryRows = useMemo(
     () =>
-      (recoverySubTab === 'worklist' ? worklistCards : archiveCards)
+      (recoverySubTab === 'worklist'
+        ? worklistCards
+        : recoverySubTab === 'archive'
+          ? archiveCards
+          : [])
         .flatMap((card) => card.rows)
         .filter((row) => row.id > 0),
     [archiveCards, recoverySubTab, worklistCards],
@@ -779,6 +871,78 @@ export default function InspectionIntelligenceDrawer({
     const compensated = Number(row.compensated_qty ?? 0);
     return Math.max(missing - compensated, 0);
   }, []);
+
+  const filteredRecoveryReasons = useMemo(() => {
+    const driverQ = reasonFilterDriver.trim();
+    const itemQ = reasonFilterItem.trim();
+    return recoveryReasons.filter((row) => {
+      if (reasonFilterCategory !== 'all' && row.reason_category !== reasonFilterCategory) return false;
+      if (driverQ && !String(row.driver_name ?? '').includes(driverQ)) return false;
+      if (itemQ && !String(row.item_name ?? '').includes(itemQ)) return false;
+      const occurredDay = String(row.occurred_at ?? '').slice(0, 10);
+      if (reasonDateFrom && occurredDay < reasonDateFrom) return false;
+      if (reasonDateTo && occurredDay > reasonDateTo) return false;
+      return true;
+    });
+  }, [reasonDateFrom, reasonDateTo, reasonFilterCategory, reasonFilterDriver, reasonFilterItem, recoveryReasons]);
+
+  const recoveryReasonMetrics = useMemo(() => {
+    let compensatedQty = 0;
+    let remainingQty = 0;
+    for (const row of filteredRecoveryReasons) {
+      compensatedQty += Number(row.compensated_qty ?? 0);
+      remainingQty += Number(row.remaining_qty_after_action ?? 0);
+    }
+    const totalTracked = compensatedQty + remainingQty;
+    const compensationRate = totalTracked > 0 ? Math.round((compensatedQty / totalTracked) * 100) : 0;
+    return { compensatedQty, remainingQty, totalTracked, compensationRate };
+  }, [filteredRecoveryReasons]);
+
+  const exportRecoveryReasonsPdf = useCallback(async () => {
+    setExportingArchivePdf(true);
+    try {
+      if (filteredRecoveryReasons.length === 0) {
+        window.alert('لا توجد أسباب تعويض ضمن الفلاتر الحالية.');
+        return;
+      }
+      const deptTitle =
+        department === 'installation' ? 'تركيب' : department === 'operations' ? 'عمليات' : 'تجهيز';
+      const rowsHtml = filteredRecoveryReasons
+        .map((row) => {
+          const cat = recoveryReasonCategoryLabel[row.reason_category] ?? row.reason_category;
+          const occurred = String(row.occurred_at ?? '').slice(0, 10);
+          return `<tr>
+            <td>${escapeHtmlForPdf(occurred || '—')}</td>
+            <td>${escapeHtmlForPdf(String(row.driver_name ?? '—'))}</td>
+            <td>${escapeHtmlForPdf(String(row.item_name ?? '—'))}</td>
+            <td>${escapeHtmlForPdf(cat)}</td>
+            <td>${row.compensated_qty ?? 0}</td>
+            <td>${row.remaining_qty_after_action ?? 0}</td>
+            <td>${escapeHtmlForPdf(String(row.customer_name ?? '—'))}</td>
+            <td>${escapeHtmlForPdf(String(row.invoice_number ?? '—'))}</td>
+            <td>${escapeHtmlForPdf(String(row.reason_details ?? '—'))}</td>
+          </tr>`;
+        })
+        .join('');
+      const html = `
+        <h1>تقرير أسباب تعويض النواقص — ${escapeHtmlForPdf(deptTitle)}</h1>
+        <p>الإجمالي: ${filteredRecoveryReasons.length} | كمية التعويض: ${recoveryReasonMetrics.compensatedQty} | المتبقي: ${recoveryReasonMetrics.remainingQty} | نسبة التعويض: ${recoveryReasonMetrics.compensationRate}%</p>
+        <table>
+          <thead>
+            <tr><th>التاريخ</th><th>${escapeHtmlForPdf(staffLabel)}</th><th>العنصر</th><th>فئة السبب</th><th>تم تعويض</th><th>متبقي</th><th>الزبون</th><th>الفاتورة</th><th>التفاصيل</th></tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      `;
+      await exportHtmlToPdf(
+        wrapReportHtmlForPdf(html, window.location.origin),
+        `recovery-reasons-${deptTitle}-${Date.now()}.pdf`,
+        {},
+      );
+    } finally {
+      setExportingArchivePdf(false);
+    }
+  }, [department, filteredRecoveryReasons, recoveryReasonMetrics, staffLabel]);
 
   const exportRecoveryTabToPdf = useCallback(
     async (tab: 'worklist' | 'archive') => {
@@ -890,12 +1054,25 @@ export default function InspectionIntelligenceDrawer({
           })
           .join('');
 
+        const totals = flatRows.reduce(
+          (acc, item) => {
+            const row = item.row;
+            acc.missing += Number(row.missing_qty ?? 0);
+            acc.compensated += Number(row.compensated_qty ?? 0);
+            acc.remaining += getRemainingMissingQty(row);
+            return acc;
+          },
+          { missing: 0, compensated: 0, remaining: 0 },
+        );
+        const compensationRate = totals.missing > 0 ? Math.round((totals.compensated / totals.missing) * 100) : 0;
+        const spendRate = totals.missing > 0 ? Math.round(((totals.missing - totals.remaining) / totals.missing) * 100) : 0;
+
         const title = `نواقص الجرد — ${tabLabel} — ${deptTitle}`;
         const meta = `${new Date().toLocaleString('ar-EG')}${
           selectionActive
             ? ` · تصدير ${selectedForThisTab.size} صف محدد فقط (هذا التبويب)`
             : ' · تصدير كامل التبويب الحالي'
-        }`;
+        } · نسبة التعويض ${compensationRate}% · نسبة الصرف ${spendRate}%`;
 
         const itemsSectionTitle = tab === 'worklist' ? 'العناصر (قائمة العمل — مفتوحة)' : 'العناصر (الأرشيف)';
 
@@ -948,7 +1125,7 @@ export default function InspectionIntelligenceDrawer({
       row: InspectionRecoveryRow,
       nextStatus: RecoveryStatus,
       options?: { reason?: string; scheduledDate?: string; recoveryId?: number | null; compensatedQty?: number },
-    ) => {
+    ): Promise<number | null> => {
       const payload = {
         recovery_id: options?.recoveryId ?? (row.id > 0 ? row.id : null),
         inspection_id: row.inspection_id,
@@ -963,14 +1140,86 @@ export default function InspectionIntelligenceDrawer({
         reason: options?.reason ?? row.reason ?? null,
         scheduled_date: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? null : null,
       };
-      const { error } = await client.from('inspection_recovery_actions').insert(payload);
+      const { data, error } = await client
+        .from('inspection_recovery_actions')
+        .insert(payload)
+        .select('id')
+        .single();
       if (error) throw error;
+      return Number((data as { id?: unknown })?.id ?? 0) || null;
     },
     [client, department],
   );
 
+  const saveCompensationReason = useCallback(
+    async (params: {
+      row: InspectionRecoveryRow;
+      actionId: number | null;
+      draft: RecoveryCompensationReasonDraft;
+      compensatedQty: number;
+      remainingAfterAction: number;
+      driverName?: string;
+    }) => {
+      const { row, actionId, draft, compensatedQty, remainingAfterAction, driverName } = params;
+      if (!draft.category) return;
+      const parsed = splitBarcodeAndNameFromDisplay(row.item_name);
+      await reasonsRepository.insert(department, {
+        recovery_id: row.id > 0 ? row.id : null,
+        recovery_action_id: actionId,
+        inspection_id: Number(row.inspection_id),
+        vehicle_id: Number(row.vehicle_id),
+        user_id: row.user_id,
+        department: department as 'tajhiz' | 'installation' | 'operations',
+        driver_name: driverName?.trim() || null,
+        item_name: parsed.name || row.item_name,
+        item_barcode: parsed.barcode || null,
+        compensated_qty: Math.max(0, Number(compensatedQty || 0)),
+        remaining_qty_after_action: Math.max(0, Number(remainingAfterAction || 0)),
+        reason_category: draft.category,
+        reason_details: draft.details.trim() || null,
+        customer_name: draft.customerName.trim() || null,
+        invoice_number: draft.invoiceNumber.trim() || null,
+        compensated_item_name: draft.compensatedItemName.trim() || null,
+        compensated_item_barcode: draft.compensatedItemBarcode.trim() || null,
+        occurred_at: new Date().toISOString(),
+        created_by: row.user_id,
+      });
+    },
+    [department, reasonsRepository],
+  );
+
   const updateRecoveryStatus = useCallback(
-    async (row: InspectionRecoveryRow, nextStatus: RecoveryStatus, options?: { reason?: string; scheduledDate?: string; compensatedQty?: number }) => {
+    async (
+      row: InspectionRecoveryRow,
+      nextStatus: RecoveryStatus,
+      options?: {
+        reason?: string;
+        scheduledDate?: string;
+        compensatedQty?: number;
+        compensationReasonDraft?: RecoveryCompensationReasonDraft;
+        driverName?: string;
+      },
+    ) => {
+      const remainingBeforeAction = getRemainingMissingQty(row);
+      const compensationQty = Math.max(0, Number(options?.compensatedQty ?? 0));
+      const isPartialCompensation = compensationQty > 0 && compensationQty < remainingBeforeAction;
+      const compensationReasonDraft = options?.compensationReasonDraft ?? buildDefaultCompensationReasonDraft();
+      if (isPartialCompensation) {
+        if (!compensationReasonDraft.category) {
+          window.alert('للتعويض الجزئي يجب اختيار سبب التعويض.');
+          return;
+        }
+      }
+      if (compensationReasonDraft.category === 'customer_compensation') {
+        if (!compensationReasonDraft.customerName.trim()) {
+          window.alert('يرجى إدخال اسم الزبون عند اختيار سبب: تعويض لدى زبون.');
+          return;
+        }
+        if (!compensationReasonDraft.invoiceNumber.trim()) {
+          window.alert('يرجى إدخال رقم الفاتورة عند اختيار سبب: تعويض لدى زبون.');
+          return;
+        }
+      }
       setSavingRecoveryId(row.id);
       try {
         const nowIso = new Date().toISOString();
@@ -978,7 +1227,7 @@ export default function InspectionIntelligenceDrawer({
           ...row,
           compensated_qty: Math.min(
             Number(row.missing_qty ?? 0),
-            Number(row.compensated_qty ?? 0) + Number(options?.compensatedQty ?? 0),
+            Number(row.compensated_qty ?? 0) + compensationQty,
           ),
           status: nextStatus,
           reason: options?.reason ?? row.reason ?? null,
@@ -1016,7 +1265,7 @@ export default function InspectionIntelligenceDrawer({
               missing_qty: row.missing_qty,
               compensated_qty: Math.min(
                 Number(row.missing_qty ?? 0),
-                Number(row.compensated_qty ?? 0) + Number(options?.compensatedQty ?? 0),
+                Number(row.compensated_qty ?? 0) + compensationQty,
               ),
               status: nextStatus,
               action_type: 'manual',
@@ -1025,21 +1274,36 @@ export default function InspectionIntelligenceDrawer({
               resolved_at: optimisticRow.resolved_at,
             })
             .select(
-              'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at',
+              'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at,baseline_actual_qty,is_repeat_shortage,delta_since_last_compensation',
             )
             .single();
           if (createError) throw createError;
-          await logRecoveryAction(row, nextStatus, {
+          const actionId = await logRecoveryAction(row, nextStatus, {
             reason: options?.reason ?? row.reason ?? undefined,
             scheduledDate: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? undefined : undefined,
             recoveryId: Number((created as InspectionRecoveryRow)?.id ?? null),
-            compensatedQty: options?.compensatedQty,
+            compensatedQty: compensationQty,
           });
+          const remainingAfterAction = Math.max(
+            Number(row.missing_qty ?? 0) - (Number(row.compensated_qty ?? 0) + compensationQty),
+            0,
+          );
+          if (compensationQty > 0 && compensationReasonDraft.category) {
+            await saveCompensationReason({
+              row: created as InspectionRecoveryRow,
+              actionId,
+              draft: compensationReasonDraft,
+              compensatedQty: compensationQty,
+              remainingAfterAction,
+              driverName: options?.driverName,
+            });
+          }
           setRecoveryRows((prev) => {
             const withoutTemp = prev.filter((item) => item.id !== row.id);
             return [created as InspectionRecoveryRow, ...withoutTemp];
           });
           await loadRecoveryActions();
+          await loadRecoveryReasons();
           setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: false }));
           return;
         }
@@ -1057,18 +1321,33 @@ export default function InspectionIntelligenceDrawer({
           .update(payload)
           .eq('id', row.id)
           .select(
-            'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at',
+            'id,inspection_id,vehicle_id,user_id,item_name,required_qty,actual_qty,missing_qty,compensated_qty,status,scheduled_date,resolved_at,reason,created_at,baseline_actual_qty,is_repeat_shortage,delta_since_last_compensation',
           )
           .single();
         if (error) throw error;
-        await logRecoveryAction(row, nextStatus, {
+        const actionId = await logRecoveryAction(row, nextStatus, {
           reason: options?.reason ?? row.reason ?? undefined,
           scheduledDate: nextStatus === 'scheduled' ? options?.scheduledDate ?? row.scheduled_date ?? undefined : undefined,
           recoveryId: row.id,
-          compensatedQty: options?.compensatedQty,
+          compensatedQty: compensationQty,
         });
+        const remainingAfterAction = Math.max(
+          Number(row.missing_qty ?? 0) - (Number(row.compensated_qty ?? 0) + compensationQty),
+          0,
+        );
+        if (compensationQty > 0 && compensationReasonDraft.category) {
+          await saveCompensationReason({
+            row,
+            actionId,
+            draft: compensationReasonDraft,
+            compensatedQty: compensationQty,
+            remainingAfterAction,
+            driverName: options?.driverName,
+          });
+        }
         setRecoveryRows((prev) => prev.map((item) => (item.id === row.id ? ((data as InspectionRecoveryRow) ?? item) : item)));
         await loadRecoveryActions();
+        await loadRecoveryReasons();
         if (nextStatus !== 'scheduled') {
           setShowNotCompensatedEditor((prev) => ({ ...prev, [row.id]: false }));
         }
@@ -1080,7 +1359,18 @@ export default function InspectionIntelligenceDrawer({
         setSavingRecoveryId(null);
       }
     },
-    [client, department, getEffectiveRecoveryStatus, loadRecoveryActions, loadRecoveryRows, logRecoveryAction, mergedRecoveryRows],
+    [
+      client,
+      department,
+      getEffectiveRecoveryStatus,
+      getRemainingMissingQty,
+      loadRecoveryActions,
+      loadRecoveryReasons,
+      loadRecoveryRows,
+      logRecoveryAction,
+      mergedRecoveryRows,
+      saveCompensationReason,
+    ],
   );
 
   const backfillDerivedRecoveryRows = useCallback(async () => {
@@ -1768,6 +2058,7 @@ export default function InspectionIntelligenceDrawer({
                               onClick={() => {
                                 void loadRecoveryRows();
                                 void loadRecoveryActions();
+                                void loadRecoveryReasons();
                                 void loadInventoryBarcodeMap();
                               }}
                               className="text-[10px] font-bold px-2 py-1 rounded-lg border border-stone-300 dark:border-stone-600 disabled:opacity-60"
@@ -1807,9 +2098,23 @@ export default function InspectionIntelligenceDrawer({
                         >
                           الأرشيف / الحركات
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setRecoverySubTab('reasons')}
+                          className={cn(
+                            'flex-1 rounded-lg px-3 py-2 text-[11px] font-black',
+                            recoverySubTab === 'reasons'
+                              ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100'
+                              : 'text-stone-500 dark:text-stone-300',
+                          )}
+                        >
+                          أسباب التعويض
+                        </button>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex flex-wrap items-center gap-2">
+                          {recoverySubTab !== 'reasons' && (
+                            <>
                           <button
                             type="button"
                             onClick={() => {
@@ -1849,26 +2154,44 @@ export default function InspectionIntelligenceDrawer({
                               حذف المحدد ({selectedRecoveryCount})
                             </button>
                           )}
+                            </>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 justify-end">
-                          <button
-                            type="button"
-                            disabled={
-                              exportingArchivePdf ||
-                              (recoverySubTab === 'worklist'
-                                ? worklistCards.length === 0
-                                : archiveCards.length === 0 && recoveryActions.length === 0)
-                            }
-                            onClick={() => void exportRecoveryTabToPdf(recoverySubTab)}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-[11px] font-black text-stone-800 dark:text-stone-100 disabled:opacity-50"
-                          >
-                            {exportingArchivePdf ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Download className="h-3.5 w-3.5" />
-                            )}
-                            تصدير PDF ({recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
-                          </button>
+                          {recoverySubTab === 'reasons' ? (
+                            <button
+                              type="button"
+                              disabled={exportingArchivePdf || filteredRecoveryReasons.length === 0}
+                              onClick={() => void exportRecoveryReasonsPdf()}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-[11px] font-black text-stone-800 dark:text-stone-100 disabled:opacity-50"
+                            >
+                              {exportingArchivePdf ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Download className="h-3.5 w-3.5" />
+                              )}
+                              تصدير PDF (أسباب التعويض)
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={
+                                exportingArchivePdf ||
+                                (recoverySubTab === 'worklist'
+                                  ? worklistCards.length === 0
+                                  : archiveCards.length === 0 && recoveryActions.length === 0)
+                              }
+                              onClick={() => void exportRecoveryTabToPdf(recoverySubTab)}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-3 py-2 text-[11px] font-black text-stone-800 dark:text-stone-100 disabled:opacity-50"
+                            >
+                              {exportingArchivePdf ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Download className="h-3.5 w-3.5" />
+                              )}
+                              تصدير PDF ({recoverySubTab === 'worklist' ? 'قائمة العمل' : 'الأرشيف'})
+                            </button>
+                          )}
                         </div>
                       </div>
                       {recoveryLoading ? (
@@ -1921,11 +2244,15 @@ export default function InspectionIntelligenceDrawer({
                                   const isEditorOpen = showNotCompensatedEditor[row.id] === true;
                                   const draftDate = recoveryScheduleDrafts[row.id] ?? '';
                                   const draftReason = recoveryReasonDrafts[row.id] ?? '';
+                                  const reasonDraft =
+                                    recoveryReasonDetailDrafts[row.id] ?? buildSuggestedCompensationReasonDraft(row);
                                   const remainingMissing = getRemainingMissingQty(row);
                                   const draftCompensatedRaw = Number(recoveryCompensatedDrafts[row.id] ?? remainingMissing);
                                   const draftCompensated = Number.isFinite(draftCompensatedRaw)
                                     ? Math.max(1, Math.min(remainingMissing, Math.floor(draftCompensatedRaw)))
                                     : 1;
+                                  const requiresReasonNow = draftCompensated < remainingMissing;
+                                  const requiresCustomerFields = reasonDraft.category === 'customer_compensation';
                                   return (
                                     <div key={row.id} className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/80 dark:bg-stone-950/40 p-2 space-y-2">
                                       {recoverySelectionMode && row.id > 0 && (
@@ -1958,6 +2285,18 @@ export default function InspectionIntelligenceDrawer({
                                       <p className="text-[10px] text-stone-600 dark:text-stone-300">
                                         مطلوب {row.required_qty} / موجود {row.actual_qty} / نقص {row.missing_qty}
                                       </p>
+                                      {(row.baseline_actual_qty != null || row.is_repeat_shortage || Number(row.delta_since_last_compensation ?? 0) > 0) && (
+                                        <p className="text-[10px] text-violet-700 dark:text-violet-300">
+                                          مقارنة مع آخر جرد بعد التعويض: أساس {Number(row.baseline_actual_qty ?? 0)} · فرق النقص{' '}
+                                          {Number(row.delta_since_last_compensation ?? 0)}
+                                          {row.is_repeat_shortage ? ' · نقص متكرر' : ''}
+                                        </p>
+                                      )}
+                                      {reasonDraft.details.trim() && (
+                                        <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                                          مقترح سبب: {reasonDraft.details}
+                                        </p>
+                                      )}
                                       <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">
                                         تم تعويض {Number(row.compensated_qty ?? 0)} من {row.missing_qty} · المتبقي {remainingMissing}
                                       </p>
@@ -1999,6 +2338,24 @@ export default function InspectionIntelligenceDrawer({
                                           className="w-24 rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
                                           title="كمية التعويض"
                                         />
+                                        <select
+                                          value={reasonDraft.category}
+                                          onChange={(e) =>
+                                            setRecoveryReasonDetailDrafts((prev) => ({
+                                              ...prev,
+                                              [row.id]: { ...reasonDraft, category: e.target.value as RecoveryReasonCategory | '' },
+                                            }))
+                                          }
+                                          className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                                          title="سبب التعويض"
+                                        >
+                                          <option value="">سبب التعويض{requiresReasonNow ? ' (إلزامي)' : ' (اختياري)'}</option>
+                                          {Object.entries(recoveryReasonCategoryLabel).map(([value, label]) => (
+                                            <option key={`${row.id}-${value}`} value={value}>
+                                              {label}
+                                            </option>
+                                          ))}
+                                        </select>
                                         <button
                                           type="button"
                                           disabled={savingRecoveryId === row.id || remainingMissing < 1}
@@ -2012,6 +2369,8 @@ export default function InspectionIntelligenceDrawer({
                                                     ? `تم التعويض الكامل (${Number(row.compensated_qty ?? 0) + draftCompensated}/${row.missing_qty})`
                                                     : `تم التعويض الجزئي (${Number(row.compensated_qty ?? 0) + draftCompensated}/${row.missing_qty})`,
                                                 compensatedQty: draftCompensated,
+                                                compensationReasonDraft: reasonDraft,
+                                                driverName: staffGroup.userLabel,
                                               },
                                             )
                                           }
@@ -2058,6 +2417,78 @@ export default function InspectionIntelligenceDrawer({
                                           </button>
                                         )}
                                       </div>
+                                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                        <input
+                                          type="text"
+                                          value={reasonDraft.customerName}
+                                          onChange={(e) =>
+                                            setRecoveryReasonDetailDrafts((prev) => ({
+                                              ...prev,
+                                              [row.id]: { ...reasonDraft, customerName: e.target.value },
+                                            }))
+                                          }
+                                          placeholder="اسم الزبون (عند التعويض لدى زبون)"
+                                          required={requiresCustomerFields}
+                                          className={cn(
+                                            'rounded-lg border px-2 py-1 text-[10px] bg-white dark:bg-stone-900',
+                                            requiresCustomerFields
+                                              ? 'border-amber-400 dark:border-amber-600'
+                                              : 'border-stone-300 dark:border-stone-600',
+                                          )}
+                                        />
+                                        <input
+                                          type="text"
+                                          value={reasonDraft.invoiceNumber}
+                                          onChange={(e) =>
+                                            setRecoveryReasonDetailDrafts((prev) => ({
+                                              ...prev,
+                                              [row.id]: { ...reasonDraft, invoiceNumber: e.target.value },
+                                            }))
+                                          }
+                                          placeholder="رقم الفاتورة"
+                                          required={requiresCustomerFields}
+                                          className={cn(
+                                            'rounded-lg border px-2 py-1 text-[10px] bg-white dark:bg-stone-900',
+                                            requiresCustomerFields
+                                              ? 'border-amber-400 dark:border-amber-600'
+                                              : 'border-stone-300 dark:border-stone-600',
+                                          )}
+                                        />
+                                        <input
+                                          type="text"
+                                          value={reasonDraft.compensatedItemName}
+                                          readOnly
+                                          placeholder="العنصر المعوض"
+                                          className="rounded-lg border border-stone-200 dark:border-stone-700 px-2 py-1 text-[10px] bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300"
+                                        />
+                                        <input
+                                          type="text"
+                                          value={reasonDraft.compensatedItemBarcode}
+                                          readOnly
+                                          placeholder="باركود العنصر المعوض"
+                                          className="rounded-lg border border-stone-200 dark:border-stone-700 px-2 py-1 text-[10px] bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300"
+                                        />
+                                        <p className="sm:col-span-2 text-[10px] font-bold text-stone-500 dark:text-stone-400">
+                                          اسم العنصر المعوض والباركود يتم جلبهما تلقائياً من نفس عنصر النقص ومقفّلان لتقليل الخطأ البشري.
+                                        </p>
+                                        <textarea
+                                          value={reasonDraft.details}
+                                          onChange={(e) =>
+                                            setRecoveryReasonDetailDrafts((prev) => ({
+                                              ...prev,
+                                              [row.id]: { ...reasonDraft, details: e.target.value },
+                                            }))
+                                          }
+                                          placeholder="تفاصيل السبب"
+                                          className="sm:col-span-2 rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1 text-[10px] bg-white dark:bg-stone-900"
+                                          rows={2}
+                                        />
+                                        {requiresCustomerFields && (
+                                          <p className="sm:col-span-2 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                            عند اختيار (تعويض لدى زبون) يجب إدخال اسم الزبون ورقم الفاتورة.
+                                          </p>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -2069,6 +2500,102 @@ export default function InspectionIntelligenceDrawer({
                               </div>
                             );
                           })}
+                        </div>
+                      ) : recoverySubTab === 'reasons' ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input
+                              type="text"
+                              value={reasonFilterDriver}
+                              onChange={(e) => setReasonFilterDriver(e.target.value)}
+                              placeholder={`فلترة حسب ${staffLabel}`}
+                              className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                            />
+                            <input
+                              type="text"
+                              value={reasonFilterItem}
+                              onChange={(e) => setReasonFilterItem(e.target.value)}
+                              placeholder="فلترة حسب العنصر"
+                              className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                            />
+                            <select
+                              value={reasonFilterCategory}
+                              onChange={(e) => setReasonFilterCategory(e.target.value as RecoveryReasonCategory | 'all')}
+                              className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                            >
+                              <option value="all">كل الأسباب</option>
+                              {Object.entries(recoveryReasonCategoryLabel).map(([value, label]) => (
+                                <option key={`reason-filter-${value}`} value={value}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="date"
+                                value={reasonDateFrom}
+                                onChange={(e) => setReasonDateFrom(e.target.value)}
+                                className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                              />
+                              <input
+                                type="date"
+                                value={reasonDateTo}
+                                onChange={(e) => setReasonDateTo(e.target.value)}
+                                className="rounded-lg border border-stone-300 dark:border-stone-600 px-2 py-1.5 text-[10px] bg-white dark:bg-stone-900"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50/80 dark:bg-stone-900/50 p-3">
+                              <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">إجمالي التعويض</p>
+                              <p className="text-lg font-black text-emerald-700 dark:text-emerald-300">{recoveryReasonMetrics.compensatedQty}</p>
+                            </div>
+                            <div className="rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50/80 dark:bg-stone-900/50 p-3">
+                              <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">نسبة التعويض</p>
+                              <p className="text-lg font-black text-violet-700 dark:text-violet-300">{recoveryReasonMetrics.compensationRate}%</p>
+                            </div>
+                          </div>
+
+                          {recoveryReasonsLoading ? (
+                            <div className="text-center py-8 text-xs font-bold text-stone-500">
+                              <Loader2 className="h-4 w-4 animate-spin mx-auto mb-1" />
+                              جاري تحميل الأسباب...
+                            </div>
+                          ) : filteredRecoveryReasons.length === 0 ? (
+                            <p className="text-xs text-stone-500 dark:text-stone-400">لا توجد أسباب مطابقة للفلاتر الحالية.</p>
+                          ) : (
+                            <div className="space-y-2 max-h-[480px] overflow-y-auto">
+                              {filteredRecoveryReasons.map((reason) => (
+                                <div
+                                  key={`reason-row-${reason.id}`}
+                                  className="rounded-xl border border-stone-200 dark:border-stone-700 bg-white/80 dark:bg-stone-950/40 p-2.5 space-y-1.5"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-[11px] font-black truncate">{reason.driver_name || '—'}</p>
+                                    <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">
+                                      {recoveryReasonCategoryLabel[reason.reason_category] ?? reason.reason_category}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-stone-700 dark:text-stone-200">
+                                    {reason.item_name} · تم تعويض {reason.compensated_qty} · متبقي {reason.remaining_qty_after_action}
+                                  </p>
+                                  <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                                    التاريخ: {String(reason.occurred_at ?? '').slice(0, 10)} · الزبون: {reason.customer_name || '—'} ·
+                                    الفاتورة: {reason.invoice_number || '—'}
+                                  </p>
+                                  {(reason.compensated_item_name || reason.compensated_item_barcode) && (
+                                    <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                                      العنصر المعوض: {reason.compensated_item_name || '—'} · باركود: {reason.compensated_item_barcode || '—'}
+                                    </p>
+                                  )}
+                                  {reason.reason_details && (
+                                    <p className="text-[10px] text-stone-500 dark:text-stone-400">السبب: {reason.reason_details}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-3">
