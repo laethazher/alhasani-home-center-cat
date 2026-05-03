@@ -13,6 +13,7 @@ import {
 } from '../lib/savedReportFromRow';
 import { getVehicleInspectionMapUrl } from '../lib/vehicleInspectionMapUrl';
 import { formatInventoryLabel } from '../lib/inventoryDisplay';
+import { TRIPLE_NAMED_ALLOCATION_MODE } from '../lib/toolHolderAllocations';
 
 interface InventoryItemView {
   id: number;
@@ -20,6 +21,7 @@ interface InventoryItemView {
   barcode?: string | null;
   quantity: number;
   sortOrder: number;
+  allocationMode: typeof TRIPLE_NAMED_ALLOCATION_MODE | null;
 }
 
 interface SavedReportDetailModalProps {
@@ -32,6 +34,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
   const supabase = getDepartmentClient(department);
   const tables = getDepartmentTables(department);
   const isInstallation = department === 'installation';
+  const isTajhiz = department === 'tajhiz';
   const staffLabel = isInstallation ? 'الفني' : 'السائق';
   const departmentManagerText = isInstallation ? 'مسؤول قسم التركيب' : 'مسؤول قسم التجهيز';
   const toolsSectionTitle = isInstallation ? 'جرد عدة كادر التركيب' : 'جرد العدة والمواد';
@@ -95,6 +98,7 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
             barcode: null,
             quantity: item.quantity,
             sortOrder: index + 1,
+            allocationMode: null,
           })),
         );
       } else {
@@ -105,6 +109,8 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
             barcode: row.barcode != null && String(row.barcode).trim() ? String(row.barcode).trim() : null,
             quantity: Number(row.required_quantity ?? 0),
             sortOrder: Number(row.sort_order ?? 0),
+            allocationMode:
+              row.allocation_mode === TRIPLE_NAMED_ALLOCATION_MODE ? TRIPLE_NAMED_ALLOCATION_MODE : null,
           })),
         );
       }
@@ -388,6 +394,37 @@ export default function SavedReportDetailModal({ department, reportId, onClose }
                             </span>
                           </div>
                         </div>
+                        {isTajhiz &&
+                          item.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE &&
+                          Array.isArray(viewingReport.toolHolderAllocations[item.id]) &&
+                          (viewingReport.toolHolderAllocations[item.id]?.length ?? 0) === 3 && (
+                            <div className="px-3 py-3 border-t border-amber-100 dark:border-amber-900/40 bg-amber-50/35 dark:bg-amber-950/25 text-[11px]">
+                              <p className="font-black text-stone-800 dark:text-stone-100 mb-2">حوازو الوحدات (1 سائق + 2 مساعد)</p>
+                              <table className="w-full text-right border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden">
+                                <thead>
+                                  <tr className="bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
+                                    <th className="px-2 py-1 font-bold">الموضع</th>
+                                    <th className="px-2 py-1 font-bold">الاسم</th>
+                                    <th className="px-2 py-1 font-bold whitespace-nowrap">مرجع</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(['السائق — ١', 'مساعد ١ — ١', 'مساعد ٢ — ١'] as const).map((lbl, hi) => {
+                                    const slot = viewingReport.toolHolderAllocations[item.id]![hi]!;
+                                    return (
+                                      <tr key={`${item.id}-${hi}`} className="border-t border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900">
+                                        <td className="px-2 py-1.5 font-medium">{lbl}</td>
+                                        <td className="px-2 py-1.5">{slot.label || '—'}</td>
+                                        <td className="px-2 py-1.5 font-mono text-[10px] whitespace-nowrap">
+                                          {slot.staffId != null ? `#${slot.staffId}` : 'كتابة حرة'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         {viewingReport.toolImages?.[item.id] && viewingReport.toolImages[item.id].length > 0 && (
                           <div className="p-4 bg-stone-50 dark:bg-stone-700 border-t border-stone-100 dark:border-stone-700">
                             <p className="text-xs font-bold text-stone-600 dark:text-stone-300 mb-4">

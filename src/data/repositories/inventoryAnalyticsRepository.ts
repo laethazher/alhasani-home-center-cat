@@ -4,10 +4,18 @@ import { getDepartmentClient, getDepartmentTables } from '../supabaseSource';
 import { formatInventoryLabel, splitBarcodeAndNameFromDisplay } from '../../lib/inventoryDisplay';
 import { normalizeToolValuesRecord } from '../../lib/inspectionRecovery/calculateInspectionRecovery';
 import type { InventoryTemplateItem } from './inventoryRepository';
+import {
+  parseToolHolderAllocationsFromUnknown,
+  TRIPLE_NAMED_ALLOCATION_MODE,
+  type ToolHolderSlotPersisted,
+} from '../../lib/toolHolderAllocations';
 
 /* ══════════════════════════════════════════════════════════════════
    Types
    ══════════════════════════════════════════════════════════════════ */
+
+/** أسماء حوازي آخر تقرير (1 سائق + 2 مساعد). */
+export type TripleHolderLabels = { driver: string; assistant1: string; assistant2: string };
 
 export interface ItemCatalogEntry {
   templateId: number;
@@ -17,6 +25,8 @@ export interface ItemCatalogEntry {
   sortOrder: number;
   /** تسمية موحّدة للبحث: "باركود · اسم" أو الاسم فقط. */
   displayLabel: string;
+  /** وضع التوزيع من القالب — يفعّل عرض الحوازين في مركز الذكاء مع آخر تقرير. */
+  allocationMode: typeof TRIPLE_NAMED_ALLOCATION_MODE | null;
 }
 
 export interface ItemHolderRow {
@@ -36,6 +46,8 @@ export interface ItemHolderRow {
   lastUpdatedAt: string | null;
   lastReportAt: string | null;
   compensationCount: number;
+  /** عند القالب triple_named من آخر جرد؛ undefined إن لم يكن القالب بتلك الصياغة، null إن لم تُعرَف جميع الأسماء. */
+  tripleHolderLabels?: TripleHolderLabels | null;
 }
 
 export interface ItemRecentAction {
@@ -127,6 +139,18 @@ async function fetchStaffExtrasByIds(
   return map;
 }
 
+function tripleLabelsFromSlots(slots: ToolHolderSlotPersisted[] | undefined): TripleHolderLabels | null {
+  if (!slots || slots.length !== 3) return null;
+  const driver = slots.find((s) => s.slot === 'driver');
+  const assistants = slots.filter((s) => s.slot === 'assistant');
+  if (!driver || assistants.length !== 2) return null;
+  const dl = driver.label.trim();
+  const a1 = assistants[0]!.label.trim();
+  const a2 = assistants[1]!.label.trim();
+  if (!dl || !a1 || !a2) return null;
+  return { driver: dl, assistant1: a1, assistant2: a2 };
+}
+
 /** تُطابق اسم العنصر المخزّن في inspection_recovery (قد يكون ملصقاً مُنسّقاً) بمفتاح القالب الأصلي. */
 function matchesTemplateItemName(
   storedItemName: string,
@@ -153,15 +177,33 @@ export class InventoryAnalyticsRepository {
   async getItemCatalog(department: DepartmentCode): Promise<ItemCatalogEntry[]> {
     const client = getDepartmentClient(department);
     const table = getDepartmentTables(department).inventoryTemplates;
-    const { data, error } = await client
+    let { data, error } = await client
       .from(table)
-      .select('id,item_name,barcode,required_quantity,sort_order,is_active,category,department_code')
+      .select(
+        'id,item_name,barcode,required_quantity,sort_order,is_active,category,department_code,allocation_mode',
+      )
       .eq('department_code', department)
       .eq('category', 'tools')
       .eq('is_active', true)
       .order('sort_order');
-    if (error) throw error;
-    const rows = (data ?? []) as InventoryTemplateItem[];
+    const allocColMissing =
+      error &&
+      typeof (error as { message?: unknown }).message === 'string' &&
+      String((error as { message: string }).message).toLowerCase().includes('allocation_mode');
+    if (error && !allocColMissing) throw error;
+    if (error && allocColMissing) {
+      const retry = await client
+        .from(table)
+        .select('id,item_name,barcode,required_quantity,sort_order,is_active,category,department_code')
+        .eq('department_code', department)
+        .eq('category', 'tools')
+        .eq('is_active', true)
+        .order('sort_order');
+      if (retry.error) throw retry.error;
+      // إرجاع بلا allocation_mode قبل الترحيل — لا نُغيّر شكل الواجهة (تُعتبر جميع الوضعيات null)
+      data = retry.data as any;
+    }
+    const rows = (data ?? []) as Array<InventoryTemplateItem & { allocation_mode?: unknown }>;
     return rows.map((row) => {
       const name = String(row.item_name ?? '').trim();
       const barcode = row.barcode != null && String(row.barcode).trim() ? String(row.barcode).trim() : null;
@@ -172,6 +214,8 @@ export class InventoryAnalyticsRepository {
         requiredQuantityPerVehicle: Math.max(0, Number(row.required_quantity ?? 0)),
         sortOrder: Number(row.sort_order ?? 0),
         displayLabel: formatInventoryLabel(name, barcode),
+        allocationMode:
+          row.allocation_mode === TRIPLE_NAMED_ALLOCATION_MODE ? TRIPLE_NAMED_ALLOCATION_MODE : null,
       };
     });
   }
@@ -196,16 +240,33 @@ export class InventoryAnalyticsRepository {
     const isInstallation = department === 'installation';
 
     // 1) القالب
-    const { data: templateRow, error: templateErr } = await client
+    let { data: templateRow, error: templateErr } = await client
       .from(tables.inventoryTemplates)
-      .select('id,item_name,barcode,required_quantity,sort_order,is_active,category,department_code')
+      .select(
+        'id,item_name,barcode,required_quantity,sort_order,is_active,category,department_code,allocation_mode',
+      )
       .eq('id', templateId)
       .maybeSingle();
-    if (templateErr) throw templateErr;
+    const tplAllocMissing =
+      templateErr &&
+      typeof (templateErr as { message?: unknown }).message === 'string' &&
+      String((templateErr as { message: string }).message).toLowerCase().includes('allocation_mode');
+    if (templateErr && !tplAllocMissing) throw templateErr;
+    if (templateErr && tplAllocMissing) {
+      const retry = await client
+        .from(tables.inventoryTemplates)
+        .select(
+          'id,item_name,barcode,required_quantity,sort_order,is_active,category,department_code',
+        )
+        .eq('id', templateId)
+        .maybeSingle();
+      if (retry.error) throw retry.error;
+      templateRow = retry.data as any;
+    }
     if (!templateRow) {
       throw new Error('لم يتم العثور على العنصر المطلوب في قائمة القوالب.');
     }
-    const tRow = templateRow as InventoryTemplateItem;
+    const tRow = templateRow as InventoryTemplateItem & { allocation_mode?: unknown };
     const name = String(tRow.item_name ?? '').trim();
     const barcode = tRow.barcode != null && String(tRow.barcode).trim() ? String(tRow.barcode).trim() : null;
     const template: ItemCatalogEntry = {
@@ -215,6 +276,8 @@ export class InventoryAnalyticsRepository {
       requiredQuantityPerVehicle: Math.max(0, Number(tRow.required_quantity ?? 0)),
       sortOrder: Number(tRow.sort_order ?? 0),
       displayLabel: formatInventoryLabel(name, barcode),
+      allocationMode:
+        tRow.allocation_mode === TRIPLE_NAMED_ALLOCATION_MODE ? TRIPLE_NAMED_ALLOCATION_MODE : null,
     };
 
     // 2) المركبات + السائق المعيّن + has_toolkit + تفاصيل العرض
@@ -267,19 +330,39 @@ export class InventoryAnalyticsRepository {
       driverNameById.set(id, s.fullName);
     }
 
-    // 4) آخر تقرير لكل مركبة (لأخذ actual_qty من tool_values + تاريخ آخر جرد)
-    const reportColumns = isInstallation
-      ? 'id,vehicle_id,created_at,tool_values,payload'
-      : 'id,vehicle_id,created_at,tool_values';
-    const { data: reportRows, error: repErr } = await client
-      .from(tables.reports)
-      .select(reportColumns as unknown as string)
-      .order('created_at', { ascending: false })
-      .limit(2500);
-    if (repErr) throw repErr;
+    // 4) آخر تقرير لكل مركبة (tool_values + tool_holder_allocations من نفس الصف حيث يتوفر)
+    let reportRowsRaw: unknown[] | null | undefined;
+    if (isInstallation) {
+      const withPayload = await client
+        .from(tables.reports)
+        .select('id,vehicle_id,created_at,tool_values,payload')
+        .order('created_at', { ascending: false })
+        .limit(2500);
+      if (withPayload.error) throw withPayload.error;
+      reportRowsRaw = withPayload.data as unknown[] | null | undefined;
+    } else {
+      let withAlloc = await client
+        .from(tables.reports)
+        .select('id,vehicle_id,created_at,tool_values,tool_holder_allocations')
+        .order('created_at', { ascending: false })
+        .limit(2500);
+      if (withAlloc.error) {
+        const fallback = await client
+          .from(tables.reports)
+          .select('id,vehicle_id,created_at,tool_values')
+          .order('created_at', { ascending: false })
+          .limit(2500);
+        if (fallback.error) throw fallback.error;
+        reportRowsRaw = fallback.data as unknown[] | null | undefined;
+      } else {
+        reportRowsRaw = withAlloc.data as unknown[] | null | undefined;
+      }
+    }
+
     const latestToolValuesByVehicle = new Map<number, Record<number, number>>();
     const latestReportAtByVehicle = new Map<number, string>();
-    for (const row of (reportRows ?? []) as unknown as Array<Record<string, unknown>>) {
+    const latestHolderAllocByVehicle = new Map<number, ReturnType<typeof parseToolHolderAllocationsFromUnknown>>();
+    for (const row of (reportRowsRaw ?? []) as Array<Record<string, unknown>>) {
       const vid = Number(row.vehicle_id);
       if (!Number.isFinite(vid) || latestToolValuesByVehicle.has(vid)) continue;
       let tv: unknown = row.tool_values;
@@ -290,7 +373,13 @@ export class InventoryAnalyticsRepository {
       }
       latestToolValuesByVehicle.set(vid, normalizeToolValuesRecord(tv));
       latestReportAtByVehicle.set(vid, String(row.created_at ?? ''));
+      const rawHold = row.tool_holder_allocations;
+      if (!isInstallation && rawHold != null) {
+        latestHolderAllocByVehicle.set(vid, parseToolHolderAllocationsFromUnknown(rawHold));
+      }
     }
+
+    const isTripleTemplate = template.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE;
 
     // 5) الحالة النشطة من inspection_recovery — نأخذ آخر صف لكل (vehicle, item)
     const { data: recoveryRows, error: recErr } = await client
@@ -363,6 +452,13 @@ export class InventoryAnalyticsRepository {
           : actualFromReport ?? requiredQty; // افتراضياً: لا نقص مسجّل ⇒ اعتبار المتوفر = المطلوب
         const missingQty = Math.max(0, requiredQty - actualQty);
         const staff = v.driverId != null ? staffExtrasById.get(v.driverId) : undefined;
+        let tripleHolderLabels: TripleHolderLabels | null | undefined;
+        if (isTripleTemplate) {
+          const allocMap = latestHolderAllocByVehicle.get(v.id);
+          const slots =
+            allocMap != null ? (allocMap[template.templateId] as ToolHolderSlotPersisted[] | undefined) : undefined;
+          tripleHolderLabels = tripleLabelsFromSlots(slots);
+        }
         return {
           vehicleId: v.id,
           plate: v.plate,
@@ -380,6 +476,7 @@ export class InventoryAnalyticsRepository {
           lastUpdatedAt: recovery?.createdAt ?? null,
           lastReportAt: latestReportAtByVehicle.get(v.id) ?? null,
           compensationCount: compensationCountByVehicle.get(v.id) ?? 0,
+          ...(isTripleTemplate ? { tripleHolderLabels } : {}),
         };
       })
       .sort((a, b) => b.missingQty - a.missingQty || a.plate.localeCompare(b.plate, 'ar'));

@@ -25,7 +25,10 @@ import {
   InventoryAnalyticsRepository,
   type ItemAggregateResult,
   type ItemCatalogEntry,
+  type ItemHolderRow,
+  type TripleHolderLabels,
 } from '../../data/repositories/inventoryAnalyticsRepository';
+import { TRIPLE_NAMED_ALLOCATION_MODE } from '../../lib/toolHolderAllocations';
 import { cn } from '../../lib/utils';
 import { exportToExcel } from '../../lib/excelExport';
 import { exportHtmlToPdf } from '../../lib/pdfExport';
@@ -33,11 +36,16 @@ import { inventoryTemplatesBus } from '../../lib/inventoryTemplatesBus';
 import { useFleetInventoryRealtimeSync } from '../../hooks/useFleetInventoryRealtimeSync';
 import KpiDrillDownModal from './KpiDrillDownModal';
 import type { DrillKind } from './KpiDrillDownModal';
+import TripleIntelDriverCell, {
+  formatTripleIntelExportCell,
+} from './TripleIntelDriverCell';
 
 interface ItemAggregateViewProps {
   department: DepartmentCode;
   /** فتح صفحة «التقرير الأخير» لمركبة من نافذة التفاصيل. */
   onOpenVehicleLatestReport?: (vehicleId: number) => void;
+  /** فتح صفحة التقاريب لبدء جرد لهذه المركبة (التجهيز). */
+  onStartVehicleInspection?: (vehicleId: number) => void;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -88,6 +96,12 @@ function formatDateTime(raw: string | null | undefined): string {
   }
 }
 
+function seedTriplePrintDraft(h: ItemHolderRow): TripleHolderLabels {
+  return h.tripleHolderLabels != null
+    ? { ...h.tripleHolderLabels }
+    : { driver: (h.driverName ?? '').trim(), assistant1: '', assistant2: '' };
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    Component
    ═══════════════════════════════════════════════════════════════════════ */
@@ -95,6 +109,7 @@ function formatDateTime(raw: string | null | undefined): string {
 export default function ItemAggregateView({
   department,
   onOpenVehicleLatestReport,
+  onStartVehicleInspection,
 }: ItemAggregateViewProps) {
   const repository = useMemo(() => new InventoryAnalyticsRepository(), []);
   const [catalog, setCatalog] = useState<ItemCatalogEntry[]>([]);
@@ -110,6 +125,10 @@ export default function ItemAggregateView({
   const [filterStatus, setFilterStatus] =
     useState<'all' | 'pending' | 'scheduled' | 'resolved' | 'complete'>('all');
   const [drillKind, setDrillKind] = useState<DrillKind | null>(null);
+  /** مسودات حقول ١+٢ للطباعة/التصدير — لا تُحفَظ في القاعدة. */
+  const [triplePrintDraftsByVehicleId, setTriplePrintDraftsByVehicleId] = useState<
+    Record<number, TripleHolderLabels>
+  >({});
 
   const staffLabel = department === 'installation' ? 'فني' : 'سائق';
   const selectedTemplateIdRef = useRef<number | null>(selectedTemplateId);
@@ -157,6 +176,36 @@ export default function ItemAggregateView({
   useEffect(() => {
     if (selectedTemplateId != null) void loadAggregate(selectedTemplateId);
   }, [selectedTemplateId, loadAggregate]);
+
+  useEffect(() => {
+    setTriplePrintDraftsByVehicleId({});
+  }, [selectedTemplateId]);
+
+  useEffect(() => {
+    if (!aggregate || aggregate.template.allocationMode !== TRIPLE_NAMED_ALLOCATION_MODE) return;
+    setTriplePrintDraftsByVehicleId((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      const activeIds = new Set(aggregate.holders.map((h) => h.vehicleId));
+      for (const vid of Object.keys(next)) {
+        const id = Number(vid);
+        if (!activeIds.has(id)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      for (const h of aggregate.holders) {
+        if (next[h.vehicleId] != null) continue;
+        next[h.vehicleId] = seedTriplePrintDraft(h);
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [aggregate]);
+
+  const patchTriplePrintDraft = useCallback((vehicleId: number, labels: TripleHolderLabels) => {
+    setTriplePrintDraftsByVehicleId((p) => ({ ...p, [vehicleId]: labels }));
+  }, []);
 
   // تحديث الفهرس والتحليل عند أي تغيير للقوالب في أي صفحة أخرى.
   useEffect(() => {
@@ -208,6 +257,12 @@ export default function ItemAggregateView({
     return aggregate.holders.filter((h) => h.recoveryStatus === filterStatus);
   }, [aggregate, filterStatus]);
 
+  const tripleLabelsForExport = useCallback(
+    (h: ItemHolderRow): TripleHolderLabels =>
+      triplePrintDraftsByVehicleId[h.vehicleId] ?? seedTriplePrintDraft(h),
+    [triplePrintDraftsByVehicleId],
+  );
+
   /* ═══ Exports ═══ */
 
   const handleExportExcel = useCallback(() => {
@@ -226,12 +281,15 @@ export default function ItemAggregateView({
       [`عدد ال${staffLabel}ين`, aggregate.totals.driversCount],
       ['مركبات بها نقص', aggregate.totals.vehiclesWithShortage],
     ];
+    const showTripleExportCol =
+      aggregate.template.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE;
     const holdersHeader = [
       '#',
       'اللوحة',
       'الموديل',
       'حالة المركبة',
       staffLabel,
+      ...(showTripleExportCol ? ['توزيع (١+٢) — للطباعة'] : []),
       'الدور',
       'الهاتف',
       'الهوية',
@@ -243,23 +301,29 @@ export default function ItemAggregateView({
       'آخر تحديث',
       'حركات تعويض',
     ];
-    const holdersRows = aggregate.holders.map((h, i) => [
-      i + 1,
-      h.plate,
-      h.model ?? '—',
-      h.vehicleStatus ?? '—',
-      h.driverName ?? '—',
-      h.driverRole ?? '—',
-      h.driverPhone ?? '—',
-      h.driverNationalId ?? '—',
-      h.requiredQty,
-      h.actualQty,
-      h.missingQty,
-      statusBadge(h.recoveryStatus).label,
-      h.lastReportAt ? formatDateTime(h.lastReportAt) : '—',
-      h.lastUpdatedAt ? formatDateTime(h.lastUpdatedAt) : '—',
-      h.compensationCount,
-    ]);
+    const holdersRows = aggregate.holders.map((h, i) => {
+      const baseRow: unknown[] = [
+        i + 1,
+        h.plate,
+        h.model ?? '—',
+        h.vehicleStatus ?? '—',
+        h.driverName ?? '—',
+      ];
+      if (showTripleExportCol) baseRow.push(formatTripleIntelExportCell(tripleLabelsForExport(h)));
+      baseRow.push(
+        h.driverRole ?? '—',
+        h.driverPhone ?? '—',
+        h.driverNationalId ?? '—',
+        h.requiredQty,
+        h.actualQty,
+        h.missingQty,
+        statusBadge(h.recoveryStatus).label,
+        h.lastReportAt ? formatDateTime(h.lastReportAt) : '—',
+        h.lastUpdatedAt ? formatDateTime(h.lastUpdatedAt) : '—',
+        h.compensationCount,
+      );
+      return baseRow;
+    });
     const sheet: unknown[][] = [
       header,
       [],
@@ -270,14 +334,14 @@ export default function ItemAggregateView({
     ];
     const name = aggregate.template.itemName.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40) || 'item';
     exportToExcel(sheet, `تقرير_العنصر_${name}.xlsx`);
-  }, [aggregate, staffLabel]);
+  }, [aggregate, staffLabel, tripleLabelsForExport]);
 
   const handleExportPdf = useCallback(async () => {
     if (!aggregate) return;
-    const html = buildAggregateReportHtml(aggregate, department, staffLabel);
+    const html = buildAggregateReportHtml(aggregate, department, staffLabel, triplePrintDraftsByVehicleId);
     const name = aggregate.template.itemName.replace(/[^\p{L}\p{N}]+/gu, '_').slice(0, 40) || 'item';
     await exportHtmlToPdf(html, `تقرير_العنصر_${name}.pdf`);
-  }, [aggregate, department, staffLabel]);
+  }, [aggregate, department, staffLabel, triplePrintDraftsByVehicleId]);
 
   /* ═══ Render ═══ */
 
@@ -291,8 +355,8 @@ export default function ItemAggregateView({
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-black text-stone-900 dark:text-stone-50">البحث الذكي للعناصر</h3>
-            <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">
-              اختر عنصراً لعرض إجمالي الكمية، من يحمله، المطلوب، المتوفر، والناقص عبر الأسطول.
+                    <p className="text-[10px] font-bold text-stone-500 dark:text-stone-400">
+                  يعرض الإجمالي ومن يحمل العنصر؛ عند تنسيق «١+٢» يظهر آخر جرد ويمكن تعبئة حقول إضافية للطباعة والتصدير دون تعديل قاعدة البيانات حتى تُحفَظ بجرد رسمي.
             </p>
           </div>
           <button
@@ -347,8 +411,13 @@ export default function ItemAggregateView({
                       ? 'bg-violet-600 text-white border-violet-600 shadow'
                       : 'bg-stone-50 dark:bg-stone-900 border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800',
                   )}
-                >
+                  >
                   <span>{entry.itemName}</span>
+                  {entry.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE ? (
+                    <span className="mr-2 shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-black text-amber-900 dark:bg-amber-900/35 dark:text-amber-100">
+                      ١+٢
+                    </span>
+                  ) : null}
                   {entry.barcode && (
                     <span className="mx-1 opacity-70 font-mono">[{entry.barcode}]</span>
                   )}
@@ -395,6 +464,17 @@ export default function ItemAggregateView({
                       </>
                     ) : null}
                     المطلوب/مركبة: <strong>{aggregate.template.requiredQuantityPerVehicle}</strong>
+                    {aggregate.template.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE ? (
+                      <>
+                        {' · '}
+                        <span className="inline-flex items-center gap-1">
+                          نوع الفريق:{' '}
+                          <span className="rounded-md bg-amber-100 px-2 py-0.5 dark:bg-amber-900/30">
+                            ١ سائق + ٢ مساعد · آخر جرد؛ مسودة للطباعة من الجدول
+                          </span>
+                        </span>
+                      </>
+                    ) : null}
                   </p>
                 </div>
               </div>
@@ -504,7 +584,7 @@ export default function ItemAggregateView({
                     <th className="text-right py-2 px-2">#</th>
                     <th className="text-right py-2 px-2">اللوحة</th>
                     <th className="text-right py-2 px-2 hidden md:table-cell">الموديل</th>
-                    <th className="text-right py-2 px-2">{staffLabel}</th>
+                    <th className="text-right py-2 px-2 min-w-[9rem] sm:min-w-[12rem]">{staffLabel}</th>
                     <th className="text-center py-2 px-2">المطلوب</th>
                     <th className="text-center py-2 px-2">المتوفر</th>
                     <th className="text-center py-2 px-2">الناقص</th>
@@ -534,7 +614,30 @@ export default function ItemAggregateView({
                           <td className="py-2 px-2 text-stone-500">{idx + 1}</td>
                           <td className="py-2 px-2 font-mono font-bold">{h.plate}</td>
                           <td className="py-2 px-2 hidden md:table-cell text-stone-600">{h.model ?? '—'}</td>
-                          <td className="py-2 px-2">{h.driverName ?? '—'}</td>
+                          <td className="py-2 px-2 align-top text-xs min-w-[9rem] sm:min-w-[12rem] max-w-[18rem]">
+                            {aggregate.template.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE ? (
+                              <TripleIntelDriverCell
+                                driverName={h.driverName}
+                                staffLabel={staffLabel}
+                                tripleIntel={h.tripleHolderLabels}
+                                printDraftTriple={
+                                  triplePrintDraftsByVehicleId[h.vehicleId] ?? seedTriplePrintDraft(h)
+                                }
+                                onPrintDraftTripleChange={(next) => patchTriplePrintDraft(h.vehicleId, next)}
+                                onStartInspection={
+                                  department === 'tajhiz' && onStartVehicleInspection
+                                    ? () => onStartVehicleInspection(h.vehicleId)
+                                    : undefined
+                                }
+                              />
+                            ) : (
+                              <TripleIntelDriverCell
+                                driverName={h.driverName}
+                                staffLabel={staffLabel}
+                                tripleIntel={undefined}
+                              />
+                            )}
+                          </td>
                           <td className="py-2 px-2 text-center font-bold">{h.requiredQty}</td>
                           <td className="py-2 px-2 text-center font-bold">{h.actualQty}</td>
                           <td
@@ -619,6 +722,12 @@ export default function ItemAggregateView({
               staffLabel={staffLabel}
               department={department}
               onClose={() => setDrillKind(null)}
+              tripleTemplateActive={
+                aggregate.template.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE
+              }
+              triplePrintDraftsByVehicleId={triplePrintDraftsByVehicleId}
+              onTriplePrintDraftChange={patchTriplePrintDraft}
+              onStartVehicleInspection={onStartVehicleInspection}
               onOpenVehicleLatestReport={
                 onOpenVehicleLatestReport
                   ? (vehicleId) => {
@@ -714,20 +823,30 @@ function buildAggregateReportHtml(
   aggregate: ItemAggregateResult,
   department: DepartmentCode,
   staffLabel: string,
+  triplePrintDrafts: Record<number, TripleHolderLabels>,
 ): string {
   const tpl = aggregate.template;
   const totals = aggregate.totals;
+  const showTriplePdf = tpl.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE;
+  const tableColSpan = showTriplePdf ? 16 : 15;
   const rowsHtml = aggregate.holders
     .map((h, i) => {
       const badge = statusBadge(h.recoveryStatus).label;
       const lastRd = h.lastReportAt ? formatDateTime(h.lastReportAt) : '—';
       const lastUp = h.lastUpdatedAt ? formatDateTime(h.lastUpdatedAt) : '—';
+      const tripleLabels = showTriplePdf
+        ? triplePrintDrafts[h.vehicleId] ?? seedTriplePrintDraft(h)
+        : null;
+      const tripleCell = showTriplePdf
+        ? `<td>${escapeHtml(formatTripleIntelExportCell(tripleLabels))}</td>`
+        : '';
       return `<tr>
         <td style="text-align:center">${i + 1}</td>
         <td>${escapeHtml(h.plate)}</td>
         <td>${escapeHtml(h.model ?? '—')}</td>
         <td>${escapeHtml(h.vehicleStatus ?? '—')}</td>
         <td>${escapeHtml(h.driverName ?? '—')}</td>
+        ${tripleCell}
         <td>${escapeHtml(h.driverRole ?? '—')}</td>
         <td>${escapeHtml(h.driverPhone ?? '—')}</td>
         <td>${escapeHtml(h.driverNationalId ?? '—')}</td>
@@ -741,6 +860,10 @@ function buildAggregateReportHtml(
       </tr>`;
     })
     .join('');
+
+  const tripleHeader = showTriplePdf
+    ? `<th style="border:1px solid #ddd;padding:6px">توزيع (١+٢) — للطباعة</th>`
+    : '';
 
   const deptLabel =
     department === 'installation' ? 'قسم التركيب' : department === 'operations' ? 'قسم العمليات' : 'قسم التجهيز';
@@ -772,6 +895,7 @@ function buildAggregateReportHtml(
           <th style="border:1px solid #ddd;padding:6px">الموديل</th>
           <th style="border:1px solid #ddd;padding:6px">حالة المركبة</th>
           <th style="border:1px solid #ddd;padding:6px">${escapeHtml(staffLabel)}</th>
+          ${tripleHeader}
           <th style="border:1px solid #ddd;padding:6px">الدور</th>
           <th style="border:1px solid #ddd;padding:6px">الهاتف</th>
           <th style="border:1px solid #ddd;padding:6px">الهوية</th>
@@ -785,7 +909,7 @@ function buildAggregateReportHtml(
         </tr>
       </thead>
       <tbody style="font-weight:500">
-        ${rowsHtml || `<tr><td colspan="15" style="text-align:center;padding:12px">لا توجد بيانات.</td></tr>`}
+        ${rowsHtml || `<tr><td colspan="${tableColSpan}" style="text-align:center;padding:12px">لا توجد بيانات.</td></tr>`}
       </tbody>
     </table>
     <p style="margin-top:12px;font-size:9px;color:#6b7280;text-align:center">

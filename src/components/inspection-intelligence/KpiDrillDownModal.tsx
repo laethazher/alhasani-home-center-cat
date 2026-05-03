@@ -12,10 +12,15 @@ import {
   Users,
 } from 'lucide-react';
 import type { DepartmentCode } from '../../data/department';
-import type { ItemAggregateResult, ItemHolderRow } from '../../data/repositories/inventoryAnalyticsRepository';
+import type { ItemAggregateResult, ItemHolderRow, TripleHolderLabels } from '../../data/repositories/inventoryAnalyticsRepository';
+import { TRIPLE_NAMED_ALLOCATION_MODE } from '../../lib/toolHolderAllocations';
 import { cn } from '../../lib/utils';
 import { exportToExcel } from '../../lib/excelExport';
 import { exportHtmlToPdf } from '../../lib/pdfExport';
+import TripleIntelDriverCell, {
+  formatTripleIntelExportCell,
+  tripleIntelSearchBlob,
+} from './TripleIntelDriverCell';
 
 export type DrillKind =
   | 'required'
@@ -33,6 +38,11 @@ export interface KpiDrillDownModalProps {
   staffLabel: string;
   department: DepartmentCode;
   onOpenVehicleLatestReport?: (vehicleId: number) => void;
+  onStartVehicleInspection?: (vehicleId: number) => void;
+  /** قالب العنصر بتنسيق ١+٢ فقط (تجهيز). */
+  tripleTemplateActive?: boolean;
+  triplePrintDraftsByVehicleId?: Record<number, TripleHolderLabels>;
+  onTriplePrintDraftChange?: (vehicleId: number, next: TripleHolderLabels) => void;
 }
 
 interface DriverAggRow {
@@ -242,7 +252,16 @@ function pickVehicleRows(kind: DrillKind, holders: ItemHolderRow[]): ItemHolderR
   }
 }
 
-function holderMatchesSearch(h: ItemHolderRow, staffLabel: string, qNorm: string, qRaw: string): boolean {
+function holderMatchesSearch(
+  h: ItemHolderRow,
+  staffLabel: string,
+  qNorm: string,
+  qRaw: string,
+  opts?: {
+    tripleActive?: boolean;
+    tripleDraft?: TripleHolderLabels;
+  },
+): boolean {
   if (!qNorm) return true;
   const fields = [
     h.plate,
@@ -255,10 +274,20 @@ function holderMatchesSearch(h: ItemHolderRow, staffLabel: string, qNorm: string
     h.driverNationalId ?? '',
     staffLabel,
   ];
+  if (opts?.tripleActive) {
+    fields.push(tripleIntelSearchBlob(opts.tripleDraft ?? null));
+    fields.push(tripleIntelSearchBlob(h.tripleHolderLabels ?? null));
+  }
   const raw = `${h.plate} ${h.driverPhone ?? ''}`;
   const hitNorm = fields.some((f) => normalizeArabic(f).includes(qNorm));
   const hitRaw = raw.toLowerCase().includes(qRaw.trim().toLowerCase());
   return hitNorm || hitRaw;
+}
+
+function seedTripleModalDraft(h: ItemHolderRow): TripleHolderLabels {
+  return h.tripleHolderLabels != null
+    ? { ...h.tripleHolderLabels }
+    : { driver: (h.driverName ?? '').trim(), assistant1: '', assistant2: '' };
 }
 
 function driverAggMatchesSearch(d: DriverAggRow, qNorm: string, qRaw: string): boolean {
@@ -298,11 +327,21 @@ export default function KpiDrillDownModal({
   staffLabel,
   department,
   onOpenVehicleLatestReport,
+  onStartVehicleInspection,
+  tripleTemplateActive = false,
+  triplePrintDraftsByVehicleId,
+  onTriplePrintDraftChange,
 }: KpiDrillDownModalProps) {
   const [search, setSearch] = useState('');
   const panelRef = useRef<HTMLDivElement>(null);
   const meta = drillMeta(kind);
   const { Icon: HeaderIcon } = meta;
+
+  const tripleDraftsMap = triplePrintDraftsByVehicleId ?? {};
+  const tripleIntelEnabled =
+    tripleTemplateActive &&
+    aggregate.template.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE &&
+    Boolean(onTriplePrintDraftChange);
 
   useEffect(() => {
     if (!open) setSearch('');
@@ -367,8 +406,14 @@ export default function KpiDrillDownModal({
 
   const qNorm = normalizeArabic(search);
   const filteredVehicleRows = useMemo(
-    () => rawVehicleRows.filter((h) => holderMatchesSearch(h, staffLabel, qNorm, search)),
-    [rawVehicleRows, staffLabel, qNorm, search],
+    () =>
+      rawVehicleRows.filter((h) =>
+        holderMatchesSearch(h, staffLabel, qNorm, search, {
+          tripleActive: tripleIntelEnabled,
+          tripleDraft: tripleDraftsMap[h.vehicleId],
+        }),
+      ),
+    [rawVehicleRows, staffLabel, qNorm, search, tripleIntelEnabled, tripleDraftsMap],
   );
   const filteredDriverRows = useMemo(
     () => driverAggs.filter((d) => driverAggMatchesSearch(d, qNorm, search)),
@@ -402,16 +447,14 @@ export default function KpiDrillDownModal({
     }
 
     const showShortCols = kind === 'available';
-    const commonHdr = [
-      '#',
-      'اللوحة',
-      'الموديل',
-      'حالة المركبة',
-      staffLabel,
-      'الدور',
-      'الهاتف',
-      'الهوية',
-    ];
+    const tripleColLabel = 'توزيع (١+٢) للطباعة';
+    const tripleCellExcel = (h: ItemHolderRow) =>
+      formatTripleIntelExportCell(tripleDraftsMap[h.vehicleId] ?? seedTripleModalDraft(h));
+
+    const commonHdrPrefix = ['#', 'اللوحة', 'الموديل', 'حالة المركبة', staffLabel];
+    const commonHdrSuffix = ['الدور', 'الهاتف', 'الهوية'];
+    const commonHdr = [...commonHdrPrefix, ...(tripleIntelEnabled ? [tripleColLabel] : []), ...commonHdrSuffix];
+
     const hdr = showShortCols
       ? [...commonHdr, 'المتوفر', 'آخر جرد']
       : [
@@ -427,16 +470,16 @@ export default function KpiDrillDownModal({
 
     const rows = filteredVehicleRows.map((h, i) => {
       const badge = statusBadge(h.recoveryStatus);
-      const base = [
+      const baseHead = [
         i + 1,
         h.plate,
         h.model ?? '—',
         vehicleStatusLabel(h.vehicleStatus),
         h.driverName ?? '—',
-        h.driverRole ?? '—',
-        h.driverPhone ?? '—',
-        h.driverNationalId ?? '—',
       ];
+      const tripleVals = tripleIntelEnabled ? [tripleCellExcel(h)] : [];
+      const baseTail = [h.driverRole ?? '—', h.driverPhone ?? '—', h.driverNationalId ?? '—'];
+      const base = [...baseHead, ...tripleVals, ...baseTail];
       if (showShortCols) {
         return [...base, h.actualQty, h.lastReportAt ? formatDateTime(h.lastReportAt) : '—'];
       }
@@ -452,7 +495,18 @@ export default function KpiDrillDownModal({
       ];
     });
     exportToExcel([...header, hdr, ...rows], `تقرير_${meta.slug}_${safeFileStem}.xlsx`);
-  }, [aggregate.template.displayLabel, filteredDriverRows, filteredVehicleRows, kind, meta.slug, meta.title, safeFileStem, staffLabel]);
+  }, [
+    aggregate.template.displayLabel,
+    filteredDriverRows,
+    filteredVehicleRows,
+    kind,
+    meta.slug,
+    meta.title,
+    safeFileStem,
+    staffLabel,
+    tripleIntelEnabled,
+    tripleDraftsMap,
+  ]);
 
   const handlePdf = useCallback(async () => {
     const dept = deptLabel(department);
@@ -479,11 +533,18 @@ export default function KpiDrillDownModal({
         `<tr><td colspan="11" style="text-align:center;padding:12px">لا توجد بيانات مطابقة.</td></tr>`;
     } else {
       const showShort = kind === 'available';
-      const emptyTdColspan = showShort ? '10' : '15';
+      const addTripleCol = tripleIntelEnabled ? 1 : 0;
+      const emptyTdColspan = showShort ? String(10 + addTripleCol) : String(15 + addTripleCol);
       rowsHtml =
         filteredVehicleRows
           .map((h, i) => {
             const badge = escapeHtml(statusBadge(h.recoveryStatus).label);
+            const triplePdfTd =
+              tripleIntelEnabled
+                ? `<td>${escapeHtml(
+                    formatTripleIntelExportCell(tripleDraftsMap[h.vehicleId] ?? seedTripleModalDraft(h)),
+                  )}</td>`
+                : '';
             if (showShort) {
               return `<tr>
         <td style="text-align:center">${i + 1}</td>
@@ -491,6 +552,7 @@ export default function KpiDrillDownModal({
         <td>${escapeHtml(h.model ?? '—')}</td>
         <td>${escapeHtml(vehicleStatusLabel(h.vehicleStatus))}</td>
         <td>${escapeHtml(h.driverName ?? '—')}</td>
+        ${triplePdfTd}
         <td>${escapeHtml(h.driverRole ?? '—')}</td>
         <td>${escapeHtml(h.driverPhone ?? '—')}</td>
         <td>${escapeHtml(h.driverNationalId ?? '—')}</td>
@@ -504,6 +566,7 @@ export default function KpiDrillDownModal({
         <td>${escapeHtml(h.model ?? '—')}</td>
         <td>${escapeHtml(vehicleStatusLabel(h.vehicleStatus))}</td>
         <td>${escapeHtml(h.driverName ?? '—')}</td>
+        ${triplePdfTd}
         <td>${escapeHtml(h.driverRole ?? '—')}</td>
         <td>${escapeHtml(h.driverPhone ?? '—')}</td>
         <td>${escapeHtml(h.driverNationalId ?? '—')}</td>
@@ -536,12 +599,14 @@ export default function KpiDrillDownModal({
       <th style="border:1px solid #ddd;padding:6px">حركات تعويض</th>
     </tr>`;
     } else if (kind === 'available') {
+      const tripleInsertion = tripleIntelEnabled ? `<th style="border:1px solid #ddd;padding:6px">توزيع (١+٢)</th>` : '';
       thead = `<tr style="background:#ede9fe;font-weight:800">
       <th style="border:1px solid #ddd;padding:6px">#</th>
       <th style="border:1px solid #ddd;padding:6px">اللوحة</th>
       <th style="border:1px solid #ddd;padding:6px">الموديل</th>
       <th style="border:1px solid #ddd;padding:6px">حالة المركبة</th>
       <th style="border:1px solid #ddd;padding:6px">${escapeHtml(staffLabel)}</th>
+      ${tripleInsertion}
       <th style="border:1px solid #ddd;padding:6px">الدور</th>
       <th style="border:1px solid #ddd;padding:6px">الهاتف</th>
       <th style="border:1px solid #ddd;padding:6px">الهوية</th>
@@ -549,12 +614,14 @@ export default function KpiDrillDownModal({
       <th style="border:1px solid #ddd;padding:6px">آخر جرد</th>
     </tr>`;
     } else {
+      const tripleInsertion = tripleIntelEnabled ? `<th style="border:1px solid #ddd;padding:6px">توزيع (١+٢)</th>` : '';
       thead = `<tr style="background:#ede9fe;font-weight:800">
       <th style="border:1px solid #ddd;padding:6px">#</th>
       <th style="border:1px solid #ddd;padding:6px">اللوحة</th>
       <th style="border:1px solid #ddd;padding:6px">الموديل</th>
       <th style="border:1px solid #ddd;padding:6px">حالة المركبة</th>
       <th style="border:1px solid #ddd;padding:6px">${escapeHtml(staffLabel)}</th>
+      ${tripleInsertion}
       <th style="border:1px solid #ddd;padding:6px">الدور</th>
       <th style="border:1px solid #ddd;padding:6px">الهاتف</th>
       <th style="border:1px solid #ddd;padding:6px">الهوية</th>
@@ -594,6 +661,8 @@ export default function KpiDrillDownModal({
     meta.title,
     safeFileStem,
     staffLabel,
+    tripleIntelEnabled,
+    tripleDraftsMap,
   ]);
 
   if (!open) return null;
@@ -795,7 +864,25 @@ export default function KpiDrillDownModal({
                         <td className="px-2 py-2 hidden md:table-cell text-stone-600">
                           {vehicleStatusLabel(h.vehicleStatus)}
                         </td>
-                        <td className="px-2 py-2 font-bold">{h.driverName ?? '—'}</td>
+                        <td className="px-2 py-2 align-top font-bold">
+                          {tripleIntelEnabled ? (
+                            <TripleIntelDriverCell
+                              driverName={h.driverName}
+                              staffLabel={staffLabel}
+                              tripleIntel={h.tripleHolderLabels}
+                              dense
+                              printDraftTriple={tripleDraftsMap[h.vehicleId] ?? seedTripleModalDraft(h)}
+                              onPrintDraftTripleChange={(next) => onTriplePrintDraftChange!(h.vehicleId, next)}
+                              onStartInspection={
+                                department === 'tajhiz' && onStartVehicleInspection
+                                  ? () => onStartVehicleInspection!(h.vehicleId)
+                                  : undefined
+                              }
+                            />
+                          ) : (
+                            (h.driverName ?? '—')
+                          )}
+                        </td>
                         <td className="px-2 py-2 hidden lg:table-cell text-stone-600">{h.driverRole ?? '—'}</td>
                         <td className="px-2 py-2 hidden lg:table-cell font-mono text-[10px]">{h.driverPhone ?? '—'}</td>
                         <td className="px-2 py-2 hidden xl:table-cell font-mono text-[10px]">{h.driverNationalId ?? '—'}</td>

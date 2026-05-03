@@ -1,4 +1,5 @@
 import type { Report } from './supabaseClient';
+import { parseToolHolderAllocationsFromUnknown, type ToolHolderAllocationsByTemplateId } from './toolHolderAllocations';
 
 /** نموذج عرض التقرير المحفوظ (تجهيز + تركيب) — يُستخدم في صفحة التقارير ومودال السجل */
 export interface SavedReportView {
@@ -12,6 +13,8 @@ export interface SavedReportView {
   inspectionValues: Record<number, boolean>;
   toolValues: Record<number, number>;
   toolImages: Record<number, string[]>;
+  /** مخزَّن تقرير التجهيز — {} خارج التفعيل أو التقارير القديمة */
+  toolHolderAllocations: ToolHolderAllocationsByTemplateId;
   driverSignature: string;
   equipmentManagerSignature: string;
   logisticsManagerSignature: string;
@@ -121,6 +124,7 @@ export function mapDbRowToSavedReportView(row: Record<string, unknown>, isInstal
       inspectionValues: (r.inspection_values as Record<number, boolean>) || {},
       toolValues: (r.tool_values as Record<number, number>) || {},
       toolImages: (r.tool_images as Record<number, string[]>) || {},
+      toolHolderAllocations: parseToolHolderAllocationsFromUnknown(r.tool_holder_allocations ?? {}),
       driverSignature: r.driver_signature || '',
       equipmentManagerSignature: r.equipment_manager || '',
       logisticsManagerSignature: r.logistics_manager || '',
@@ -149,6 +153,9 @@ export function mapDbRowToSavedReportView(row: Record<string, unknown>, isInstal
     toolValues: (row.tool_values as Record<number, number>) || (payload.tool_values as Record<number, number>) || {},
     toolImages:
       (row.tool_images as Record<number, string[]>) || (payload.tool_images as Record<number, string[]>) || {},
+    toolHolderAllocations: parseToolHolderAllocationsFromUnknown(
+      row.tool_holder_allocations ?? payload.tool_holder_allocations ?? {},
+    ),
     driverSignature: String(row.driver_signature ?? payload.driver_signature ?? ''),
     equipmentManagerSignature: String(row.equipment_manager ?? payload.equipment_manager ?? ''),
     logisticsManagerSignature: String(row.logistics_manager ?? payload.logistics_manager ?? ''),

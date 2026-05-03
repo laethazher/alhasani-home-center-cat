@@ -10,6 +10,8 @@ interface ToolInventoryProps {
   toolImages?: Record<number, string[]>;
   onImagesChange?: (id: number, images: string[]) => void;
   items?: Array<Pick<InventoryTemplateItem, 'id' | 'item_name' | 'required_quantity' | 'barcode'>>;
+  /** أخفِ عنصراً من شبكة +/- (مثل وضع triple_named في التجهيز) */
+  omitTemplateIds?: Set<number>;
 }
 
 export const ToolInventory: React.FC<ToolInventoryProps> = ({ 
@@ -18,6 +20,7 @@ export const ToolInventory: React.FC<ToolInventoryProps> = ({
   toolImages = {},
   onImagesChange = (id: number, images: string[]) => { },
   items,
+  omitTemplateIds,
 }) => {
   const inventoryItems =
     items && items.length > 0
@@ -34,10 +37,14 @@ export const ToolInventory: React.FC<ToolInventoryProps> = ({
           barcode: null as string | null,
         }));
 
+  const visibleItems = omitTemplateIds
+    ? inventoryItems.filter((item) => !omitTemplateIds.has(Number(item.id)))
+    : inventoryItems;
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {inventoryItems.map((item) => (
+        {visibleItems.map((item) => (
           <div 
             key={item.id}
             className="bg-white dark:bg-stone-800 p-4 rounded-xl border border-stone-200 dark:border-stone-700 shadow-sm flex flex-col justify-between"

@@ -197,6 +197,8 @@ export interface Report {
   equipment_manager: string | null;
   logistics_manager: string | null;
   warehouse_manager: string | null;
+  /** قسم التجهيز: توزيع أسماء حوازين العُدّة للقوالب بأسلوب triple_named */
+  tool_holder_allocations?: Record<string, unknown> | null;
   created_at: string;
 }
 

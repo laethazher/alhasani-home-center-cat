@@ -37,6 +37,7 @@ import { BulkDeleteSelectedButton } from '../components/BulkDeleteSelectedButton
 import { DamageMap } from '../components/DamageMap';
 import { InspectionForm } from '../components/InspectionForm';
 import { ToolInventory } from '../components/ToolInventory';
+import { ToolTripleNamedCards } from '../components/ToolTripleNamedCards';
 import { SignaturePad } from '../components/SignaturePad';
 import { cn } from '../lib/utils';
 import { formatInventoryLabel } from '../lib/inventoryDisplay';
@@ -59,6 +60,15 @@ import InspectionIntelligenceDrawer from '../components/inspection-intelligence/
 import { calculateInspectionRecovery } from '../lib/inspectionRecovery/calculateInspectionRecovery';
 import { useInspectionRecoveryStats } from '../hooks/useInspectionRecoveryStats';
 import { inventoryTemplatesBus } from '../lib/inventoryTemplatesBus';
+import {
+  mergeVehiclePrefillDrafts,
+  parseToolHolderAllocationsFromUnknown,
+  serializePartialAllocations,
+  TRIPLE_NAMED_ALLOCATION_MODE,
+  type ToolHolderAllocationsByTemplateId,
+  type ToolHolderSlotPersisted,
+  isTripleAllocationComplete,
+} from '../lib/toolHolderAllocations';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
 
@@ -81,6 +91,8 @@ interface InventoryItemView {
   barcode?: string | null;
   quantity: number;
   sortOrder: number;
+  /** وضع التوزيع — يؤثر الواجهة فقط على department=tajhiz عند القيمة triple_named */
+  allocationMode: typeof TRIPLE_NAMED_ALLOCATION_MODE | null;
 }
 
 /** يملأ tool_values بكل مفاتيح قالب الجرد الحالي (بما فيها العناصر المضافة لاحقاً) — القيمة الافتراضية 0 إن لم يُدخل المستخدم شيئاً. */
@@ -88,10 +100,18 @@ function buildNormalizedToolValuesForReport(
   hasToolkit: boolean,
   templates: InventoryItemView[],
   draft: Record<number, number>,
+  opts?: { isTajhiz?: boolean; holderDrafts?: ToolHolderAllocationsByTemplateId },
 ): Record<number, number> {
   if (!hasToolkit) return {};
   const out: Record<number, number> = {};
   for (const item of templates) {
+    const isTriple = opts?.isTajhiz === true && item.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE;
+    if (isTriple) {
+      const slots = opts?.holderDrafts?.[item.id];
+      out[item.id] =
+        slots && item.quantity > 0 && isTripleAllocationComplete(slots) ? Math.max(0, Number(item.quantity)) : 0;
+      continue;
+    }
     const raw = draft[item.id];
     const n = raw !== undefined && raw !== null ? Number(raw) : 0;
     out[item.id] = Number.isFinite(n) ? Math.max(0, n) : 0;
@@ -283,6 +303,7 @@ export default function Reports({
   const [loadingReportDetails, setLoadingReportDetails] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<StaffMember[]>([]);
+  const [assistants, setAssistants] = useState<StaffMember[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemView[]>(
     TOOL_INVENTORY_ITEMS.map((item, index) => ({
       id: item.id,
@@ -290,11 +311,14 @@ export default function Reports({
       barcode: null,
       quantity: item.quantity,
       sortOrder: index + 1,
+      allocationMode: null,
     }))
   );
   const [templateName, setTemplateName] = useState('');
   const [templateBarcode, setTemplateBarcode] = useState('');
   const [templateQuantity, setTemplateQuantity] = useState<number>(1);
+  const [templateTripleMode, setTemplateTripleMode] = useState(false);
+  const [toolHolderDrafts, setToolHolderDrafts] = useState<ToolHolderAllocationsByTemplateId>({});
   const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [showToolsEditor, setShowToolsEditor] = useState(false);
@@ -478,6 +502,25 @@ export default function Reports({
     (selectedVehicle as unknown as { vehicle_type?: unknown } | null)?.vehicle_type,
   );
 
+  const tripleNamedItemsSorted = useMemo(() => {
+    if (!isTajhiz) return [];
+    return [...inventoryItems]
+      .filter((it) => it.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }, [inventoryItems, isTajhiz]);
+
+  const omitTripleTemplateIds = useMemo(
+    () => new Set<number>(tripleNamedItemsSorted.map((it) => it.id)),
+    [tripleNamedItemsSorted],
+  );
+
+  const handleTripleHolderDraftChange = useCallback((templateId: number, next: ToolHolderSlotPersisted[]) => {
+    setToolHolderDrafts((prev) => ({
+      ...prev,
+      [templateId]: next,
+    }));
+  }, []);
+
   const REPORTS_PAGE_SIZE = 20;
   const REPORTS_QUERY_TIMEOUT_MS = 12000;
   const fetchReports = useCallback(async (opts?: { append?: boolean; page?: number }) => {
@@ -646,10 +689,29 @@ export default function Reports({
     setDrivers(normalizedDrivers.filter((d) => d.role === 'driver'));
   }, [department, supabase, tables.staffMembers]);
 
+  const fetchAssistants = useCallback(async () => {
+    if (!isTajhiz) return;
+    const { data, error } = await supabase
+      .from(tables.staffMembers)
+      .select('*')
+      .eq('is_active', true)
+      .eq('role', 'assistant')
+      .order('full_name');
+    if (error) {
+      console.error('Failed to fetch assistants:', error);
+      return;
+    }
+    const normalizedAssistants = ((data ?? []) as Array<Record<string, unknown>>).map((d) => ({
+      ...d,
+      role: d.role === 'assistant' || d.role === 'crew' ? 'assistant' : 'driver',
+    })) as StaffMember[];
+    setAssistants(normalizedAssistants.filter((d) => d.role === 'assistant'));
+  }, [isTajhiz, supabase, tables.staffMembers]);
+
   const fetchInventoryTemplates = useCallback(async () => {
     const { data, error } = await supabase
       .from(tables.inventoryTemplates)
-      .select('id, item_name, barcode, required_quantity, sort_order')
+      .select('id, item_name, barcode, required_quantity, sort_order, allocation_mode')
       .eq('department_code', department)
       .eq('category', 'tools')
       .eq('is_active', true)
@@ -663,6 +725,7 @@ export default function Reports({
           barcode: null,
           quantity: item.quantity,
           sortOrder: index + 1,
+          allocationMode: null,
         }))
       );
       return;
@@ -676,6 +739,7 @@ export default function Reports({
           barcode: null,
           quantity: item.quantity,
           sortOrder: index + 1,
+          allocationMode: null,
         }))
       );
       return;
@@ -687,15 +751,23 @@ export default function Reports({
         barcode: row.barcode != null && String(row.barcode).trim() ? String(row.barcode).trim() : null,
         quantity: Number(row.required_quantity ?? 0),
         sortOrder: Number(row.sort_order ?? 0),
+        allocationMode:
+          row.allocation_mode === TRIPLE_NAMED_ALLOCATION_MODE ? TRIPLE_NAMED_ALLOCATION_MODE : null,
       }))
     );
   }, [department, supabase, tables.inventoryTemplates]);
 
   useEffect(() => {
-    Promise.all([fetchReports(), fetchVehicles(), fetchDrivers(), fetchInventoryTemplates()]).catch((error) => {
+    Promise.all([
+      fetchReports(),
+      fetchVehicles(),
+      fetchDrivers(),
+      fetchInventoryTemplates(),
+      ...(isTajhiz ? [fetchAssistants()] : []),
+    ]).catch((error) => {
       console.error('Failed to initialize reports page:', error);
     });
-  }, [fetchReports, fetchVehicles, fetchDrivers, fetchInventoryTemplates]);
+  }, [fetchReports, fetchVehicles, fetchDrivers, fetchInventoryTemplates, fetchAssistants, isTajhiz]);
 
   // إعادة جلب القوالب تلقائياً عند تغيّرها من أي مكان في التطبيق.
   useEffect(() => {
@@ -716,10 +788,119 @@ export default function Reports({
     onConsumedInitialInspectionVehicle?.();
   }, [initialInspectionVehicleId, vehicles, onConsumedInitialInspectionVehicle]);
 
+  useEffect(() => {
+    if (showTemplateModal && isTajhiz && templateTripleMode) setTemplateQuantity(3);
+  }, [showTemplateModal, isTajhiz, templateTripleMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function applyPrefillFromLastReport() {
+      if (!isTajhiz || !selectedVehicleId || !selectedVehicleHasToolkit) {
+        setToolHolderDrafts({});
+        return;
+      }
+      const tripleItems = inventoryItems.filter((it) => it.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE);
+      if (tripleItems.length === 0) {
+        setToolHolderDrafts({});
+        return;
+      }
+      const vid = Number(selectedVehicleId);
+      if (!Number.isFinite(vid)) {
+        setToolHolderDrafts({});
+        return;
+      }
+
+      const defaultDriverMerged = `${driverName}`.trim() || `${selectedVehicleDriver}`.trim();
+
+      /* فوري: بدون انتظار الشبكة — وإلا تُخفى عناصر triple من +/- ولا تظهر بطاقات التوزيع حتى يكتمل الجلب */
+      const baseline = mergeVehiclePrefillDrafts({
+        tripleItems,
+        parsedFromLastReport: {},
+        defaultDriverLabel: defaultDriverMerged,
+      });
+      setToolHolderDrafts(baseline);
+
+      const { data, error } = await supabase
+        .from(tables.reports)
+        .select('tool_holder_allocations')
+        .eq('vehicle_id', vid)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cancelled) return;
+      const parsed = parseToolHolderAllocationsFromUnknown(
+        error ? {} : ((data ?? {}) as { tool_holder_allocations?: unknown }).tool_holder_allocations ?? {},
+      );
+      const merged = mergeVehiclePrefillDrafts({
+        tripleItems,
+        parsedFromLastReport: parsed,
+        defaultDriverLabel: defaultDriverMerged,
+      });
+      setToolHolderDrafts(merged);
+    }
+
+    void applyPrefillFromLastReport();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isTajhiz,
+    selectedVehicleId,
+    selectedVehicleHasToolkit,
+    inventoryItems,
+    selectedVehicleDriver,
+    driverName,
+    supabase,
+    tables.reports,
+  ]);
+
+  useEffect(() => {
+    if (!isTajhiz) return;
+    setToolValues((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const item of inventoryItems) {
+        if (item.allocationMode !== TRIPLE_NAMED_ALLOCATION_MODE) continue;
+        const q = Number(item.quantity || 0);
+        const nv = q > 0 && isTripleAllocationComplete(toolHolderDrafts[item.id]) ? q : 0;
+        if (prev[item.id] !== nv) {
+          next[item.id] = nv;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [inventoryItems, isTajhiz, toolHolderDrafts]);
+
+  useEffect(() => {
+    if (!isTajhiz) return;
+    const label = driverName.trim() || selectedVehicleDriver.trim();
+    if (!label) return;
+    setToolHolderDrafts((prev) => {
+      let changed = false;
+      const next: ToolHolderAllocationsByTemplateId = { ...prev };
+      for (const item of inventoryItems) {
+        if (item.allocationMode !== TRIPLE_NAMED_ALLOCATION_MODE) continue;
+        const slots = next[item.id];
+        if (!slots || slots.length !== 3) continue;
+        if (slots[0].label.trim() !== '') continue;
+        const copy: ToolHolderSlotPersisted[] = [...slots];
+        copy[0] = { ...copy[0], slot: 'driver', label };
+        next[item.id] = copy;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [driverName, selectedVehicleDriver, inventoryItems, isTajhiz]);
+
   const resetTemplateForm = () => {
     setTemplateName('');
     setTemplateBarcode('');
     setTemplateQuantity(1);
+    setTemplateTripleMode(false);
     setEditingTemplateId(null);
     setShowTemplateModal(false);
   };
@@ -729,6 +910,7 @@ export default function Reports({
     setTemplateName(item.name);
     setTemplateBarcode(item.barcode ?? '');
     setTemplateQuantity(item.quantity);
+    setTemplateTripleMode(isTajhiz && item.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE);
     setShowTemplateModal(true);
   };
 
@@ -737,6 +919,7 @@ export default function Reports({
     setTemplateName('');
     setTemplateBarcode('');
     setTemplateQuantity(1);
+    setTemplateTripleMode(false);
     setShowTemplateModal(true);
   };
 
@@ -748,10 +931,15 @@ export default function Reports({
       alert('يرجى إدخال اسم العنصر');
       return;
     }
-    if (normalizedQty < 0) {
+    if (normalizedQty < 0 && (!isTajhiz || !templateTripleMode)) {
       alert('الكمية المطلوبة يجب أن تكون 0 أو أكبر');
       return;
     }
+    const allocationModeResolved: typeof TRIPLE_NAMED_ALLOCATION_MODE | null =
+      isTajhiz && templateTripleMode ? TRIPLE_NAMED_ALLOCATION_MODE : null;
+    const qtyResolved =
+      allocationModeResolved === TRIPLE_NAMED_ALLOCATION_MODE ? 3 : Math.max(0, normalizedQty);
+
     setSavingTemplate(true);
     try {
       if (editingTemplateId) {
@@ -761,8 +949,9 @@ export default function Reports({
           .update({
             item_name: normalizedName,
             barcode: normalizedBarcode,
-            required_quantity: normalizedQty,
+            required_quantity: qtyResolved,
             sort_order: target?.sortOrder ?? 0,
+            allocation_mode: allocationModeResolved,
           })
           .eq('id', editingTemplateId)
           .eq('department_code', department)
@@ -776,9 +965,10 @@ export default function Reports({
           category: 'tools',
           item_name: normalizedName,
           barcode: normalizedBarcode,
-          required_quantity: normalizedQty,
+          required_quantity: qtyResolved,
           sort_order: maxSort + 1,
           is_active: true,
+          allocation_mode: allocationModeResolved,
         });
         if (error) throw error;
         inventoryTemplatesBus.notifyChanged({ department, changeType: 'created' });
@@ -862,6 +1052,7 @@ export default function Reports({
     setInspectionValues({});
     setToolValues({});
     setToolImages({});
+    setToolHolderDrafts({});
     setDriverSignature('');
     setEquipmentManagerSignature('');
     setLogisticsManagerSignature('');
@@ -874,6 +1065,28 @@ export default function Reports({
       return;
     }
 
+    if (selectedVehicleHasToolkit && isTajhiz) {
+      for (const item of inventoryItems) {
+        if (item.allocationMode !== TRIPLE_NAMED_ALLOCATION_MODE) continue;
+        const qReq = Number(item.quantity || 0);
+        if (qReq !== 3) {
+          alert(
+            `العنصر «${item.name}» بوضع 1 سائق + 2 مساعد يُشترط أن يكون «المطلوب» يساوي 3. عدِّل القالب من «تعديل الجرد».`,
+          );
+          return;
+        }
+        const slots = toolHolderDrafts[item.id];
+        if (!isTripleAllocationComplete(slots)) {
+          alert(
+            `يرجى إكمال الثلاثة حوازي (أسماء واضحة) للعُدّة: «${item.name}».
+
+لا يمكن إرسال التقرير إلا بعد تعبئة اسم السائق ومساعدين.`,
+          );
+          return;
+        }
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -881,8 +1094,13 @@ export default function Reports({
         selectedVehicleHasToolkit,
         inventoryItems,
         toolValues,
+        { isTajhiz, holderDrafts: toolHolderDrafts },
       );
-      const reportPayload = {
+      const toolHolderSerialized = serializePartialAllocations(
+        toolHolderDrafts,
+        inventoryItems.filter((i) => i.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE).map((i) => i.id),
+      );
+      const reportPayloadBase = {
         user_id: userId,
         vehicle_id: selectedVehicle.id,
         driver_name: driverName.trim(),
@@ -907,7 +1125,7 @@ export default function Reports({
           vehicle_type: String((selectedVehicle as unknown as { vehicle_type?: unknown }).vehicle_type ?? ''),
           report_type: 'inventory',
           payload: {
-            ...reportPayload,
+            ...reportPayloadBase,
             vehicle_type: String((selectedVehicle as unknown as { vehicle_type?: unknown }).vehicle_type ?? ''),
           },
         };
@@ -919,11 +1137,8 @@ export default function Reports({
         if (error) throw error;
         insertedRow = data as Record<string, unknown>;
       } else {
-        const { data, error } = await supabase
-          .from('reports')
-          .insert(reportPayload)
-          .select('*')
-          .single();
+        const reportPayload = isTajhiz ? { ...reportPayloadBase, tool_holder_allocations: toolHolderSerialized } : reportPayloadBase;
+        const { data, error } = await supabase.from(tables.reports).insert(reportPayload).select('*').single();
         if (error) throw error;
         insertedRow = data as Record<string, unknown>;
       }
@@ -1271,13 +1486,19 @@ export default function Reports({
 
                   setSelectedVehicleId(String(vehicle.id));
                   setTruckNumber(vehicle.plate_number);
-                  // لا يتم تعبئة driverName تلقائيًا - يبقى إدخال يدوي
+                  if (isTajhiz) {
+                    const dname =
+                      vehicle.assigned_driver_id != null
+                        ? driverMap.get(String(vehicle.assigned_driver_id)) || ''
+                        : '';
+                    setDriverName(dname.trim());
+                  }
                   if (isInstallation && selectedVehicleId !== nextVehicleId) {
-                    // Prevent mixing old damage/tool images across different installation vehicle types.
                     setDamagePoints([]);
                     setInspectionValues({});
                     setToolValues({});
                     setToolImages({});
+                    setToolHolderDrafts({});
                   }
                 }}
                 driverMap={driverMap}
@@ -1483,7 +1704,14 @@ export default function Reports({
                                           </p>
                                         ) : null}
                                       </div>
-                                      <p className="text-xs text-stone-500 dark:text-stone-400 shrink-0">المطلوب: {item.quantity}</p>
+                                      <p className="text-xs text-stone-500 dark:text-stone-400 shrink-0">
+                                        المطلوب: {item.quantity}
+                                        {item.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE ? (
+                                          <span className="mr-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-100">
+                                            1+2
+                                          </span>
+                                        ) : null}
+                                      </p>
                                     </div>
                                     <div className="flex items-center gap-1">
                                       <button
@@ -1514,11 +1742,29 @@ export default function Reports({
                         )}
                       </section>
 
-                      <ToolInventory 
-                        values={toolValues} 
-                        onChange={(id, count) => setToolValues(prev => ({ ...prev, [id]: count }))} 
+                      {isTajhiz && tripleNamedItemsSorted.length > 0 ? (
+                        <>
+                          <p className="text-[11px] text-stone-500 dark:text-stone-400 leading-relaxed -mb-1">
+                            العناصر التي فعّلت لها «توزيع 1 سائق + 2 مساعد» تظهر هنا لتعبئة الحوازين؛ بقية جرد العُدّة يبقى في الشبكة أدناه (+ / −).
+                          </p>
+                          <ToolTripleNamedCards
+                            items={tripleNamedItemsSorted}
+                            slotsByTemplateId={toolHolderDrafts}
+                            assistants={assistants}
+                            defaultDriverCaption={driverName.trim() ? driverName.trim() : selectedVehicleDriver}
+                            toolImages={toolImages}
+                            onSlotsChange={handleTripleHolderDraftChange}
+                            onImagesChange={(id, images) => setToolImages((prev) => ({ ...prev, [id]: images }))}
+                          />
+                        </>
+                      ) : null}
+
+                      <ToolInventory
+                        values={toolValues}
+                        onChange={(id, count) => setToolValues((prev) => ({ ...prev, [id]: count }))}
                         toolImages={toolImages}
-                        onImagesChange={(id, images) => setToolImages(prev => ({ ...prev, [id]: images }))}
+                        onImagesChange={(id, images) => setToolImages((prev) => ({ ...prev, [id]: images }))}
+                        omitTemplateIds={isTajhiz ? omitTripleTemplateIds : undefined}
                         items={inventoryItems.map((item) => ({
                           id: item.id,
                           item_name: item.name,
@@ -1609,20 +1855,44 @@ export default function Reports({
                 />
               </div>
 
+              {isTajhiz ? (
+                <label className="flex items-start gap-3 rounded-xl border border-stone-200 dark:border-stone-600 p-3 cursor-pointer hover:bg-stone-50 dark:hover:bg-stone-800/50">
+                  <input
+                    type="checkbox"
+                    className="mt-1 rounded border-stone-300 dark:border-stone-600"
+                    checked={templateTripleMode}
+                    onChange={(e) => setTemplateTripleMode(e.target.checked)}
+                  />
+                  <span className="text-xs text-stone-700 dark:text-stone-200 leading-relaxed">
+                    <span className="font-bold block mb-1">توزيع 1 سائق + 2 مساعد لهذا البند</span>
+                    يثبَّت الإجمالي على ٣ وحدة ويُطلب في التقرير إدخال اسم كل حامل.
+                  </span>
+                </label>
+              ) : null}
+
               <div className="space-y-2">
-                <label className="text-xs font-bold text-stone-500 dark:text-stone-400">الكمية المطلوبة</label>
+                <label className="text-xs font-bold text-stone-500 dark:text-stone-400">
+                  الكمية المطلوبة
+                  {isTajhiz && templateTripleMode ? (
+                    <span className="text-[10px] font-normal mr-2">(مثبتة على ٣ لهذا الوضع)</span>
+                  ) : null}
+                </label>
                 <input
                   type="number"
                   min={0}
                   value={templateQuantity}
+                  disabled={isTajhiz && templateTripleMode}
                   onChange={(e) => setTemplateQuantity(Number(e.target.value || 0))}
-                  className="input-field"
+                  className={cn(
+                    'input-field',
+                    isTajhiz && templateTripleMode && 'opacity-70 cursor-not-allowed',
+                  )}
                 />
               </div>
 
               {editingTemplateId && (
                 <div className="text-xs text-stone-500 dark:text-stone-400">
-                  سيتم تحديث اسم العنصر والباركود والكمية مع الحفاظ على ترتيبه الحالي.
+                  سيتم تحديث اسم العنصر والباركود والكمية ووضع التوزيع مع الحفاظ على ترتيبه الحالي.
                 </div>
               )}
 
@@ -1974,7 +2244,38 @@ export default function Reports({
                             </span>
                           </div>
                         </div>
-                        
+
+                        {isTajhiz &&
+                          item.allocationMode === TRIPLE_NAMED_ALLOCATION_MODE &&
+                          Array.isArray(viewingReport.toolHolderAllocations[item.id]) &&
+                          (viewingReport.toolHolderAllocations[item.id]?.length ?? 0) === 3 && (
+                            <div className="px-3 py-3 border-t border-amber-100 dark:border-amber-900/40 bg-amber-50/35 dark:bg-amber-950/25 text-[11px]">
+                              <p className="font-black text-stone-800 dark:text-stone-100 mb-2">حوازو الوحدات (1 سائق + 2 مساعد)</p>
+                              <table className="w-full text-right border border-stone-200 dark:border-stone-700 rounded-lg overflow-hidden">
+                                <thead>
+                                  <tr className="bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
+                                    <th className="px-2 py-1 font-bold">الموضع</th>
+                                    <th className="px-2 py-1 font-bold">الاسم</th>
+                                    <th className="px-2 py-1 font-bold whitespace-nowrap">مرجع</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(['السائق — ١', 'مساعد ١ — ١', 'مساعد ٢ — ١'] as const).map((lbl, hi) => {
+                                    const slot = viewingReport.toolHolderAllocations[item.id]![hi]!;
+                                    return (
+                                      <tr key={`${item.id}-${hi}`} className="border-t border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900">
+                                        <td className="px-2 py-1.5 font-medium">{lbl}</td>
+                                        <td className="px-2 py-1.5">{slot.label || '—'}</td>
+                                        <td className="px-2 py-1.5 font-mono text-[10px] whitespace-nowrap">
+                                          {slot.staffId != null ? `#${slot.staffId}` : 'كتابة حرة'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         {/* Tool Images */}
                         {viewingReport.toolImages && viewingReport.toolImages[item.id] && viewingReport.toolImages[item.id].length > 0 && (
                           <div className="p-4 bg-stone-50 dark:bg-stone-700 border-t border-stone-100 dark:border-stone-700">
