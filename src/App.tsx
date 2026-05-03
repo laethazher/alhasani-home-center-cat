@@ -13,6 +13,10 @@ import OperationsWorkspace from './pages/OperationsWorkspace';
 import Dashboard from './pages/Dashboard';
 import Reports from './pages/Reports';
 import Vehicles from './pages/Vehicles';
+import InspectionIntelligenceHub, {
+  type IntelligenceHubLaunchParams,
+} from './pages/InspectionIntelligenceHub';
+import VehicleLatestReport from './pages/VehicleLatestReport';
 import StaffExit from './pages/StaffExit';
 import Violations from './pages/Violations';
 import UsersManagement from './pages/UsersManagement';
@@ -40,6 +44,9 @@ export default function App() {
   const { user, profile, loading, signingOut, signOut } = useUserProfile();
   const [systemArea, setSystemArea] = useState<'tajhiz' | 'installation' | 'operations' | 'gate' | null>(null);
   const [reportsInitialInspectionVehicleId, setReportsInitialInspectionVehicleId] = useState<string | null>(null);
+  const [intelligenceLaunchParams, setIntelligenceLaunchParams] =
+    useState<IntelligenceHubLaunchParams | null>(null);
+  const [vehicleLatestReportId, setVehicleLatestReportId] = useState<string | null>(null);
 
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -244,10 +251,59 @@ export default function App() {
             userId={authUser.id}
             initialInspectionVehicleId={reportsInitialInspectionVehicleId}
             onConsumedInitialInspectionVehicle={() => setReportsInitialInspectionVehicleId(null)}
+            onOpenIntelligence={(params) => {
+              setIntelligenceLaunchParams(params ?? null);
+              setActivePage('intelligence');
+            }}
           />
         );
       case 'vehicles':
-        return <Vehicles profile={authProfile} />;
+        return (
+          <Vehicles
+            profile={authProfile}
+            onOpenVehicleLatestReport={(vehicleId) => {
+              setVehicleLatestReportId(String(vehicleId));
+              setActivePage('vehicle-latest-report');
+            }}
+          />
+        );
+      case 'intelligence':
+        return (
+          <InspectionIntelligenceHub
+            profile={authProfile}
+            department="tajhiz"
+            launchParams={intelligenceLaunchParams}
+            onConsumeLaunchParams={() => setIntelligenceLaunchParams(null)}
+            onOpenVehicleLatestReport={(vehicleId) => {
+              setVehicleLatestReportId(String(vehicleId));
+              setActivePage('vehicle-latest-report');
+            }}
+            onStartVehicleInspection={(vehicleId) => {
+              setReportsInitialInspectionVehicleId(vehicleId);
+              setActivePage('reports');
+            }}
+            onOpenVehicleHistory={(vehicleId) => {
+              setReportsInitialInspectionVehicleId(vehicleId);
+              setActivePage('reports');
+            }}
+          />
+        );
+      case 'vehicle-latest-report':
+        return (
+          <VehicleLatestReport
+            profile={authProfile}
+            department="tajhiz"
+            vehicleId={vehicleLatestReportId}
+            onBack={() => {
+              setVehicleLatestReportId(null);
+              setActivePage('vehicles');
+            }}
+            onStartInspection={(vehicleId) => {
+              setReportsInitialInspectionVehicleId(vehicleId);
+              setActivePage('reports');
+            }}
+          />
+        );
       case 'staff-exit':
         return (
           <StaffExit

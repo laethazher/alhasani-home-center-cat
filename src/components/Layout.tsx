@@ -6,6 +6,7 @@ import {
   ArrowRight, DoorOpen, Shield, Wrench,
   ClipboardList, Activity, History, Package, Bell,
   Users, CalendarCheck, BarChart3, Sparkles, CircleDot,
+  Brain,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getDepartmentClient, getDepartmentTables } from '../data/supabaseSource';
@@ -20,7 +21,8 @@ export type PageKey =
   | 'users' | 'settings' | 'maintenance' | 'maintenance-requests'
   | 'active-maintenance' | 'maintenance-history' | 'spare-parts'
   | 'notifications' | 'crew-attendance' | 'attendance-history'
-  | 'attendance-reports' | 'reports-hub' | 'attendance-activity-log' | 'crew-staff';
+  | 'attendance-reports' | 'reports-hub' | 'attendance-activity-log' | 'crew-staff'
+  | 'intelligence' | 'vehicle-latest-report';
 
 interface NavItem   { key: PageKey; label: string; icon: React.ElementType; roles: UserRole[] | 'all' }
 interface ChildItem { key: PageKey; label: string; icon: React.ElementType; roles: UserRole[] }
@@ -51,6 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   { key:'staff-exit', label:'إخراج الكادر',     icon:DoorOpen,        roles:['admin','driver','manager','warehouse','logistics','gate_guard','installation_department'] },
   { key:'violations', label:'سجل المخالفات',    icon:Shield,          roles:['admin'] },
   { key:'reports',    label:'التقارير',         icon:FileText,        roles:['admin','driver','manager','warehouse','logistics','installation_department'] },
+  { key:'intelligence', label:'مركز الذكاء',     icon:Brain,           roles:['admin','manager','maintenance_manager','logistics','installation_department'] },
   { key:'bubbles',    label:'Bubbles',         icon:CircleDot,       roles:['admin','manager','logistics','gate_guard'] },
   { key:'reports-hub', label:'التقارير الذكية', icon:Sparkles,        roles:['admin','manager','installation_department'] },
   { key:'users',      label:'إدارة المستخدمين', icon:UserCog,         roles:['admin'] },

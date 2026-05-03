@@ -283,7 +283,11 @@ export default function Dashboard({ profile, onNavigate, department = 'tajhiz' }
     <div className="space-y-8">
       <span className="hidden dark:block"><DarkHero profile={profile} count={visible.length} departmentTag={departmentTag}/></span>
       <span className="dark:hidden"><LightHero profile={profile} count={visible.length} departmentTag={departmentTag}/></span>
-      <InspectionAlertBanner department={department} onGoToReports={() => onNavigate('reports')} />
+      <InspectionAlertBanner
+        department={department}
+        onOpenIntelligence={() => onNavigate('intelligence')}
+        onGoToReports={() => onNavigate('reports')}
+      />
       <SectionLabel
         count={visible.length}
         label={department === 'installation' ? 'وحدات سريعة' : undefined}

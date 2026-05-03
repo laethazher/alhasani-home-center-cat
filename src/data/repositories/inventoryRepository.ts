@@ -1,5 +1,6 @@
 import type { DepartmentCode } from '../department';
 import { getDepartmentClient, getDepartmentTables } from '../supabaseSource';
+import { inventoryTemplatesBus } from '../../lib/inventoryTemplatesBus';
 
 export interface InventoryTemplateItem {
   id: number;
@@ -45,5 +46,7 @@ export class InventoryRepository {
       { onConflict: 'department_code,category,item_name' }
     );
     if (error) throw error;
+    // إعلام المستمعين (Reports, Hub, Aggregate, VehicleLatestReport) بإعادة الجلب.
+    inventoryTemplatesBus.notifyChanged({ department, changeType: 'updated' });
   }
 }

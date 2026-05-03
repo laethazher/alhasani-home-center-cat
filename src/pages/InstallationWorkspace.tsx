@@ -17,6 +17,10 @@ import Dashboard from './Dashboard';
 import Reports from './Reports';
 import Violations from './Violations';
 import ReportsHub from './ReportsHub';
+import InspectionIntelligenceHub, {
+  type IntelligenceHubLaunchParams,
+} from './InspectionIntelligenceHub';
+import VehicleLatestReport from './VehicleLatestReport';
 import UsersManagement from './UsersManagement';
 import CrewAttendance from './CrewAttendance';
 import CrewStaff from './CrewStaff';
@@ -46,6 +50,9 @@ export default function InstallationWorkspace({
 }: InstallationWorkspaceProps) {
   const [activePage, setActivePage] = useState<PageKey>('dashboard');
   const [reportsInitialInspectionVehicleId, setReportsInitialInspectionVehicleId] = useState<string | null>(null);
+  const [intelligenceLaunchParams, setIntelligenceLaunchParams] =
+    useState<IntelligenceHubLaunchParams | null>(null);
+  const [vehicleLatestReportId, setVehicleLatestReportId] = useState<string | null>(null);
 
   const role = profile?.role;
   const guardedPage = useMemo(
@@ -100,7 +107,16 @@ export default function InstallationWorkspace({
       case 'dashboard':
         return <Dashboard profile={profile} onNavigate={setActivePage} department="installation" />;
       case 'vehicles':
-        return <InstallationVehicles isDarkMode={isDarkMode} profile={profile} />;
+        return (
+          <InstallationVehicles
+            isDarkMode={isDarkMode}
+            profile={profile}
+            onOpenVehicleLatestReport={(vehicleId) => {
+              setVehicleLatestReportId(String(vehicleId));
+              setActivePage('vehicle-latest-report');
+            }}
+          />
+        );
       case 'staff-exit':
         return (
           <InstallationStaffExit
@@ -116,6 +132,47 @@ export default function InstallationWorkspace({
             department="installation"
             initialInspectionVehicleId={reportsInitialInspectionVehicleId}
             onConsumedInitialInspectionVehicle={() => setReportsInitialInspectionVehicleId(null)}
+            onOpenIntelligence={(params) => {
+              setIntelligenceLaunchParams(params ?? null);
+              setActivePage('intelligence');
+            }}
+          />
+        );
+      case 'intelligence':
+        return (
+          <InspectionIntelligenceHub
+            profile={profile}
+            department="installation"
+            launchParams={intelligenceLaunchParams}
+            onConsumeLaunchParams={() => setIntelligenceLaunchParams(null)}
+            onOpenVehicleLatestReport={(vehicleId) => {
+              setVehicleLatestReportId(String(vehicleId));
+              setActivePage('vehicle-latest-report');
+            }}
+            onStartVehicleInspection={(vehicleId) => {
+              setReportsInitialInspectionVehicleId(vehicleId);
+              setActivePage('reports');
+            }}
+            onOpenVehicleHistory={(vehicleId) => {
+              setReportsInitialInspectionVehicleId(vehicleId);
+              setActivePage('reports');
+            }}
+          />
+        );
+      case 'vehicle-latest-report':
+        return (
+          <VehicleLatestReport
+            profile={profile}
+            department="installation"
+            vehicleId={vehicleLatestReportId}
+            onBack={() => {
+              setVehicleLatestReportId(null);
+              setActivePage('vehicles');
+            }}
+            onStartInspection={(vehicleId) => {
+              setReportsInitialInspectionVehicleId(vehicleId);
+              setActivePage('reports');
+            }}
           />
         );
       case 'violations':

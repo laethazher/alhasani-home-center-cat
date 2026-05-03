@@ -4,7 +4,7 @@ import {
   Truck, Plus, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
   Calendar, Fuel, Gauge, Shield, AlertTriangle, CheckCircle2, Clock,
   FileText, DollarSign, User, Save, Info, Palette, Activity, XCircle,
-  History,
+  History, Brain,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabaseClient';
@@ -73,12 +73,14 @@ const STATUS_CONFIG: Record<VehicleStatus, { label: string; color: string; bgCol
 /* ── Component ── */
 interface VehiclesProps {
   profile?: UserProfile | null;
+  /** فتح صفحة "التقرير الأخير للمركبة" في حال توفّر معالج من التطبيق. */
+  onOpenVehicleLatestReport?: (vehicleId: string | number) => void;
 }
 
 const isReserveVehicle = (vehicle: Vehicle) =>
   vehicle.status === 'available' && !vehicle.assigned_driver_id;
 
-export default function Vehicles({ profile }: VehiclesProps) {
+export default function Vehicles({ profile, onOpenVehicleLatestReport }: VehiclesProps) {
   const canDelete = profile?.role === 'admin';
   /* State */
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -1194,6 +1196,18 @@ export default function Vehicles({ profile }: VehiclesProps) {
                       className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors">
                       <History className="w-3.5 h-3.5" /> السجل
                     </button>
+                    {onOpenVehicleLatestReport && (
+                      <>
+                        <div className="w-px h-6 bg-stone-100 dark:bg-stone-700" />
+                        <button
+                          onClick={() => onOpenVehicleLatestReport(v.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+                          title="التقرير الأخير للمركبة"
+                        >
+                          <Brain className="w-3.5 h-3.5" /> آخر تقرير
+                        </button>
+                      </>
+                    )}
                     <div className="w-px h-6 bg-stone-100 dark:bg-stone-700" />
                     <button onClick={() => setExpandedCards((prev) => {
                       const next = new Set(prev);

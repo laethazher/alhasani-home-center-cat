@@ -8,12 +8,15 @@ interface InspectionAlertBannerProps {
   /** عند إيقاف الجلب (مثلاً واجهة مبسّطة) */
   enabled?: boolean;
   onGoToReports?: () => void;
+  /** مفضّل: فتح صفحة مركز الذكاء مباشرةً بدل التقارير. */
+  onOpenIntelligence?: () => void;
 }
 
 export default function InspectionAlertBanner({
   department,
   enabled = true,
   onGoToReports,
+  onOpenIntelligence,
 }: InspectionAlertBannerProps) {
   const { loading, criticalCount } = useInspectionCriticalCount(department, enabled);
   const { loading: recoveryLoading, stats: recoveryStats } = useInspectionRecoveryStats(department, enabled);
@@ -44,7 +47,15 @@ export default function InspectionAlertBanner({
             : ''}
         </p>
       </div>
-      {onGoToReports ? (
+      {onOpenIntelligence ? (
+        <button
+          type="button"
+          onClick={onOpenIntelligence}
+          className="shrink-0 px-4 py-2 rounded-xl text-sm font-bold bg-rose-600 text-white hover:bg-rose-700 transition-colors"
+        >
+          فتح مركز الذكاء
+        </button>
+      ) : onGoToReports ? (
         <button
           type="button"
           onClick={onGoToReports}

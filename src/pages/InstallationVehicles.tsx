@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Truck, Plus, X, Edit3, Trash2, Wrench, ChevronDown, ChevronUp,
-  CheckCircle2, Clock, AlertTriangle, Save, User, MapPin, Gauge, History, Shield,
+  CheckCircle2, Clock, AlertTriangle, Save, User, MapPin, Gauge, History, Shield, Brain,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getDepartmentClient } from '../data/supabaseSource';
@@ -71,9 +71,14 @@ const isInstallationReserveVehicle = (v: InstallationVehicle) =>
 interface InstallationVehiclesProps {
   isDarkMode: boolean;
   profile: UserProfile;
+  onOpenVehicleLatestReport?: (vehicleId: string | number) => void;
 }
 
-export default function InstallationVehicles({ isDarkMode, profile }: InstallationVehiclesProps) {
+export default function InstallationVehicles({
+  isDarkMode,
+  profile,
+  onOpenVehicleLatestReport,
+}: InstallationVehiclesProps) {
   const supabase = getDepartmentClient('installation');
   const canDelete = profile.role === 'admin';
 
@@ -662,6 +667,19 @@ export default function InstallationVehicles({ isDarkMode, profile }: Installati
                     >
                       <History className="w-3.5 h-3.5" /> السجل
                     </button>
+                    {onOpenVehicleLatestReport && (
+                      <>
+                        <div className="w-px h-6 bg-stone-100 dark:bg-stone-700 hidden sm:block" />
+                        <button
+                          type="button"
+                          onClick={() => onOpenVehicleLatestReport(v.id)}
+                          className="flex-1 min-w-[4.5rem] flex items-center justify-center gap-1.5 py-2.5 text-xs text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+                          title="التقرير الأخير للمركبة"
+                        >
+                          <Brain className="w-3.5 h-3.5" /> آخر تقرير
+                        </button>
+                      </>
+                    )}
                     <div className="w-px h-6 bg-stone-100 dark:bg-stone-700 hidden sm:block" />
                     <button onClick={() => openEditForm(v)} className="flex-1 min-w-[4.5rem] flex items-center justify-center gap-1.5 py-2.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors">
                       <Edit3 className="w-3.5 h-3.5" /> تعديل

@@ -249,6 +249,8 @@ export interface InspectionIntelligenceDrawerProps {
   canRebuildRecovery?: boolean;
   initialTab?: 'overview' | 'recovery';
   initialRecoverySubTab?: 'worklist' | 'archive';
+  /** وضع العرض: درج جانبي (افتراضي) أو مساحة صفحة كاملة مدمجة. */
+  variant?: 'drawer' | 'page';
 }
 
 export default function InspectionIntelligenceDrawer({
@@ -261,7 +263,9 @@ export default function InspectionIntelligenceDrawer({
   canRebuildRecovery = false,
   initialTab = 'overview',
   initialRecoverySubTab = 'worklist',
+  variant = 'drawer',
 }: InspectionIntelligenceDrawerProps) {
+  const isPageVariant = variant === 'page';
   const [qrVehicleId, setQrVehicleId] = useState<number | null>(null);
   const [deficitRows, setDeficitRows] = useState<DeficitRow[]>([]);
   const [deficitLoading, setDeficitLoading] = useState(false);
@@ -1563,28 +1567,31 @@ export default function InspectionIntelligenceDrawer({
     <AnimatePresence>
       {open && (
         <>
-          <motion.button
-            type="button"
-            aria-label="إغلاق"
-            className="fixed inset-0 z-[140] bg-black/50 backdrop-blur-sm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
+          {!isPageVariant && (
+            <motion.button
+              type="button"
+              aria-label="إغلاق"
+              className="fixed inset-0 z-[140] bg-black/50 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={onClose}
+            />
+          )}
           <motion.aside
-            role="dialog"
-            aria-modal="true"
+            role={isPageVariant ? 'region' : 'dialog'}
+            aria-modal={isPageVariant ? undefined : 'true'}
             aria-labelledby="inspection-intel-title"
             className={cn(
-              'fixed top-0 right-0 z-[141] h-full w-full max-w-xl shadow-2xl',
-              'border-l border-stone-200/80 dark:border-stone-700/80',
+              isPageVariant
+                ? 'relative z-0 w-full mx-auto rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shadow-xl h-[calc(100vh-7rem)] min-h-[720px]'
+                : 'fixed top-0 right-0 z-[141] h-full w-full max-w-xl shadow-2xl border-l border-stone-200/80 dark:border-stone-700/80',
               'bg-white/90 dark:bg-stone-950/95 backdrop-blur-xl',
               'flex flex-col overflow-hidden',
             )}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
+            initial={isPageVariant ? { opacity: 0, y: 8 } : { x: '100%' }}
+            animate={isPageVariant ? { opacity: 1, y: 0 } : { x: 0 }}
+            exit={isPageVariant ? { opacity: 0, y: 8 } : { x: '100%' }}
             transition={{ type: 'spring', stiffness: 320, damping: 34 }}
           >
             <header className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-stone-200/80 dark:border-stone-700/80">
@@ -1610,13 +1617,16 @@ export default function InspectionIntelligenceDrawer({
                 >
                   <RefreshCw className={cn('h-5 w-5', loading && 'animate-spin')} />
                 </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                {!isPageVariant && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300"
+                    aria-label="إغلاق"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                )}
               </div>
             </header>
 

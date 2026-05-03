@@ -58,6 +58,7 @@ import { useUserProfile } from '../hooks/useUserProfile';
 import InspectionIntelligenceDrawer from '../components/inspection-intelligence/InspectionIntelligenceDrawer';
 import { calculateInspectionRecovery } from '../lib/inspectionRecovery/calculateInspectionRecovery';
 import { useInspectionRecoveryStats } from '../hooks/useInspectionRecoveryStats';
+import { inventoryTemplatesBus } from '../lib/inventoryTemplatesBus';
 
 type Tab = 'damage' | 'inspection' | 'tools' | 'history';
 
@@ -67,6 +68,11 @@ interface ReportsProps {
   /** رابط عميق / QR — يُستهلك مرة واحدة عند التركيب */
   initialInspectionVehicleId?: string | null;
   onConsumedInitialInspectionVehicle?: () => void;
+  /** فتح صفحة مركز الذكاء (Inspection Intelligence) كصفحة كاملة. */
+  onOpenIntelligence?: (params?: {
+    initialTab?: 'overview' | 'recovery';
+    initialRecoverySubTab?: 'worklist' | 'archive';
+  }) => void;
 }
 
 interface InventoryItemView {
@@ -246,6 +252,7 @@ export default function Reports({
   department = 'tajhiz',
   initialInspectionVehicleId = null,
   onConsumedInitialInspectionVehicle,
+  onOpenIntelligence,
 }: ReportsProps) {
   const { profile } = useUserProfile();
   const canManageReports =
@@ -306,14 +313,24 @@ export default function Reports({
     const params = new URLSearchParams(window.location.search);
     if (params.get('intelRecovery') !== '1') return;
     const recoveryTab = params.get('recoveryTab');
-    setDrawerInitialTab('recovery');
-    setDrawerInitialRecoveryTab(recoveryTab === 'archive' ? 'archive' : 'worklist');
-    setIntelligenceOpen(true);
+    // استهلاك الرابط العميق وتنظيف الـ URL ثم فتح صفحة الذكاء إن توفر المعالج.
     params.delete('intelRecovery');
     params.delete('recoveryTab');
     const nextSearch = params.toString();
     const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', nextUrl);
+    if (onOpenIntelligence) {
+      onOpenIntelligence({
+        initialTab: 'recovery',
+        initialRecoverySubTab: recoveryTab === 'archive' ? 'archive' : 'worklist',
+      });
+    } else {
+      // احتياط للحفاظ على التوافق مع أي بيئة قديمة لا تمرّر المعالج.
+      setDrawerInitialTab('recovery');
+      setDrawerInitialRecoveryTab(recoveryTab === 'archive' ? 'archive' : 'worklist');
+      setIntelligenceOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleSelectAll = () => {
@@ -680,6 +697,16 @@ export default function Reports({
     });
   }, [fetchReports, fetchVehicles, fetchDrivers, fetchInventoryTemplates]);
 
+  // إعادة جلب القوالب تلقائياً عند تغيّرها من أي مكان في التطبيق.
+  useEffect(() => {
+    const unsubscribe = inventoryTemplatesBus.subscribe(department, () => {
+      void fetchInventoryTemplates();
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [department, fetchInventoryTemplates]);
+
   useEffect(() => {
     if (!initialInspectionVehicleId) return;
     const id = String(initialInspectionVehicleId);
@@ -741,6 +768,7 @@ export default function Reports({
           .eq('department_code', department)
           .eq('category', 'tools');
         if (error) throw error;
+        inventoryTemplatesBus.notifyChanged({ department, changeType: 'updated' });
       } else {
         const maxSort = inventoryItems.reduce((max, item) => Math.max(max, item.sortOrder), 0);
         const { error } = await supabase.from(tables.inventoryTemplates).insert({
@@ -753,6 +781,7 @@ export default function Reports({
           is_active: true,
         });
         if (error) throw error;
+        inventoryTemplatesBus.notifyChanged({ department, changeType: 'created' });
       }
       await fetchInventoryTemplates();
       resetTemplateForm();
@@ -774,6 +803,7 @@ export default function Reports({
         .eq('department_code', department)
         .eq('category', 'tools');
       if (error) throw error;
+      inventoryTemplatesBus.notifyChanged({ department, changeType: 'deleted' });
       await fetchInventoryTemplates();
       if (editingTemplateId === item.id) resetTemplateForm();
     } catch (error) {
@@ -796,6 +826,7 @@ export default function Reports({
       const results = await Promise.all(updates);
       const firstError = results.find((r) => r.error)?.error;
       if (firstError) throw firstError;
+      inventoryTemplatesBus.notifyChanged({ department, changeType: 'reordered' });
     } catch (error) {
       const message = getErrorMessage(error);
       alert(`فشل تحديث ترتيب العناصر: ${message}`);
@@ -1036,7 +1067,13 @@ export default function Reports({
       <div className="flex flex-wrap items-center gap-2 mb-6">
         <button
           type="button"
-          onClick={() => setIntelligenceOpen(true)}
+          onClick={() => {
+            if (onOpenIntelligence) {
+              onOpenIntelligence();
+            } else {
+              setIntelligenceOpen(true);
+            }
+          }}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md hover:opacity-95 transition-opacity font-black text-sm"
         >
           <Brain className="w-4 h-4" />

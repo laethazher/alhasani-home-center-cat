@@ -26,6 +26,11 @@ interface RecoveryRowInsert {
   delta_since_last_compensation?: number;
   status: 'pending';
   action_type: 'auto';
+  /** لقطة اسم العنصر وقت إنشاء الصف — للأرشيف التاريخي (يتطلّب ترحيل snapshot). */
+  item_name_snapshot?: string | null;
+  item_barcode_snapshot?: string | null;
+  /** مرجع القالب الحالي لقراءة الاسم/الباركود الحي في الواجهات. */
+  template_id?: number | null;
 }
 
 export interface CalculateInspectionRecoveryParams {
@@ -138,6 +143,9 @@ function buildRecoveryRowInserts(params: {
       previousEffectiveActual != null ? Math.max(previousEffectiveActual - actualQty, 0) : 0;
     const isRepeatShortage = previous?.status === 'resolved' && deltaSinceLastCompensation > 0 && missingQty > 0;
 
+    const itemNameRaw = String(item.item_name ?? '').trim();
+    const itemBarcodeRaw =
+      item.barcode != null && String(item.barcode).trim() ? String(item.barcode).trim() : null;
     recoveryRows.push({
       inspection_id: inspectionId,
       vehicle_id: vehicleId,
@@ -153,6 +161,9 @@ function buildRecoveryRowInserts(params: {
       delta_since_last_compensation: deltaSinceLastCompensation,
       status: 'pending',
       action_type: 'auto',
+      item_name_snapshot: itemNameRaw || itemLabel,
+      item_barcode_snapshot: itemBarcodeRaw,
+      template_id: Number.isFinite(Number(item.id)) ? Number(item.id) : null,
     });
   }
   return recoveryRows;
@@ -221,12 +232,52 @@ async function deleteInspectionRecoveryForInspection(
   }
 }
 
+/** رسالة خطأ Postgres/PostgREST تدل على غياب عمود في الجدول. */
+function isUnknownColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const err = error as { code?: string; message?: string };
+  const code = String(err.code ?? '');
+  const msg = String(err.message ?? '').toLowerCase();
+  if (code === '42703' || code === 'PGRST204') return true;
+  return (
+    msg.includes('item_name_snapshot') ||
+    msg.includes('item_barcode_snapshot') ||
+    msg.includes('template_id') ||
+    msg.includes('unknown column') ||
+    msg.includes('does not exist')
+  );
+}
+
 async function insertInspectionRecoveryRows(client: SupabaseClient, recoveryRows: RecoveryRowInsert[]): Promise<void> {
   if (recoveryRows.length === 0) return;
   const { error: insertError } = await client.from('inspection_recovery').insert(recoveryRows);
-  if (insertError) {
+  if (!insertError) return;
+
+  // Fallback: في حال لم يُطبَّق ترحيل snapshot/template_id بعد،
+  // أعد الإدراج بدون الأعمدة الجديدة حتى لا ينكسر تدفق حفظ التقرير.
+  if (!isUnknownColumnError(insertError)) {
     throw insertError;
   }
+  const degraded = recoveryRows.map((row) => {
+    const {
+      item_name_snapshot: _omitSnapshot,
+      item_barcode_snapshot: _omitBarcode,
+      template_id: _omitTemplateId,
+      ...rest
+    } = row;
+    void _omitSnapshot;
+    void _omitBarcode;
+    void _omitTemplateId;
+    return rest;
+  });
+  const { error: retryError } = await client.from('inspection_recovery').insert(degraded);
+  if (retryError) {
+    throw retryError;
+  }
+  // eslint-disable-next-line no-console
+  console.warn(
+    'inspection_recovery: أُدرجت الصفوف بدون snapshot/template_id لعدم وجود الأعمدة. شغّل ترحيل snapshot: npm run db:apply-recovery-snapshot',
+  );
 }
 
 export async function calculateInspectionRecovery({
