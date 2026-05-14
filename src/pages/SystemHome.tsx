@@ -249,6 +249,15 @@ export default function SystemHome({
           <Building2 className="w-3.5 h-3.5" />
           <span>Alhasani Home Center Logistics · واجهة اختيار الأقسام</span>
         </motion.div>
+
+        <p
+          className="text-center text-[11px] font-semibold select-none pt-2"
+          style={{
+            color: isDarkMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(15, 23, 42, 0.88)',
+          }}
+        >
+          Created by LaethAlkawaz
+        </p>
       </div>
       </div>
       <CityMarquee dark={isDarkMode} />

@@ -609,9 +609,9 @@ export default function Layout({
         </main>
 
         {/* Watermark */}
-        <div className="text-[10px] text-center py-2 select-none font-medium"
-          style={{ color: isDarkMode ? '#1e293b' : '#e2e8f0' }}>
-          Created by LaethAlkawaz &amp; Mohammed Ibrahim
+        <div className="text-[11px] text-center py-2 select-none font-medium"
+          style={{ color: isDarkMode ? 'rgba(226,232,240,0.8)' : 'rgba(15,23,42,0.78)' }}>
+          Created by LaethAlkawaz
         </div>
       </div>
     </div>
