@@ -286,7 +286,7 @@ export default function LoginPage() {
           {/* Footer */}
           <div className="flex items-center justify-center gap-2 py-4 px-8" style={{
             borderTop: dark ? '1px solid rgba(255,255,255,0.04)' : '1px solid rgba(0,0,0,0.05)',
-          }}>
+          }}> 
             <div className="w-1 h-1 rounded-full" style={{ background: dark ? 'rgba(148,163,184,0.55)' : 'rgba(15,23,42,0.28)' }}/>
             <p className="text-[11px] font-medium" style={{ color: dark ? 'rgba(226,232,240,0.92)' : 'rgba(0,0,0,1)' }}>
               Created by LaethAlkawaz

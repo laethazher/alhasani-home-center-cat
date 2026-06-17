@@ -229,9 +229,12 @@ export default function App() {
     return (
       <OperationsWorkspace
         profile={profile}
+        userId={user.id}
         onBack={() => setSystemArea(null)}
         onSignOut={signOut}
         signingOut={signingOut}
+        isDarkMode={isDarkMode}
+        onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
       />
     );
   }
