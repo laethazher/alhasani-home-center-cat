@@ -10,6 +10,7 @@ import OpsScheduling from './operations/OpsScheduling';
 import OpsIncidents from './operations/OpsIncidents';
 import OpsInventory from './operations/OpsInventory';
 import OpsReportsAnalytics from './operations/OpsReportsAnalytics';
+import DataAnalysisCenter from './operations/DataAnalysisCenter';
 import OpsIntegrations from './operations/OpsIntegrations';
 
 interface OperationsWorkspaceProps {
@@ -49,6 +50,8 @@ export default function OperationsWorkspace({
         return <OpsInventory />;
       case 'ops-analytics':
         return <OpsReportsAnalytics />;
+      case 'ops-data-analysis':
+        return <DataAnalysisCenter />;
       case 'ops-integrations':
         return <OpsIntegrations />;
       case 'shared-reports':
