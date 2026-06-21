@@ -8,6 +8,8 @@ import {
   ChevronDown,
   ChevronUp,
   Users,
+  FileText,
+  Lightbulb,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import ReportSection, { ReportBadge } from './ReportSection';
@@ -111,6 +113,36 @@ function CaseCard({ caseItem, index }: { caseItem: CriticalCase; index: number }
             className="overflow-hidden"
           >
             <div className="p-4 pt-0 space-y-4">
+              {/* Narrative Description */}
+              {caseItem.narrativeDescription && (
+                <div className="rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    <h5 className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                      وصف تفصيلي للحالة
+                    </h5>
+                  </div>
+                  <p className="text-sm text-indigo-700 dark:text-indigo-300 leading-relaxed whitespace-pre-line text-justify">
+                    {caseItem.narrativeDescription}
+                  </p>
+                </div>
+              )}
+
+              {/* Action Narrative */}
+              {caseItem.actionNarrative && (
+                <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Lightbulb className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <h5 className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                      الإجراء المطلوب
+                    </h5>
+                  </div>
+                  <p className="text-sm text-emerald-700 dark:text-emerald-300 leading-relaxed whitespace-pre-line text-justify">
+                    {caseItem.actionNarrative}
+                  </p>
+                </div>
+              )}
+
               {caseItem.details && caseItem.details.length > 0 && (
                 <div className="rounded-lg bg-white dark:bg-slate-800 p-3 space-y-2">
                   <h5 className="text-sm font-semibold text-slate-700 dark:text-slate-300">

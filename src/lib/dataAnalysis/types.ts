@@ -227,6 +227,9 @@ export interface ExecutiveSummaryData {
   kpis: ExecutiveSummaryKPI[];
   summary: string;
   highlights: string[];
+  narrativeIntro?: string;
+  narrativeAnalysis?: string;
+  narrativeConclusion?: string;
 }
 
 export interface ColumnRelationship {
@@ -248,6 +251,7 @@ export interface DataUnderstandingSection {
   description: string;
   columns: ColumnRelationship[];
   classificationRules: ClassificationRule[];
+  narrativeExplanation?: string;
 }
 
 export interface AnalysisTableRow {
@@ -266,6 +270,8 @@ export interface AnalysisSection {
   tableRows: AnalysisTableRow[];
   analysis?: string;
   insights?: string[];
+  narrativeExplanation?: string;
+  detailedNarrative?: string;
 }
 
 export interface CriticalCase {
@@ -276,6 +282,8 @@ export interface CriticalCase {
   affectedCount: number;
   details?: { label: string; value: string }[];
   items?: { name: string; status: string; info?: string }[];
+  narrativeDescription?: string;
+  actionNarrative?: string;
 }
 
 export interface Recommendation {
@@ -293,6 +301,8 @@ export interface ConclusionData {
   summary: string;
   keyMetrics: { label: string; value: string; status: 'success' | 'warning' | 'danger' }[];
   finalNotes: string[];
+  fullNarrative?: string;
+  expertOpinion?: string;
 }
 
 export interface ProfessionalReportData {
@@ -313,6 +323,15 @@ export interface ProfessionalReportData {
     rowCount: number;
     columnCount: number;
     dateRange?: { from: string; to: string };
+  };
+  narrativeSections?: {
+    dataStructureNarrative?: string;
+    deliveryNarrative?: string;
+    installationNarrative?: string;
+    customerJourneyNarrative?: string;
+    stageNarrative?: string;
+    teamNarrative?: string;
+    criticalCasesNarrative?: string;
   };
 }
 

@@ -12,6 +12,7 @@ import OpsInventory from './operations/OpsInventory';
 import OpsReportsAnalytics from './operations/OpsReportsAnalytics';
 import DataAnalysisCenter from './operations/DataAnalysisCenter';
 import OpsIntegrations from './operations/OpsIntegrations';
+import OpsAdminLettersArchive from './operations/OpsAdminLettersArchive';
 
 interface OperationsWorkspaceProps {
   profile: UserProfile;
@@ -52,6 +53,8 @@ export default function OperationsWorkspace({
         return <OpsReportsAnalytics />;
       case 'ops-data-analysis':
         return <DataAnalysisCenter />;
+      case 'ops-admin-letters':
+        return <OpsAdminLettersArchive userId={userId} />;
       case 'ops-integrations':
         return <OpsIntegrations />;
       case 'shared-reports':

@@ -6,6 +6,9 @@ import {
   FileSpreadsheet,
   Calendar,
   CheckCircle2,
+  BookOpen,
+  FileText,
+  Lightbulb,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import ReportSection from './ReportSection';
@@ -184,6 +187,49 @@ export default function ExecutiveSummary({ data, metadata }: ExecutiveSummaryPro
           </div>
         </div>
 
+        {/* Narrative Introduction Section */}
+        {data.narrativeIntro && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800 p-6"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/40">
+                <BookOpen className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <h3 className="font-bold text-lg text-indigo-800 dark:text-indigo-200">
+                نظرة تحليلية شاملة
+              </h3>
+            </div>
+            <p className="text-indigo-700 dark:text-indigo-300 leading-relaxed whitespace-pre-line text-justify">
+              {data.narrativeIntro}
+            </p>
+          </motion.div>
+        )}
+
+        {/* Narrative Analysis Section */}
+        {data.narrativeAnalysis && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="rounded-xl bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-800 p-6"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
+                <FileText className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h3 className="font-bold text-lg text-blue-800 dark:text-blue-200">
+                التحليل التفصيلي
+              </h3>
+            </div>
+            <p className="text-blue-700 dark:text-blue-300 leading-relaxed whitespace-pre-line text-justify">
+              {data.narrativeAnalysis}
+            </p>
+          </motion.div>
+        )}
+
         {/* Executive Summary Text */}
         <div className="rounded-xl bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800 p-5">
           <h3 className="font-bold text-lg mb-3 text-cyan-800 dark:text-cyan-200">
@@ -193,6 +239,28 @@ export default function ExecutiveSummary({ data, metadata }: ExecutiveSummaryPro
             {data.summary}
           </p>
         </div>
+
+        {/* Narrative Conclusion Section */}
+        {data.narrativeConclusion && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 p-6"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/40">
+                <Lightbulb className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <h3 className="font-bold text-lg text-emerald-800 dark:text-emerald-200">
+                خلاصة النتائج
+              </h3>
+            </div>
+            <p className="text-emerald-700 dark:text-emerald-300 leading-relaxed whitespace-pre-line text-justify">
+              {data.narrativeConclusion}
+            </p>
+          </motion.div>
+        )}
 
         {/* Highlights */}
         {data.highlights && data.highlights.length > 0 && (

@@ -7,6 +7,7 @@ export type OperationsPageKey =
   | 'ops-inventory'
   | 'ops-analytics'
   | 'ops-data-analysis'
+  | 'ops-admin-letters'
   | 'ops-integrations'
   | 'shared-reports';
 
@@ -26,6 +27,7 @@ export const OPERATIONS_NAV: OperationsNavItem[] = [
   { key: 'ops-inventory', label: 'مخزون العمليات', description: 'معدات ومواد تشغيل', section: 'core' },
   { key: 'ops-analytics', label: 'التقارير والتحليلات', description: 'تحليلات مخصصة', section: 'core' },
   { key: 'ops-data-analysis', label: 'مركز تحليل البيانات', description: 'تحليل ذكي للملفات', section: 'core' },
+  { key: 'ops-admin-letters', label: 'أرشيف الكتب الإدارية', description: 'صادر ووارد وداخلي', section: 'core' },
   { key: 'ops-integrations', label: 'التكامل', description: 'ربط الأنظمة الخارجية', section: 'core' },
   { key: 'shared-reports', label: 'تقارير المركبات', description: 'فحص وتقارير (بيانات معزولة)', section: 'shared' },
 ];

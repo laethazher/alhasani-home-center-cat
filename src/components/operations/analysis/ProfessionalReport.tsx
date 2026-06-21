@@ -225,6 +225,26 @@ export default function ProfessionalReport({
               subtitle="توزيع السجلات الكلي"
               icon={<FileText className="h-5 w-5" />}
             >
+              {/* Data Structure Narrative */}
+              {(report.dataUnderstanding.narrativeExplanation || report.narrativeSections?.dataStructureNarrative) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800 p-6 mb-6"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/40">
+                      <FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                    </div>
+                    <h4 className="font-bold text-lg text-indigo-800 dark:text-indigo-200">
+                      تحليل هيكل البيانات
+                    </h4>
+                  </div>
+                  <p className="text-indigo-700 dark:text-indigo-300 leading-relaxed whitespace-pre-line text-justify">
+                    {report.dataUnderstanding.narrativeExplanation || report.narrativeSections?.dataStructureNarrative}
+                  </p>
+                </motion.div>
+              )}
               <DataUnderstanding data={report.dataUnderstanding} columns={rawReport.columns} />
             </ReportSection>
 
@@ -237,6 +257,26 @@ export default function ProfessionalReport({
                 subtitle="الفواتير الرئيسية والتكتات الفرعية"
                 icon={<Package className="h-5 w-5" />}
               >
+                {/* Delivery Narrative */}
+                {report.narrativeSections?.deliveryNarrative && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 border border-emerald-200 dark:border-emerald-800 p-6 mb-6"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/40">
+                        <Package className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <h4 className="font-bold text-lg text-emerald-800 dark:text-emerald-200">
+                        التحليل السردي للتجهيز
+                      </h4>
+                    </div>
+                    <p className="text-emerald-700 dark:text-emerald-300 leading-relaxed whitespace-pre-line text-justify">
+                      {report.narrativeSections.deliveryNarrative}
+                    </p>
+                  </motion.div>
+                )}
                 <div className="space-y-6">
                   {report.detailedAnalysis
                     .filter(a => a.id?.includes('delivery'))
@@ -256,6 +296,26 @@ export default function ProfessionalReport({
                 subtitle="الفواتير الرئيسية والمجهزة مسبقاً"
                 icon={<Wrench className="h-5 w-5" />}
               >
+                {/* Installation Narrative */}
+                {report.narrativeSections?.installationNarrative && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-xl bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-800 p-6 mb-6"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
+                        <Wrench className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <h4 className="font-bold text-lg text-blue-800 dark:text-blue-200">
+                        التحليل السردي للتركيب
+                      </h4>
+                    </div>
+                    <p className="text-blue-700 dark:text-blue-300 leading-relaxed whitespace-pre-line text-justify">
+                      {report.narrativeSections.installationNarrative}
+                    </p>
+                  </motion.div>
+                )}
                 <div className="space-y-6">
                   {report.detailedAnalysis
                     .filter(a => a.id?.includes('installation'))
@@ -275,6 +335,26 @@ export default function ProfessionalReport({
                 subtitle="تحليل رحلة الزبون"
                 icon={<TrendingUp className="h-5 w-5" />}
               >
+                {/* Customer Journey Narrative */}
+                {report.narrativeSections?.customerJourneyNarrative && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-xl bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200 dark:border-purple-800 p-6 mb-6"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 dark:bg-purple-900/40">
+                        <TrendingUp className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <h4 className="font-bold text-lg text-purple-800 dark:text-purple-200">
+                        تحليل رحلة الزبون
+                      </h4>
+                    </div>
+                    <p className="text-purple-700 dark:text-purple-300 leading-relaxed whitespace-pre-line text-justify">
+                      {report.narrativeSections.customerJourneyNarrative}
+                    </p>
+                  </motion.div>
+                )}
                 <div className="space-y-6">
                   {report.detailedAnalysis
                     .filter(a => a.id?.includes('customer') || a.id?.includes('journey'))
@@ -294,6 +374,26 @@ export default function ProfessionalReport({
                 subtitle="توزيع الحالات"
                 icon={<CheckCircle2 className="h-5 w-5" />}
               >
+                {/* Stage Narrative */}
+                {report.narrativeSections?.stageNarrative && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-xl bg-gradient-to-br from-teal-50 to-green-50 dark:from-teal-900/20 dark:to-green-900/20 border border-teal-200 dark:border-teal-800 p-6 mb-6"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-100 dark:bg-teal-900/40">
+                        <CheckCircle2 className="h-5 w-5 text-teal-600 dark:text-teal-400" />
+                      </div>
+                      <h4 className="font-bold text-lg text-teal-800 dark:text-teal-200">
+                        تحليل مراحل العمل
+                      </h4>
+                    </div>
+                    <p className="text-teal-700 dark:text-teal-300 leading-relaxed whitespace-pre-line text-justify">
+                      {report.narrativeSections.stageNarrative}
+                    </p>
+                  </motion.div>
+                )}
                 <div className="space-y-6">
                   {report.detailedAnalysis
                     .filter(a => a.id?.includes('stage'))
@@ -313,6 +413,26 @@ export default function ProfessionalReport({
                 subtitle="أداء الفريق"
                 icon={<Users className="h-5 w-5" />}
               >
+                {/* Team Narrative */}
+                {report.narrativeSections?.teamNarrative && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 border border-orange-200 dark:border-orange-800 p-6 mb-6"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 dark:bg-orange-900/40">
+                        <Users className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                      </div>
+                      <h4 className="font-bold text-lg text-orange-800 dark:text-orange-200">
+                        تحليل أداء الفريق
+                      </h4>
+                    </div>
+                    <p className="text-orange-700 dark:text-orange-300 leading-relaxed whitespace-pre-line text-justify">
+                      {report.narrativeSections.teamNarrative}
+                    </p>
+                  </motion.div>
+                )}
                 <div className="space-y-6">
                   {report.detailedAnalysis
                     .filter(a => a.id?.includes('employee') || a.id?.includes('supervisor') || a.id?.includes('team'))
@@ -331,6 +451,26 @@ export default function ProfessionalReport({
               subtitle="التكملات والمشاكل"
               icon={<AlertTriangle className="h-5 w-5" />}
             >
+              {/* Critical Cases Narrative */}
+              {report.narrativeSections?.criticalCasesNarrative && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-xl bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border border-red-200 dark:border-red-800 p-6 mb-6"
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 dark:bg-red-900/40">
+                      <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                    </div>
+                    <h4 className="font-bold text-lg text-red-800 dark:text-red-200">
+                      تحليل الحالات الحرجة
+                    </h4>
+                  </div>
+                  <p className="text-red-700 dark:text-red-300 leading-relaxed whitespace-pre-line text-justify">
+                    {report.narrativeSections.criticalCasesNarrative}
+                  </p>
+                </motion.div>
+              )}
               <CriticalCases
                 cases={report.criticalCases}
                 recommendations={[]}
@@ -406,6 +546,8 @@ interface AnalysisCardProps {
     tableRows?: { indicator: string; value: string | number; percentage?: string; status?: string }[];
     analysis?: string;
     insights?: string[];
+    narrativeExplanation?: string;
+    detailedNarrative?: string;
   };
   index: number;
 }
@@ -427,6 +569,21 @@ function AnalysisCard({ analysis, index }: AnalysisCardProps) {
         </p>
       )}
 
+      {/* Narrative Explanation Section */}
+      {analysis.narrativeExplanation && (
+        <div className="rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800 p-4 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
+              <FileText className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <h5 className="font-semibold text-sm text-indigo-800 dark:text-indigo-200">شرح تحليلي</h5>
+          </div>
+          <p className="text-sm text-indigo-700 dark:text-indigo-300 leading-relaxed whitespace-pre-line text-justify">
+            {analysis.narrativeExplanation}
+          </p>
+        </div>
+      )}
+
       {analysis.tableRows && analysis.tableRows.length > 0 && (
         <ReportTable
           headers={analysis.tableHeaders || ['المؤشر', 'العدد', 'النسبة']}
@@ -442,6 +599,21 @@ function AnalysisCard({ analysis, index }: AnalysisCardProps) {
           }))}
           className="mb-4"
         />
+      )}
+
+      {/* Detailed Narrative for Table Data */}
+      {analysis.detailedNarrative && (
+        <div className="rounded-xl bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-800 p-4 mt-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40">
+              <BarChart3 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <h5 className="font-semibold text-sm text-blue-800 dark:text-blue-200">تفسير الأرقام</h5>
+          </div>
+          <p className="text-sm text-blue-700 dark:text-blue-300 leading-relaxed whitespace-pre-line text-justify">
+            {analysis.detailedNarrative}
+          </p>
+        </div>
       )}
 
       {analysis.analysis && (
@@ -542,6 +714,8 @@ interface ConclusionSectionProps {
     keyMetrics: { label: string; value: string; trend?: string }[];
     nextSteps: string[];
     finalNote?: string;
+    fullNarrative?: string;
+    expertOpinion?: string;
   };
 }
 
@@ -579,6 +753,49 @@ function ConclusionSection({ conclusion }: ConclusionSectionProps) {
           {conclusion.summary}
         </p>
       </div>
+
+      {/* Full Narrative Section */}
+      {conclusion.fullNarrative && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800 p-6"
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 dark:bg-indigo-900/40">
+              <FileText className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <h4 className="font-bold text-lg text-indigo-800 dark:text-indigo-200">
+              الاستنتاج التفصيلي
+            </h4>
+          </div>
+          <p className="text-indigo-700 dark:text-indigo-300 leading-relaxed whitespace-pre-line text-justify">
+            {conclusion.fullNarrative}
+          </p>
+        </motion.div>
+      )}
+
+      {/* Expert Opinion Section */}
+      {conclusion.expertOpinion && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 p-6"
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/40">
+              <UserCheck className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <h4 className="font-bold text-lg text-amber-800 dark:text-amber-200">
+              رأي المحلل الخبير
+            </h4>
+          </div>
+          <p className="text-amber-700 dark:text-amber-300 leading-relaxed whitespace-pre-line text-justify italic">
+            {conclusion.expertOpinion}
+          </p>
+        </motion.div>
+      )}
 
       {/* Key Metrics */}
       {conclusion.keyMetrics && conclusion.keyMetrics.length > 0 && (

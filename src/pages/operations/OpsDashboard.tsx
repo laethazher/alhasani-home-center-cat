@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertTriangle, Calendar, ClipboardList, MapPin, Package, Plug, RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle, Calendar, ClipboardList, MapPin, Package, Plug, RefreshCw, ScrollText } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
 import OperationsPageShell from '../../components/operations/OperationsPageShell';
 import { Button } from '../../components/ui/button';
@@ -27,6 +27,7 @@ const KPI_CONFIG: {
   { key: 'schedulesToday', label: 'جدول اليوم', icon: Calendar, page: 'ops-scheduling', accent: 'from-violet-500 to-purple-600' },
   { key: 'equipmentLowStock', label: 'نواقص مخزون', icon: Package, page: 'ops-inventory', accent: 'from-pink-500 to-rose-600' },
   { key: 'integrationsActive', label: 'تكاملات نشطة', icon: Plug, page: 'ops-integrations', accent: 'from-sky-500 to-indigo-600' },
+  { key: 'lettersUnsigned', label: 'كتب بانتظار التوقيع', icon: ScrollText, page: 'ops-admin-letters', accent: 'from-indigo-500 to-violet-600' },
 ];
 
 export default function OpsDashboard({ onNavigate }: OpsDashboardProps) {

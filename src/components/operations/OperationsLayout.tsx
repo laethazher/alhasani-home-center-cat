@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Activity, ArrowRight, LogOut, Menu, Moon, Sun, X,
   ClipboardList, MapPin, Calendar, AlertTriangle, Package,
-  BarChart3, Plug, FileText, LayoutDashboard, Brain,
+  BarChart3, Plug, FileText, LayoutDashboard, Brain, ScrollText,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { UserProfile } from '../../lib/supabaseClient';
@@ -19,6 +19,7 @@ const PAGE_ICONS: Record<OperationsPageKey, ElementType> = {
   'ops-inventory': Package,
   'ops-analytics': BarChart3,
   'ops-data-analysis': Brain,
+  'ops-admin-letters': ScrollText,
   'ops-integrations': Plug,
   'shared-reports': FileText,
 };

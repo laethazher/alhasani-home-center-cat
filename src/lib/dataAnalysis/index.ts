@@ -27,3 +27,26 @@ export type { TableColumn, TableRow, ReportTable, AllReportTables } from './tabl
 
 export { generateRecommendations, getPriorityIcon, getPriorityLabel, getRatingLabel } from './recommendationEngine';
 export type { Recommendation, OperationalNote, FinalConclusion, RecommendationsSummary } from './recommendationEngine';
+
+export {
+  generateExecutiveNarrative,
+  generateDataStructureNarrative,
+  generateDeliveryNarrative,
+  generateInstallationNarrative,
+  generateCustomerJourneyNarrative,
+  generateStageNarrative,
+  generateTeamNarrative,
+  generateCriticalCasesNarrative,
+  generateConclusionNarrative,
+  generateFullReportNarrative,
+  generateSimpleNarrative,
+} from './narrativeEngine';
+export type {
+  NarrativeSections,
+  ExecutiveNarrative,
+  DeliveryNarrative,
+  InstallationNarrative,
+  TeamNarrative,
+  CriticalNarrative,
+  ConclusionNarrative,
+} from './narrativeEngine';

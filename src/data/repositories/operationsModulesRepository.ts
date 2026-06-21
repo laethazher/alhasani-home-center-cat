@@ -88,6 +88,7 @@ export interface OpsDashboardStats {
   schedulesToday: number;
   equipmentLowStock: number;
   integrationsActive: number;
+  lettersUnsigned: number;
 }
 
 class OperationsModulesRepository {
@@ -105,6 +106,7 @@ class OperationsModulesRepository {
       schedulesRes,
       equipmentRes,
       integrationsRes,
+      lettersUnsignedRes,
     ] = await Promise.all([
       supabase.from('operations_tasks').select('id', { count: 'exact', head: true }).in('status', ['pending', 'in_progress']),
       supabase.from('operations_tasks').select('id', { count: 'exact', head: true }).eq('priority', 'urgent').in('status', ['pending', 'in_progress']),
@@ -113,10 +115,22 @@ class OperationsModulesRepository {
       supabase.from('operations_schedules').select('id', { count: 'exact', head: true }).gte('start_at', todayStart.toISOString()).lte('start_at', todayEnd.toISOString()),
       supabase.from('operations_equipment').select('id, quantity, min_stock'),
       supabase.from('operations_integrations').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase
+        .from('operations_admin_letters')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_signed', false)
+        .eq('archive_status', 'active'),
     ]);
 
     const equipmentRows = (equipmentRes.data ?? []) as Pick<OpsEquipment, 'quantity' | 'min_stock'>[];
     const lowStock = equipmentRows.filter((r) => r.quantity <= r.min_stock).length;
+
+    let lettersUnsigned = 0;
+    if (lettersUnsignedRes.error) {
+      console.warn('operations_admin_letters not available:', lettersUnsignedRes.error.message);
+    } else {
+      lettersUnsigned = lettersUnsignedRes.count ?? 0;
+    }
 
     return {
       tasksOpen: tasksRes.count ?? 0,
@@ -126,6 +140,7 @@ class OperationsModulesRepository {
       schedulesToday: schedulesRes.count ?? 0,
       equipmentLowStock: lowStock,
       integrationsActive: integrationsRes.count ?? 0,
+      lettersUnsigned,
     };
   }
 

@@ -13,6 +13,24 @@ import type {
   Recommendation,
   ConclusionData,
 } from './types';
+import { recognizeData, isDeliveryInstallationData } from './dataRecognizer';
+import { calculateDeliveryInstallationKPIs, analyzeStages } from './kpiEngine';
+import { analyzeRelationships } from './relationshipAnalyzer';
+import { analyzeCriticalCases } from './criticalCasesAnalyzer';
+import { analyzeEmployeePerformance } from './employeeAnalyzer';
+import { generateRecommendations } from './recommendationEngine';
+import {
+  generateExecutiveNarrative,
+  generateDataStructureNarrative,
+  generateDeliveryNarrative,
+  generateInstallationNarrative,
+  generateCustomerJourneyNarrative,
+  generateStageNarrative,
+  generateTeamNarrative,
+  generateCriticalCasesNarrative,
+  generateConclusionNarrative,
+  generateSimpleNarrative,
+} from './narrativeEngine';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
 
@@ -167,12 +185,37 @@ ${sampleDataStr}
   }
 }
 
+## أسلوب الكتابة المطلوب (مهم جداً):
+- اكتب بأسلوب تقرير رسمي احترافي كأنك مدير تحليل بيانات خبير
+- اشرح كل رقم ونسبة بشكل سردي تفصيلي
+- استخدم عبارات مثل: "من خلال تحليل البيانات..."، "يتضح من المؤشرات..."، "بناءً على النتائج..."
+- قدم تفسيراً وشرحاً لكل ملاحظة وليس فقط أرقام
+- اربط النتائج ببعضها البعض بشكل منطقي
+- اجعل القارئ يفهم القصة وراء الأرقام
+
+## الحقول السردية المطلوبة (أضفها لكل قسم):
+- executiveSummary يجب أن يحتوي على:
+  - narrativeIntro: مقدمة سردية احترافية (3-4 جمل تشرح سياق التقرير)
+  - narrativeAnalysis: تحليل سردي مفصل يفسر كل KPI ومعناه (فقرة كاملة)
+  - narrativeConclusion: خلاصة سردية تلخص أهم النقاط
+- dataUnderstanding يجب أن يحتوي على:
+  - narrativeExplanation: شرح سردي لهيكل البيانات وكيفية تصنيفها
+- كل عنصر في detailedAnalysis يجب أن يحتوي على:
+  - narrativeExplanation: شرح سردي للقسم
+  - detailedNarrative: تفسير مفصل للأرقام في الجدول
+- كل حالة في criticalCases يجب أن تحتوي على:
+  - narrativeDescription: وصف سردي تفصيلي للحالة
+  - actionNarrative: شرح الإجراء المطلوب بالتفصيل
+- conclusion يجب أن يحتوي على:
+  - fullNarrative: سرد كامل للاستنتاج النهائي (فقرتين على الأقل)
+  - expertOpinion: رأي المحلل الخبير في البيانات
+
 ملاحظات هامة:
-- اجعل التقرير احترافياً ومفصلاً
-- استخدم أرقاماً ونسباً حقيقية من البيانات
-- حدد الحالات الحرجة والتعارضات إن وجدت
-- قدم توصيات عملية ومحددة
-- اجعل التحليل عميقاً ومفيداً
+- اجعل التقرير احترافياً ومفصلاً مع سرد كلامي غني
+- استخدم أرقاماً ونسباً حقيقية من البيانات مع تفسيرها
+- حدد الحالات الحرجة والتعارضات إن وجدت مع شرحها
+- قدم توصيات عملية ومحددة مع تبريرها
+- اجعل التحليل عميقاً ومفيداً كأنه مكتوب بواسطة خبير
 - أجب فقط بـ JSON صالح بدون أي نص إضافي`;
 }
 
@@ -375,6 +418,39 @@ function generateFallbackProfessionalReport(report: AnalysisReport): Professiona
   
   const numericCols = columns.filter((c) => c.numericStats);
   const textCols = columns.filter((c) => c.textStats);
+
+  const recognition = recognizeData(report);
+  const isDeliveryInstallation = isDeliveryInstallationData(recognition);
+  
+  let narrativeSections: ProfessionalReportData['narrativeSections'] = {};
+  let executiveNarrative = { intro: '', analysis: '', highlights: '', conclusion: '' };
+  let conclusionNarrative = { overallAssessment: '', keyFindings: '', challenges: '', recommendations: '', finalStatement: '', expertOpinion: '' };
+
+  if (isDeliveryInstallation) {
+    const kpis = calculateDeliveryInstallationKPIs(report, recognition);
+    const stages = analyzeStages(report, recognition);
+    const relationships = analyzeRelationships(report, recognition);
+    const criticalCases = analyzeCriticalCases(report, recognition);
+    const team = analyzeEmployeePerformance(report, recognition);
+    const recommendations = generateRecommendations(kpis, stages, criticalCases, relationships, team);
+
+    executiveNarrative = generateExecutiveNarrative(report, kpis, criticalCases);
+    const deliveryNarrative = generateDeliveryNarrative(kpis);
+    const installationNarrative = generateInstallationNarrative(kpis);
+    const teamNarrative = generateTeamNarrative(team);
+    const criticalNarrative = generateCriticalCasesNarrative(criticalCases);
+    conclusionNarrative = generateConclusionNarrative(kpis, stages, criticalCases, recommendations);
+
+    narrativeSections = {
+      dataStructureNarrative: generateDataStructureNarrative(report, recognition),
+      deliveryNarrative: `${deliveryNarrative.overview}\n\n${deliveryNarrative.mainInvoices}\n\n${deliveryNarrative.subTickets}\n\n${deliveryNarrative.successAnalysis}\n\n${deliveryNarrative.compensationAnalysis}`,
+      installationNarrative: `${installationNarrative.overview}\n\n${installationNarrative.mainInvoices}\n\n${installationNarrative.preEquipped}\n\n${installationNarrative.successAnalysis}\n\n${installationNarrative.compensationAnalysis}`,
+      customerJourneyNarrative: generateCustomerJourneyNarrative(relationships, kpis),
+      stageNarrative: generateStageNarrative(stages),
+      teamNarrative: `${teamNarrative.overview}\n\n${teamNarrative.topPerformers}\n\n${teamNarrative.supervisors}\n\n${teamNarrative.workDistribution}`,
+      criticalCasesNarrative: `${criticalNarrative.overview}\n\n${criticalNarrative.deliveryCompletions}\n\n${criticalNarrative.installationCompletions}\n\n${criticalNarrative.problemCases}\n\n${criticalNarrative.repeatedCustomers}\n\n${criticalNarrative.urgentActions}`,
+    };
+  }
   
   const kpis: ProfessionalReportData['executiveSummary']['kpis'] = [
     {
@@ -488,13 +564,16 @@ function generateFallbackProfessionalReport(report: AnalysisReport): Professiona
       subtitle: `${now.toLocaleDateString('ar-IQ')}`,
       date: now.toLocaleDateString('ar-IQ'),
       kpis,
-      summary: `يقدم هذا التقرير تحليلاً شاملاً ومفصلاً لملف "${summary.fileName}" الذي يحتوي على ${summary.rowCount.toLocaleString('ar-IQ')} سجل و ${summary.columnCount} عمود. ${summary.dateRange ? `البيانات تغطي الفترة من ${summary.dateRange.from} إلى ${summary.dateRange.to}.` : ''} تم تحليل ${summary.numericColumnsCount} عمود رقمي و ${summary.textColumnsCount} عمود نصي${summary.dateColumnsCount > 0 ? ` و ${summary.dateColumnsCount} عمود تاريخ` : ''}.`,
+      summary: executiveNarrative.analysis || `يقدم هذا التقرير تحليلاً شاملاً ومفصلاً لملف "${summary.fileName}" الذي يحتوي على ${summary.rowCount.toLocaleString('ar-IQ')} سجل و ${summary.columnCount} عمود. ${summary.dateRange ? `البيانات تغطي الفترة من ${summary.dateRange.from} إلى ${summary.dateRange.to}.` : ''} تم تحليل ${summary.numericColumnsCount} عمود رقمي و ${summary.textColumnsCount} عمود نصي${summary.dateColumnsCount > 0 ? ` و ${summary.dateColumnsCount} عمود تاريخ` : ''}.`,
       highlights: [
         `إجمالي السجلات: ${summary.rowCount.toLocaleString('ar-IQ')}`,
         `جودة البيانات: ${dataQuality}%`,
         `الأعمدة الرقمية: ${summary.numericColumnsCount}`,
         `الأعمدة النصية: ${summary.textColumnsCount}`,
       ],
+      narrativeIntro: executiveNarrative.intro || generateSimpleNarrative(summary.fileName, summary.rowCount, summary.columnCount, dataQuality),
+      narrativeAnalysis: executiveNarrative.analysis || '',
+      narrativeConclusion: executiveNarrative.conclusion || '',
     },
     dataUnderstanding: {
       title: 'فهم البيانات والتصنيف',
@@ -506,6 +585,7 @@ function generateFallbackProfessionalReport(report: AnalysisReport): Professiona
         example: col.sampleValues[0] ? String(col.sampleValues[0]) : '—',
       })),
       classificationRules: [],
+      narrativeExplanation: narrativeSections.dataStructureNarrative || `يتكون هذا الملف من ${summary.rowCount.toLocaleString('ar-IQ')} سجل موزعة على ${summary.columnCount} عمود. تم تحليل البيانات وتصنيفها تلقائياً حسب نوعها ومحتواها.`,
     },
     detailedAnalysis,
     criticalCases,
@@ -529,15 +609,20 @@ function generateFallbackProfessionalReport(report: AnalysisReport): Professiona
     conclusion: {
       overallRating: dataQuality >= 80 ? 'excellent' : dataQuality >= 60 ? 'good' : dataQuality >= 40 ? 'fair' : 'poor',
       ratingScore: dataQuality,
-      summary: `بناءً على التحليل الشامل، تُقيّم جودة البيانات بـ ${dataQuality}%. البيانات ${dataQuality >= 80 ? 'ممتازة وجاهزة للاستخدام' : dataQuality >= 60 ? 'جيدة مع بعض التحسينات المطلوبة' : 'تحتاج إلى مراجعة ومعالجة'}.`,
+      summary: conclusionNarrative.overallAssessment || `بناءً على التحليل الشامل، تُقيّم جودة البيانات بـ ${dataQuality}%. البيانات ${dataQuality >= 80 ? 'ممتازة وجاهزة للاستخدام' : dataQuality >= 60 ? 'جيدة مع بعض التحسينات المطلوبة' : 'تحتاج إلى مراجعة ومعالجة'}.`,
       keyMetrics: [
         { label: 'جودة البيانات', value: `${dataQuality}%`, status: dataQuality >= 80 ? 'success' : dataQuality >= 60 ? 'warning' : 'danger' },
         { label: 'اكتمال السجلات', value: `${(100 - nullPercentage).toFixed(1)}%`, status: nullPercentage < 5 ? 'success' : nullPercentage < 15 ? 'warning' : 'danger' },
       ],
-      finalNotes: [
+      finalNotes: conclusionNarrative.finalStatement ? [
+        conclusionNarrative.finalStatement,
+        'يُنصح بمراجعة التوصيات والعمل عليها لتحسين الأداء',
+      ] : [
         'تم إعداد هذا التقرير تلقائياً بناءً على تحليل البيانات',
         'يُنصح بمراجعة التوصيات والعمل عليها لتحسين جودة البيانات',
       ],
+      fullNarrative: `${conclusionNarrative.overallAssessment}\n\n${conclusionNarrative.keyFindings}\n\n${conclusionNarrative.challenges}\n\n${conclusionNarrative.recommendations}\n\n${conclusionNarrative.finalStatement}`.trim() || undefined,
+      expertOpinion: conclusionNarrative.expertOpinion || undefined,
     },
     metadata: {
       fileName: summary.fileName,
@@ -545,6 +630,7 @@ function generateFallbackProfessionalReport(report: AnalysisReport): Professiona
       columnCount: summary.columnCount,
       dateRange: summary.dateRange,
     },
+    narrativeSections: Object.keys(narrativeSections).length > 0 ? narrativeSections : undefined,
   };
 }
 
