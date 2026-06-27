@@ -1,0 +1,662 @@
+// ===========================================================================
+//  منصة إدارة المعرفة والامتثال — مجموعة الحسني
+//  Prisma schema · PostgreSQL
+// ===========================================================================
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// --------------------------------------------------------------------------
+//  Enums
+// --------------------------------------------------------------------------
+enum Role {
+  ADMIN // مدير النظام
+  MANAGER // مدير قسم
+  EMPLOYEE // موظف
+  LEARNER // متعلّم منصّة (تسجيل ذاتي — لا وصول للنظام الإداري)
+}
+
+enum DocumentType {
+  ADMIN_BOOK // كتاب إداري
+  CIRCULAR // تعميم
+  NOTICE // تبليغ
+  SOP // إجراء عمل
+  POLICY // سياسة
+  INSTRUCTION // تعليمات
+}
+
+enum DocumentStatus {
+  DRAFT // مسودة
+  IN_REVIEW // قيد المراجعة
+  PUBLISHED // منشور
+  ARCHIVED // مؤرشف
+  EXPIRED // منتهٍ
+}
+
+enum Confidentiality {
+  PUBLIC // عام
+  INTERNAL // داخلي
+  RESTRICTED // مقيّد
+  SECRET // سري
+}
+
+enum AckStatus {
+  NOT_VIEWED // لم يُطّلع
+  VIEWED // اطُّلع
+  READ // قُرئ
+  ACKNOWLEDGED // أُقِرّ
+}
+
+enum RelationType {
+  REFERENCES // يشير إلى
+  SUPERSEDES // يحل محل
+  SUPPLEMENTS // يكمّل
+  IMPLEMENTS // ينفّذ
+}
+
+enum QuestionType {
+  SINGLE
+  MULTI
+  TRUE_FALSE
+}
+
+enum SopSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotificationType {
+  ASSIGNMENT
+  REMINDER
+  ESCALATION
+  PUBLISH
+  MENTION
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+// --------------------------------------------------------------------------
+//  Org & identity
+// --------------------------------------------------------------------------
+model Department {
+  id        String   @id @default(cuid())
+  name      String // الاسم العربي (تجهيز / تركيب / إدارة المخزون / الإدارة)
+  code      String   @unique
+  managerId String?
+  manager   User?    @relation("DeptManager", fields: [managerId], references: [id])
+  createdAt DateTime @default(now())
+
+  members   User[]      @relation("DeptMembers")
+  documents Document[]
+  sops      Sop[]
+  // Phase 1 — Academy & Video
+  courses       Course[]
+  learningPaths LearningPath[]
+  videos        Video[]
+
+  @@index([code])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  employeeNo   String    @unique
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(EMPLOYEE)
+  title        String? // المسمى الوظيفي
+  avatarColor  String? // لون شارة الأحرف
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  departmentId String?
+  department   Department? @relation("DeptMembers", fields: [departmentId], references: [id])
+  managedDept  Department[] @relation("DeptManager")
+
+  ownedDocuments   Document[]        @relation("DocOwner")
+  uploadedVersions DocumentVersion[] @relation("VersionUploader")
+  acknowledgements Acknowledgement[]
+  quizAttempts     QuizAttempt[]
+  ownedSops        Sop[]             @relation("SopOwner")
+  notifications    Notification[]
+  conversations    AiConversation[]
+  auditLogs        AuditLog[]
+  // Phase 1 — Academy & Video
+  enrollments      Enrollment[]
+  certificates     Certificate[]
+  ownedCourses     Course[]          @relation("CourseOwner")
+  uploadedVideos   Video[]           @relation("VideoUploader")
+  videoViews       VideoView[]
+
+  @@index([role])
+  @@index([departmentId])
+}
+
+// --------------------------------------------------------------------------
+//  Documents
+// --------------------------------------------------------------------------
+model Document {
+  id              String          @id @default(cuid())
+  documentNumber  String          @unique // رقم الوثيقة
+  title           String
+  type            DocumentType
+  status          DocumentStatus  @default(DRAFT)
+  confidentiality Confidentiality @default(INTERNAL)
+  summary         String?         @db.Text
+  keywords        String[] // كلمات مفتاحية للفهرسة
+
+  ownerId      String
+  owner        User       @relation("DocOwner", fields: [ownerId], references: [id])
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  effectiveDate DateTime?
+  expiryDate    DateTime?
+  publishedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  currentVersionId String?           @unique
+  currentVersion   DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions         DocumentVersion[] @relation("DocVersions")
+  attachments      Attachment[]
+  acknowledgements Acknowledgement[]
+  chunks           DocumentChunk[]
+  quizzes          Quiz[]
+  sop              Sop?
+
+  relationsFrom DocumentRelation[] @relation("RelFrom")
+  relationsTo   DocumentRelation[] @relation("RelTo")
+
+  @@index([type])
+  @@index([status])
+  @@index([departmentId])
+  @@index([documentNumber])
+}
+
+model DocumentVersion {
+  id            String   @id @default(cuid())
+  documentId    String
+  document      Document @relation("DocVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  fileUrl       String
+  fileName      String
+  fileSize      Int      @default(0)
+  mimeType      String   @default("application/pdf")
+  pageCount     Int      @default(0)
+  ocrText       String?  @db.Text // نص مُستخرج عبر OCR للفهرسة الكاملة
+  ocrDone       Boolean  @default(false)
+  changeNote    String?
+  uploadedById  String
+  uploadedBy    User     @relation("VersionUploader", fields: [uploadedById], references: [id])
+  createdAt     DateTime @default(now())
+
+  currentOf Document? @relation("CurrentVersion")
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+}
+
+model Attachment {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  name       String
+  fileUrl    String
+  fileSize   Int      @default(0)
+  mimeType   String
+  createdAt  DateTime @default(now())
+}
+
+model DocumentRelation {
+  id               String       @id @default(cuid())
+  documentId       String
+  document         Document     @relation("RelFrom", fields: [documentId], references: [id], onDelete: Cascade)
+  relatedId        String
+  related          Document     @relation("RelTo", fields: [relatedId], references: [id], onDelete: Cascade)
+  type             RelationType @default(REFERENCES)
+
+  @@unique([documentId, relatedId, type])
+}
+
+// Chunk metadata for retrieval. Embeddings live in Qdrant (qdrantPointId).
+model DocumentChunk {
+  id           String   @id @default(cuid())
+  documentId   String
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionId    String
+  ordinal      Int
+  pageNo       Int
+  content      String   @db.Text
+  qdrantPointId String?
+  createdAt    DateTime @default(now())
+
+  @@index([documentId])
+}
+
+// --------------------------------------------------------------------------
+//  Compliance: read / acknowledge / quizzes
+// --------------------------------------------------------------------------
+model Acknowledgement {
+  id             String    @id @default(cuid())
+  documentId     String
+  document       Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status         AckStatus @default(NOT_VIEWED)
+  viewedAt       DateTime?
+  readAt         DateTime?
+  acknowledgedAt DateTime?
+  dueAt          DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([documentId, userId])
+  @@index([userId])
+  @@index([documentId])
+  @@index([status])
+}
+
+model Quiz {
+  id           String         @id @default(cuid())
+  title        String
+  description  String?
+  documentId   String?
+  document     Document?      @relation(fields: [documentId], references: [id])
+  passingScore Int            @default(70)
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  questions    QuizQuestion[]
+  attempts     QuizAttempt[]
+}
+
+model QuizQuestion {
+  id      String       @id @default(cuid())
+  quizId  String
+  quiz    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  text    String
+  type    QuestionType @default(SINGLE)
+  order   Int          @default(0)
+  options QuizOption[]
+}
+
+model QuizOption {
+  id         String       @id @default(cuid())
+  questionId String
+  question   QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean      @default(false)
+}
+
+model QuizAttempt {
+  id          String    @id @default(cuid())
+  quizId      String
+  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int       @default(0)
+  passed      Boolean   @default(false)
+  answers     Json? // { [questionId]: string[] }
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+
+  @@index([userId])
+  @@index([quizId])
+}
+
+// --------------------------------------------------------------------------
+//  SOPs (structured procedures)
+// --------------------------------------------------------------------------
+model Sop {
+  id           String         @id @default(cuid())
+  code         String         @unique
+  title        String
+  summary      String?        @db.Text
+  status       DocumentStatus @default(DRAFT)
+  departmentId String
+  department   Department     @relation(fields: [departmentId], references: [id])
+  ownerId      String
+  owner        User           @relation("SopOwner", fields: [ownerId], references: [id])
+  estimatedMinutes Int?
+  documentId   String?        @unique // الوثيقة الرسمية المرتبطة (PDF المعتمد)
+  document     Document?      @relation(fields: [documentId], references: [id])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  steps         SopStep[]
+  commonMistakes SopMistake[]
+}
+
+model SopStep {
+  id          String      @id @default(cuid())
+  sopId       String
+  sop         Sop         @relation(fields: [sopId], references: [id], onDelete: Cascade)
+  order       Int
+  title       String
+  description String      @db.Text
+  imageUrl    String?
+  videoUrl    String?
+  warning     String? // تحذير على الخطوة
+  severity    SopSeverity @default(LOW)
+
+  @@index([sopId])
+}
+
+model SopMistake {
+  id          String      @id @default(cuid())
+  sopId       String
+  sop         Sop         @relation(fields: [sopId], references: [id], onDelete: Cascade)
+  description String
+  consequence String?
+  severity    SopSeverity @default(MEDIUM)
+}
+
+// --------------------------------------------------------------------------
+//  AI assistant
+// --------------------------------------------------------------------------
+model AiConversation {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String      @default("محادثة جديدة")
+  createdAt DateTime    @default(now())
+  messages  AiMessage[]
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String         @db.Text
+  citations      Json? // [{ documentId, documentNumber, title, page }]
+  createdAt      DateTime       @default(now())
+}
+
+// --------------------------------------------------------------------------
+//  Notifications & audit
+// --------------------------------------------------------------------------
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String?
+  linkUrl   String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // e.g. DOCUMENT_PUBLISH, USER_LOGIN, ACK_CONFIRM
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+}
+
+// ===========================================================================
+//  PHASE 1 — Smart Company Academy & Intelligent Video Knowledge Library
+// ===========================================================================
+
+enum CourseLevel {
+  BEGINNER // مبتدئ
+  INTERMEDIATE // متوسط
+  ADVANCED // متقدّم
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LessonType {
+  VIDEO // درس فيديو
+  ARTICLE // مقال/نص
+  DOCUMENT // وثيقة مرفقة
+  QUIZ // اختبار قصير
+}
+
+enum EnrollmentStatus {
+  ENROLLED // مُسجَّل
+  IN_PROGRESS // قيد التقدّم
+  COMPLETED // مكتمل
+}
+
+enum VideoStatus {
+  PROCESSING // قيد المعالجة
+  READY // جاهز
+  FAILED // فشل
+  ARCHIVED // مؤرشف
+}
+
+// حالة النسخ النصي (يُستكمل في المرحلة الثانية)
+enum TranscriptStatus {
+  NONE
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// --------------------------- Academy --------------------------------------
+model CourseCategory {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  icon      String? // اسم أيقونة lucide
+  color     String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  courses   Course[]
+}
+
+model LearningPath {
+  id           String      @id @default(cuid())
+  title        String
+  slug         String      @unique
+  description  String?     @db.Text
+  level        CourseLevel @default(BEGINNER)
+  coverImage   String?
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  isPublished  Boolean     @default(true)
+  order        Int         @default(0)
+  createdAt    DateTime    @default(now())
+  courses      Course[]
+
+  @@index([departmentId])
+}
+
+model Course {
+  id              String        @id @default(cuid())
+  title           String
+  slug            String        @unique
+  description     String?       @db.Text
+  level           CourseLevel   @default(BEGINNER)
+  status          CourseStatus  @default(DRAFT)
+  coverImage      String?
+  durationMinutes Int           @default(0)
+  order           Int           @default(0)
+
+  categoryId   String?
+  category     CourseCategory? @relation(fields: [categoryId], references: [id])
+  departmentId String?
+  department   Department?     @relation(fields: [departmentId], references: [id])
+  learningPathId String?
+  learningPath LearningPath?   @relation(fields: [learningPathId], references: [id])
+  ownerId      String
+  owner        User            @relation("CourseOwner", fields: [ownerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  modules     CourseModule[]
+  enrollments Enrollment[]
+  certificates Certificate[]
+
+  @@index([categoryId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([level])
+}
+
+model CourseModule {
+  id       String   @id @default(cuid())
+  courseId String
+  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title    String
+  order    Int      @default(0)
+  lessons  Lesson[]
+
+  @@index([courseId])
+}
+
+model Lesson {
+  id              String     @id @default(cuid())
+  moduleId        String
+  module          CourseModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title           String
+  type            LessonType @default(VIDEO)
+  order           Int        @default(0)
+  durationMinutes Int        @default(0)
+  videoId         String? // ربط بمكتبة الفيديو
+  documentId      String? // ربط بوثيقة رسمية
+  articleBody     String?    @db.Text
+  contentUrl      String?
+
+  progress LessonProgress[]
+
+  @@index([moduleId])
+}
+
+model Enrollment {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId       String
+  course         Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  status         EnrollmentStatus @default(ENROLLED)
+  progressPct    Int              @default(0)
+  enrolledAt     DateTime         @default(now())
+  lastAccessedAt DateTime?
+  completedAt    DateTime?
+
+  lessonProgress LessonProgress[]
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+  @@index([status])
+}
+
+model LessonProgress {
+  id            String     @id @default(cuid())
+  enrollmentId  String
+  enrollment    Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lessonId      String
+  lesson        Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  completed     Boolean    @default(false)
+  secondsWatched Int       @default(0)
+  completedAt   DateTime?
+
+  @@unique([enrollmentId, lessonId])
+  @@index([enrollmentId])
+}
+
+model Certificate {
+  id        String   @id @default(cuid())
+  serial    String   @unique // رقم الشهادة
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  score     Int?
+  issuedAt  DateTime @default(now())
+
+  @@unique([userId, courseId])
+  @@index([userId])
+}
+
+// --------------------------- Video Library --------------------------------
+model VideoCategory {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  icon      String?
+  color     String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  videos    Video[]
+}
+
+model Video {
+  id              String      @id @default(cuid())
+  title           String
+  slug            String      @unique
+  description     String?     @db.Text
+  fileUrl         String // مسار الملف في التخزين (MinIO/S3)
+  thumbnailUrl    String?
+  durationSeconds Int         @default(0)
+  sizeBytes       Int         @default(0)
+  status          VideoStatus @default(READY)
+  tags            String[] // وسوم للبحث والتصنيف
+  views           Int         @default(0)
+
+  categoryId   String?
+  category     VideoCategory? @relation(fields: [categoryId], references: [id])
+  departmentId String?
+  department   Department?    @relation(fields: [departmentId], references: [id])
+  uploaderId   String
+  uploader     User           @relation("VideoUploader", fields: [uploaderId], references: [id])
+
+  // المرحلة الثانية: النسخ النصي (transcript / chapters / segments)
+  transcriptStatus TranscriptStatus @default(NONE)
+  language         String           @default("ar")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  viewLogs VideoView[]
+
+  @@index([categoryId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model VideoView {
+  id              String   @id @default(cuid())
+  videoId         String
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  watchedSeconds  Int      @default(0)
+  lastPositionSec Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([videoId])
+  @@index([userId])
+}

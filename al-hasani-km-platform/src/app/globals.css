@@ -1,0 +1,162 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: var(--font-cairo), "Cairo", system-ui, sans-serif;
+  --font-body: var(--font-plex), var(--font-cairo), system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* ---------- Light (executive ivory) ---------- */
+  --bg: 245 243 238;          /* warm paper */
+  --surface: 255 255 255;
+  --surface-2: 249 247 243;
+  --elevated: 255 255 255;
+  --line: 226 222 214;
+  --line-strong: 208 202 192;
+  --ink: 26 33 43;            /* near-ink text */
+  --muted: 91 102 114;
+  --faint: 142 151 161;
+
+  --teal: 23 184 161;
+  --teal-soft: 224 245 241;
+  --teal-ink: 12 110 96;
+  --gold: 176 134 46;
+
+  --ok: 34 150 110;
+  --warn: 196 142 30;
+  --danger: 200 70 70;
+  --info: 62 92 118;
+
+  --shadow-card: 0 1px 2px rgb(17 24 39 / 0.04), 0 8px 24px -12px rgb(17 24 39 / 0.10);
+  --shadow-pop: 0 12px 40px -12px rgb(17 24 39 / 0.22);
+}
+
+.dark {
+  /* ---------- Dark (executive graphite) ---------- */
+  --bg: 13 17 23;
+  --surface: 22 27 34;
+  --surface-2: 27 33 41;
+  --elevated: 30 37 46;
+  --line: 42 50 60;
+  --line-strong: 58 68 80;
+  --ink: 232 236 241;
+  --muted: 158 167 178;
+  --faint: 110 120 132;
+
+  --teal: 45 212 186;
+  --teal-soft: 18 52 49;
+  --teal-ink: 122 233 214;
+  --gold: 209 168 88;
+
+  --ok: 52 199 150;
+  --warn: 220 170 70;
+  --danger: 232 110 110;
+  --info: 120 160 196;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  --shadow-pop: 0 16px 50px -12px rgb(0 0 0 / 0.7);
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--ink));
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv01";
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display), system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Numerals: keep tabular for data alignment */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Thin, refined scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line-strong));
+  border-radius: 9999px;
+  border: 3px solid rgb(var(--bg));
+}
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--faint)); }
+
+/* Selection */
+::selection { background: rgb(var(--teal) / 0.22); }
+
+/* Focus ring — accessible */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid rgb(var(--teal));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@layer components {
+  .card {
+    background-color: rgb(var(--surface));
+    border: 1px solid rgb(var(--line));
+    border-radius: 18px;
+    box-shadow: var(--shadow-card);
+  }
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgb(var(--teal-ink));
+  }
+  .inp {
+    display: block;
+    width: 100%;
+    height: 2.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgb(var(--line));
+    background-color: rgb(var(--surface));
+    padding-inline: 0.75rem;
+    font-size: 0.8125rem;
+    color: rgb(var(--ink));
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  textarea.inp {
+    height: auto;
+    padding-block: 0.5rem;
+  }
+  .inp:focus {
+    border-color: rgb(var(--teal));
+    box-shadow: 0 0 0 3px rgb(var(--teal) / 0.18);
+  }
+  .inp::placeholder {
+    color: rgb(var(--faint));
+  }
+  /* Brand "gable" accent — a quiet nod to the Al-Hasani roofline motif */
+  .gable::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(to bottom, rgb(var(--teal)), rgb(var(--teal) / 0));
+    border-radius: 9999px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

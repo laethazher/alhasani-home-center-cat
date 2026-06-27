@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: alhasani-km-platform
+    runtime: node
+    buildCommand: npm install && npm run prisma:generate && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_PROVIDER
+        value: supabase
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: EMBEDDINGS_PROVIDER
+        value: gemini
+      - key: EMBEDDING_DIM
+        value: "768"
+      - key: SUPABASE_VIDEO_BUCKET
+        value: academy-videos
+      - key: NEXT_PUBLIC_SYSTEM_URL
+        value: https://alhasani-home-center-cat.onrender.com
+      - key: JWT_SECRET
+        generateValue: true

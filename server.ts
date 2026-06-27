@@ -52,7 +52,7 @@ function safeParse(v: any) {
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = Number(process.env.PORT) || (process.env.VITE_BASE_PATH ? 3001 : 3000);
   const startedAt = Date.now();
 
   app.use(express.json({ limit: '50mb' }));

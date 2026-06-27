@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:unified": "node scripts/dev-unified.mjs",
+    "dev:unified:fresh": "node scripts/dev-unified.mjs --fresh",
     "build": "vite build",
     "start": "node serve.js",
     "preview": "vite preview",

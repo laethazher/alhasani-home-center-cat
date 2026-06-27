@@ -1,0 +1,50 @@
+# Local production-parity stack for the Al-Hasani KM platform.
+#   docker compose up -d
+# then: npm run prisma:push && npm run db:seed && npm run search:index
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: khm-postgres
+    environment:
+      POSTGRES_USER: khm
+      POSTGRES_PASSWORD: khm_password
+      POSTGRES_DB: al_hasani_km
+    ports: ["5432:5432"]
+    volumes: ["khm-pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U khm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: khm-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports: ["9200:9200"]
+    volumes: ["khm-es:/usr/share/elasticsearch/data"]
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: khm-qdrant
+    ports: ["6333:6333"]
+    volumes: ["khm-qdrant:/qdrant/storage"]
+
+  minio:
+    image: minio/minio:latest
+    container_name: khm-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["khm-minio:/data"]
+
+volumes:
+  khm-pg:
+  khm-es:
+  khm-qdrant:
+  khm-minio:
