@@ -13,8 +13,8 @@ services:
     name: alhasani-home-center-cat
     runtime: node
     plan: free
-    buildCommand: npm install && cd al-hasani-km-platform && npm install && cd .. && npm run build:unified
-    startCommand: npm run start:unified
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production

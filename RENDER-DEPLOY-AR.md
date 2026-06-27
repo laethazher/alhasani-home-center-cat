@@ -40,8 +40,10 @@ Render → **alhasani-home-center-cat** → **Settings**:
 | الحقل | القيمة |
 |-------|--------|
 | **Root Directory** | *(فارغ)* |
-| **Build Command** | `npm install && cd al-hasani-km-platform && npm install && cd .. && npm run build:unified` |
-| **Start Command** | `npm run start:unified` |
+**Build Command:** `npm install && npm run build`  
+**Start Command:** `npm start`
+
+> Render يضبط `RENDER=true` تلقائياً — `npm run build` و `npm start` يفعّلان الوضع الموحّد بدون تغيير يدوي.
 
 ---
 
