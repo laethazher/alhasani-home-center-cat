@@ -101,7 +101,8 @@ function killChildren() {
   children.length = 0;
 }
 
-if (process.env.FRESH_NEXT === "1" || process.argv.includes("--fresh")) cleanNextBuild();
+// تنظيف .next عند كل تشغيل — يمنع الصفحة البيضاء (CSS/JS 404)
+cleanNextBuild();
 
 freePort(3000);
 freePort(3001);
