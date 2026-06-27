@@ -1,7 +1,12 @@
+# Render — خدمة منفصلة (اختياري)
+# الإنتاج الموحّد يستخدم render.yaml في جذر المستودع (سيرفر واحد cat).
+# استخدم هذا الملف فقط إذا أردت نشر المنصّة على خدمة مستقلة.
+
 services:
   - type: web
     name: alhasani-km-platform
     runtime: node
+    plan: free
     buildCommand: npm install && npm run prisma:generate && npm run build
     startCommand: npm start
     envVars:
@@ -9,29 +14,9 @@ services:
         value: production
       - key: AUTH_PROVIDER
         value: supabase
+      - key: NEXT_PUBLIC_AUTH_PROVIDER
+        value: supabase
       - key: NEXT_PUBLIC_DEMO_MODE
         value: false
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: EMBEDDINGS_PROVIDER
-        value: gemini
-      - key: EMBEDDING_DIM
-        value: "768"
-      - key: SUPABASE_VIDEO_BUCKET
-        value: academy-videos
       - key: NEXT_PUBLIC_SYSTEM_URL
         value: https://alhasani-home-center-cat.onrender.com
-      - key: JWT_SECRET
-        generateValue: true

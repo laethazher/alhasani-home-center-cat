@@ -1,13 +1,69 @@
+# Render — سيرفر واحد موحّد (alhasani-home-center-cat)
+#   /           → المنصّة (Next.js)
+#   /academy    → الأكاديمية
+#   /system     → نظام المركبات
+#
+# Build: npm install + KM deps + build:unified
+# Start: start:unified (Next على PORT + Fleet داخلياً على 10001)
+#
+# دليل: RENDER-DEPLOY-AR.md
+
 services:
   - type: web
     name: alhasani-home-center-cat
     runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    plan: free
+    buildCommand: npm install && cd al-hasani-km-platform && npm install && cd .. && npm run build:unified
+    startCommand: npm run start:unified
     envVars:
       - key: NODE_ENV
         value: production
+      - key: UNIFIED_PROD
+        value: "1"
+      - key: NEXT_PUBLIC_UNIFIED
+        value: "1"
+      - key: FLEET_INTERNAL_PORT
+        value: "10001"
+      # ─── Fleet (Vite) ───
       - key: VITE_SUPABASE_URL
         value: https://jxwzaoogmqzcqgnldwpm.supabase.co
       - key: VITE_SUPABASE_ANON_KEY
         value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4d3phb29nbXF6Y3Fnbmxkd3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5MjU1NjUsImV4cCI6MjA4NzUwMTU2NX0.S2nhRPw8lQF1VX-_N3j1ZVBgmrnIEbdtBm2Ty9bO7GM
+      # ─── KM Platform (Next.js) ───
+      - key: AUTH_PROVIDER
+        value: supabase
+      - key: NEXT_PUBLIC_AUTH_PROVIDER
+        value: supabase
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: false
+      - key: NEXT_PUBLIC_APP_NAME
+        value: منصة الحسني هوم سنتر
+      - key: NEXT_PUBLIC_SYSTEM_URL
+        value: /system
+      - key: JWT_ISSUER
+        value: al-hasani-km
+      - key: SESSION_TTL_HOURS
+        value: "8"
+      - key: EMBEDDINGS_PROVIDER
+        value: gemini
+      - key: EMBEDDING_DIM
+        value: "768"
+      - key: SUPABASE_VIDEO_BUCKET
+        value: academy-videos
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://jxwzaoogmqzcqgnldwpm.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4d3phb29nbXF6Y3Fnbmxkd3BtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5MjU1NjUsImV4cCI6MjA4NzUwMTU2NX0.S2nhRPw8lQF1VX-_N3j1ZVBgmrnIEbdtBm2Ty9bO7GM
+      - key: JWT_SECRET
+        generateValue: true
+      # ─── أسرار — عبّئها في Render Dashboard ───
+      - key: NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

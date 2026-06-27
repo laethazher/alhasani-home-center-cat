@@ -14,50 +14,37 @@ npm run dev:unified
 | http://localhost:3000/system | نظام المركبات |
 | http://localhost:3000/login | دخول المنصّة |
 
-> **مهم:** لا تشغّل `npm run dev` في المجلدين منفصلين — استخدم `dev:unified` فقط.
-
 ---
 
-## ما تم إنجازه
+## Render (إنتاج — سيرفر واحد)
 
-| البند | الحالة |
-|--------|--------|
-| Supabase + schema `km` | ✅ |
-| Migration + Seed + Sync (3 وثائق) | ✅ |
-| Service Role + Storage bucket | ✅ |
-| Auth + RBAC | ✅ |
-| تطوير موحّد (منفذ 3000) | ✅ |
-| Build + typecheck | ✅ |
+**خدمة واحدة:** `alhasani-home-center-cat.onrender.com`
 
----
+| المسار | المحتوى |
+|--------|---------|
+| `/` | البوابة |
+| `/academy` | الأكاديمية |
+| `/system` | نظام المركبات |
 
-## Render (الإنتاج)
+**Build:** `npm run build:unified`  
+**Start:** `npm run start:unified`
 
-**خدمتان منفصلتان:**
+دليل النشر: [`RENDER-DEPLOY-AR.md`](../RENDER-DEPLOY-AR.md)
 
-1. **نظام المركبات:** `alhasani-home-center-cat.onrender.com` — `render.yaml` في جذر HOME 2
-2. **المنصّة:** `alhasani-km-platform/render.yaml` — انسخ `.env.local` إلى Environment Variables
-
-في Render للمنصّة، اضبط:
+```powershell
+npm run render:env   # طباعة متغيّرات Render
 ```
-NEXT_PUBLIC_SYSTEM_URL=https://alhasani-home-center-cat.onrender.com
-```
-
----
-
-## `.env.local` — ملاحظات
-
-- `NEXT_PUBLIC_SYSTEM_URL=` **فارغ** → `/system` في التطوير الموحّد
-- على Render → ضع رابط نظام المركبات الكامل
 
 ---
 
 ## أوامر مفيدة
 
 ```powershell
-npm run db:test          # فحص DB
-npm run sync:content     # مزامنة الكتب
-npm run build            # بناء الإنتاج
+npm run dev:unified       # تطوير موحّد
+npm run build:unified     # بناء إنتاج موحّد (محلياً)
+npm run start:unified     # تشغيل إنتاج موحّد (محلياً)
+npm run db:test           # فحص DB
+npm run sync:content      # مزامنة الكتب
 ```
 
-دليل التطوير الموحّد: `DEV-UNIFIED-AR.md`
+دليل التطوير: `DEV-UNIFIED-AR.md`

@@ -18,7 +18,8 @@
     "db:test": "node scripts/test-db-connection.mjs",
     "db:status": "node scripts/db-status.mjs",
     "sync:content": "tsx scripts/sync-from-supabase.ts",
-    "search:index": "tsx scripts/reindex.ts"
+    "search:index": "tsx scripts/reindex.ts",
+    "render:env": "node scripts/print-render-env.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
-const fleetDev = process.env.FLEET_DEV_URL || "http://127.0.0.1:3001";
-const unified = process.env.UNIFIED_DEV === "1";
+const fleetDev = process.env.FLEET_DEV_URL || "http://127.0.0.1:10001";
+const unified =
+  process.env.UNIFIED_DEV === "1" || process.env.UNIFIED_PROD === "1";
 
 const nextConfig = {
   reactStrictMode: true,
