@@ -14,3 +14,9 @@ coverage/
 
 # Supabase temp
 supabase/.temp/
+
+# Local backups / safety copies — NEVER commit (may contain PII/secrets)
+*.bak
+*.bak.20260722
+dist.bak*/
+backup_*.json
