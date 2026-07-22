@@ -31,31 +31,31 @@ interface ChildItem { key: PageKey; label: string; icon: React.ElementType; role
    DATA
 ═══════════════════════════════════════════════════════════ */
 const MAINTENANCE_CHILDREN: ChildItem[] = [
-  { key:'maintenance',          label:'لوحة الصيانة',   icon:LayoutDashboard, roles:['admin'] },
-  { key:'maintenance-requests', label:'طلبات الصيانة',  icon:ClipboardList,   roles:['admin','maintenance_manager','installation_department'] },
-  { key:'active-maintenance',   label:'الصيانة النشطة', icon:Activity,        roles:['admin','maintenance_manager','installation_department'] },
-  { key:'maintenance-history',  label:'سجل الصيانة',    icon:History,         roles:['admin','maintenance_manager','installation_department'] },
-  { key:'spare-parts',          label:'قطع الغيار',     icon:Package,         roles:['admin','installation_department'] },
-  { key:'notifications',        label:'التنبيهات',      icon:Bell,            roles:['admin','maintenance_manager','installation_department'] },
+  { key:'maintenance',          label:'لوحة الصيانة',   icon:LayoutDashboard, roles:['admin','installation_admin'] },
+  { key:'maintenance-requests', label:'طلبات الصيانة',  icon:ClipboardList,   roles:['admin','maintenance_manager','installation_department','installation_admin'] },
+  { key:'active-maintenance',   label:'الصيانة النشطة', icon:Activity,        roles:['admin','maintenance_manager','installation_department','installation_admin'] },
+  { key:'maintenance-history',  label:'سجل الصيانة',    icon:History,         roles:['admin','maintenance_manager','installation_department','installation_admin'] },
+  { key:'spare-parts',          label:'قطع الغيار',     icon:Package,         roles:['admin','installation_department','installation_admin'] },
+  { key:'notifications',        label:'التنبيهات',      icon:Bell,            roles:['admin','maintenance_manager','installation_department','installation_admin'] },
 ];
 
 const ATTENDANCE_CHILDREN: ChildItem[] = [
-  { key:'crew-attendance',         label:'الحضور اليومي', icon:CalendarCheck, roles:['admin','manager','installation_department'] },
-  { key:'crew-staff',              label:'الكادر',         icon:Users,         roles:['admin','manager','installation_department'] },
-  { key:'attendance-history',      label:'سجل الحضور',     icon:History,       roles:['admin','manager','installation_department'] },
-  { key:'attendance-reports',      label:'تقارير الحضور',  icon:BarChart3,     roles:['admin','manager','installation_department'] },
-  { key:'attendance-activity-log', label:'سجل النشاط',     icon:Activity,      roles:['admin','manager','installation_department'] },
+  { key:'crew-attendance',         label:'الحضور اليومي', icon:CalendarCheck, roles:['admin','manager','installation_department','installation_admin'] },
+  { key:'crew-staff',              label:'الكادر',         icon:Users,         roles:['admin','manager','installation_department','installation_admin'] },
+  { key:'attendance-history',      label:'سجل الحضور',     icon:History,       roles:['admin','manager','installation_department','installation_admin'] },
+  { key:'attendance-reports',      label:'تقارير الحضور',  icon:BarChart3,     roles:['admin','manager','installation_department','installation_admin'] },
+  { key:'attendance-activity-log', label:'سجل النشاط',     icon:Activity,      roles:['admin','manager','installation_department','installation_admin'] },
 ];
 
 const NAV_ITEMS: NavItem[] = [
-  { key:'dashboard',  label:'لوحة التحكم',     icon:LayoutDashboard, roles:['admin','driver','manager','warehouse','logistics','maintenance_manager','installation_department'] },
-  { key:'vehicles',   label:'المركبات',         icon:Truck,           roles:['admin','driver','manager','warehouse','logistics','installation_department'] },
-  { key:'staff-exit', label:'إخراج الكادر',     icon:DoorOpen,        roles:['admin','driver','manager','warehouse','logistics','gate_guard','installation_department'] },
-  { key:'violations', label:'سجل المخالفات',    icon:Shield,          roles:['admin'] },
-  { key:'reports',    label:'التقارير',         icon:FileText,        roles:['admin','driver','manager','warehouse','logistics','installation_department'] },
-  { key:'intelligence', label:'مركز الذكاء',     icon:Brain,           roles:['admin','manager','maintenance_manager','logistics','installation_department'] },
-  { key:'bubbles',    label:'Bubbles',         icon:CircleDot,       roles:['admin','manager','logistics','gate_guard'] },
-  { key:'reports-hub', label:'التقارير الذكية', icon:Sparkles,        roles:['admin','manager','installation_department'] },
+  { key:'dashboard',  label:'لوحة التحكم',     icon:LayoutDashboard, roles:['admin','driver','manager','warehouse','logistics','maintenance_manager','installation_department','installation_admin'] },
+  { key:'vehicles',   label:'المركبات',         icon:Truck,           roles:['admin','driver','manager','warehouse','logistics','installation_department','installation_admin'] },
+  { key:'staff-exit', label:'إخراج الكادر',     icon:DoorOpen,        roles:['admin','driver','manager','warehouse','logistics','gate_guard','installation_department','installation_admin'] },
+  { key:'violations', label:'سجل المخالفات',    icon:Shield,          roles:['admin','installation_admin'] },
+  { key:'reports',    label:'التقارير',         icon:FileText,        roles:['admin','driver','manager','warehouse','logistics','installation_department','installation_admin'] },
+  { key:'intelligence', label:'مركز الذكاء',     icon:Brain,           roles:['admin','manager','maintenance_manager','logistics','installation_department','installation_admin'] },
+  { key:'bubbles',    label:'Bubbles',         icon:CircleDot,       roles:['admin','manager','logistics','gate_guard','installation_admin'] },
+  { key:'reports-hub', label:'التقارير الذكية', icon:Sparkles,        roles:['admin','manager','installation_department','installation_admin'] },
   { key:'users',      label:'إدارة المستخدمين', icon:UserCog,         roles:['admin'] },
   { key:'settings',   label:'الإعدادات',        icon:Settings,        roles:['admin'] },
 ];
@@ -65,6 +65,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   warehouse:'مستودع',  logistics:'لوجستيات',
   gate_guard:'حارس البوابة', maintenance_manager:'مسؤول الصيانة',
   installation_department:'قسم التركيب',
+  installation_admin:'موظف تجهيز اداري',
 };
 
 const ROLE_COLORS: Record<UserRole, string> = {
@@ -72,6 +73,7 @@ const ROLE_COLORS: Record<UserRole, string> = {
   warehouse:'#fbbf24', logistics:'#22d3ee',
   gate_guard:'#f472b6', maintenance_manager:'#fb923c',
   installation_department:'#14b8a6',
+  installation_admin:'#818cf8',
 };
 
 /* ═══════════════════════════════════════════════════════════

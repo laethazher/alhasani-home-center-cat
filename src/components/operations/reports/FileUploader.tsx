@@ -154,10 +154,10 @@ export default function FileUploader({ onUploadComplete, onCancel }: FileUploade
         const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { header: 1 });
 
         if (json.length > 0) {
-          headers = (json[0] as unknown[]).map((h) => String(h || '').trim());
+          headers = (json[0] as unknown as unknown[]).map((h) => String(h || '').trim());
           rows = json.slice(1).map((row) => {
             const obj: Record<string, string> = {};
-            const rowArr = row as unknown[];
+            const rowArr = row as unknown as unknown[];
             headers.forEach((h, i) => {
               obj[h] = rowArr[i] != null ? String(rowArr[i]) : '';
             });

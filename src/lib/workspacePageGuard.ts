@@ -55,7 +55,8 @@ export function resolveWorkspaceGuardedPage(
       r !== 'admin' &&
       r !== 'manager' &&
       r !== 'logistics' &&
-      r !== 'gate_guard'
+      r !== 'gate_guard' &&
+      r !== 'installation_admin'
     ) {
       return 'dashboard';
     }
@@ -69,14 +70,15 @@ export function resolveWorkspaceGuardedPage(
     maintenancePages.includes(activePage) &&
     r !== 'admin' &&
     r !== 'maintenance_manager' &&
+    r !== 'installation_admin' &&
     !isInstallationDepartmentRole
   ) {
     return 'dashboard';
   }
-  if (smartHubPages.includes(activePage) && r !== 'admin' && r !== 'manager' && !isInstallationDepartmentRole) {
+  if (smartHubPages.includes(activePage) && r !== 'admin' && r !== 'manager' && r !== 'installation_admin' && !isInstallationDepartmentRole) {
     return 'dashboard';
   }
-  if (attendancePages.includes(activePage) && r !== 'admin' && r !== 'manager' && !isInstallationDepartmentRole) {
+  if (attendancePages.includes(activePage) && r !== 'admin' && r !== 'manager' && r !== 'installation_admin' && !isInstallationDepartmentRole) {
     return 'dashboard';
   }
 

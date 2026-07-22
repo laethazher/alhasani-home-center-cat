@@ -1018,7 +1018,7 @@ export default function ReportsHub({ profile, department = 'tajhiz' }: Props) {
     let rows = applyStructuredFilters(recoveryRowsInTab, mergedRecoveryFilters, {
       getName: (r) => `${r.responsibleName} ${r.plateNumber}`,
       getPlate: (r) => r.plateNumber.replace(/\s+/g, ''),
-      getDate: (r) => r.detectedAt,
+      getDateKey: (r) => (r.detectedAt ?? '').slice(0, 10),
       getSearchBlob: (r) => r.searchBlob,
     });
     const q = activeDomain === 'all' ? hubSearch.all : hubSearch.inventory_recovery;

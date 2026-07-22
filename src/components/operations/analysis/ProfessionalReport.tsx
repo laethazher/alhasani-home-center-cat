@@ -543,7 +543,7 @@ interface AnalysisCardProps {
     title: string;
     description?: string;
     tableHeaders?: string[];
-    tableRows?: { indicator: string; value: string | number; percentage?: string; status?: string }[];
+    tableRows?: { indicator: string; value: string | number; percentage?: string; status?: 'success' | 'warning' | 'danger' | 'info' }[];
     analysis?: string;
     insights?: string[];
     narrativeExplanation?: string;
@@ -595,7 +595,7 @@ function AnalysisCard({ analysis, index }: AnalysisCardProps) {
                 : row.value,
               row.percentage || '—',
             ],
-            status: row.status as 'good' | 'warning' | 'bad' | undefined,
+            status: row.status,
           }))}
           className="mb-4"
         />
@@ -645,9 +645,11 @@ function AnalysisCard({ analysis, index }: AnalysisCardProps) {
 interface RecommendationsSectionProps {
   recommendations: {
     id: string;
-    priority: string;
-    category: string;
-    text: string;
+    priority: 'high' | 'medium' | 'low';
+    title: string;
+    description: string;
+    category: 'immediate' | 'short-term' | 'long-term';
+    impact?: string;
   }[];
 }
 
@@ -672,10 +674,10 @@ function RecommendationsSection({ recommendations }: RecommendationsSectionProps
       <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-5">
         <h4 className="font-bold text-emerald-800 dark:text-emerald-300 mb-3">الملاحظات التشغيلية</h4>
         <div className="space-y-2">
-          {recommendations.filter(r => r.category === 'operational' || r.category === 'quality').slice(0, 3).map((rec, i) => (
+          {recommendations.filter(r => r.category === 'immediate').slice(0, 3).map((rec, i) => (
             <div key={rec.id} className="flex items-start gap-2 text-sm text-emerald-700 dark:text-emerald-400">
               <span>{i + 1}.</span>
-              <span>{rec.text}</span>
+              <span>{rec.description}</span>
             </div>
           ))}
         </div>
@@ -695,7 +697,7 @@ function RecommendationsSection({ recommendations }: RecommendationsSectionProps
             >
               <span className="text-lg">✓</span>
               <div className="flex-1">
-                <p className="text-sm">{rec.text}</p>
+                <p className="text-sm">{rec.description}</p>
                 <span className="text-xs opacity-75">{priorityLabels[rec.priority] || rec.priority}</span>
               </div>
             </div>
@@ -711,8 +713,8 @@ interface ConclusionSectionProps {
   conclusion: {
     overallRating: string;
     summary: string;
-    keyMetrics: { label: string; value: string; trend?: string }[];
-    nextSteps: string[];
+    keyMetrics: { label: string; value: string; status?: 'success' | 'warning' | 'danger' }[];
+    finalNotes: string[];
     finalNote?: string;
     fullNarrative?: string;
     expertOpinion?: string;
@@ -807,25 +809,23 @@ function ConclusionSection({ conclusion }: ConclusionSectionProps) {
             >
               <p className="text-sm text-slate-500 dark:text-slate-400">{metric.label}</p>
               <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{metric.value}</p>
-              {metric.trend && (
+              {metric.status && (
                 <span className={cn(
-                  'text-xs',
-                  metric.trend === 'up' ? 'text-emerald-600' : metric.trend === 'down' ? 'text-red-600' : 'text-slate-500'
-                )}>
-                  {metric.trend === 'up' ? '↑' : metric.trend === 'down' ? '↓' : '→'}
-                </span>
+                  'inline-block mt-1 h-2.5 w-2.5 rounded-full',
+                  metric.status === 'success' ? 'bg-emerald-500' : metric.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'
+                )} />
               )}
             </div>
           ))}
         </div>
       )}
 
-      {/* Next Steps */}
-      {conclusion.nextSteps && conclusion.nextSteps.length > 0 && (
+      {/* Final Notes */}
+      {conclusion.finalNotes && conclusion.finalNotes.length > 0 && (
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
-          <h4 className="font-bold text-slate-900 dark:text-white mb-3">الخطوات التالية</h4>
+          <h4 className="font-bold text-slate-900 dark:text-white mb-3">الملاحظات الختامية</h4>
           <ul className="space-y-2">
-            {conclusion.nextSteps.map((step, i) => (
+            {conclusion.finalNotes.map((step, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-400">
                 <span className="text-cyan-600 font-bold">{i + 1}.</span>
                 {step}

@@ -27,17 +27,17 @@ interface CardDef {
 }
 
 const CARDS: CardDef[] = [
-  { key:'vehicles',             title:'المركبات',           description:'إدارة ومتابعة حالة جميع المركبات والمعدات',      icon:Truck,         gradient:'from-blue-500 to-indigo-600',   roles:['admin','driver','manager','warehouse','logistics','installation_department'] },
-  { key:'maintenance',          title:'صيانة المركبات',      description:'لوحة تحكم الصيانة والإحصائيات والتحليلات',       icon:Wrench,        gradient:'from-cyan-500 to-blue-600',     roles:['admin','installation_department'] },
-  { key:'maintenance-requests', title:'طلبات الصيانة',       description:'إنشاء ومتابعة طلبات الصيانة والموافقة عليها',    icon:ClipboardList, gradient:'from-indigo-500 to-violet-600', roles:['admin','maintenance_manager','installation_department'] },
-  { key:'active-maintenance',   title:'الصيانة النشطة',      description:'متابعة الصيانة الجارية والتقاط صور العمل',       icon:Activity,      gradient:'from-teal-500 to-emerald-600',  roles:['admin','maintenance_manager','installation_department'] },
-  { key:'maintenance-history',  title:'سجل الصيانة',         description:'عرض سجل جميع عمليات الصيانة وتصدير التقارير',    icon:History,       gradient:'from-sky-500 to-blue-600',      roles:['admin','maintenance_manager','installation_department'] },
-  { key:'spare-parts',          title:'قطع الغيار',          description:'إدارة مخزن قطع الغيار والموردين',                icon:Package,       gradient:'from-orange-500 to-amber-600',  roles:['admin','installation_department'] },
-  { key:'notifications',        title:'التنبيهات',           description:'تنبيهات الصيانة الدورية وانتهاء التأمين والفحص', icon:Bell,          gradient:'from-pink-500 to-rose-600',     roles:['admin','maintenance_manager','installation_department'] },
+  { key:'vehicles',             title:'المركبات',           description:'إدارة ومتابعة حالة جميع المركبات والمعدات',      icon:Truck,         gradient:'from-blue-500 to-indigo-600',   roles:['admin','driver','manager','warehouse','logistics','installation_department','installation_admin'] },
+  { key:'maintenance',          title:'صيانة المركبات',      description:'لوحة تحكم الصيانة والإحصائيات والتحليلات',       icon:Wrench,        gradient:'from-cyan-500 to-blue-600',     roles:['admin','installation_department','installation_admin'] },
+  { key:'maintenance-requests', title:'طلبات الصيانة',       description:'إنشاء ومتابعة طلبات الصيانة والموافقة عليها',    icon:ClipboardList, gradient:'from-indigo-500 to-violet-600', roles:['admin','maintenance_manager','installation_department','installation_admin'] },
+  { key:'active-maintenance',   title:'الصيانة النشطة',      description:'متابعة الصيانة الجارية والتقاط صور العمل',       icon:Activity,      gradient:'from-teal-500 to-emerald-600',  roles:['admin','maintenance_manager','installation_department','installation_admin'] },
+  { key:'maintenance-history',  title:'سجل الصيانة',         description:'عرض سجل جميع عمليات الصيانة وتصدير التقارير',    icon:History,       gradient:'from-sky-500 to-blue-600',      roles:['admin','maintenance_manager','installation_department','installation_admin'] },
+  { key:'spare-parts',          title:'قطع الغيار',          description:'إدارة مخزن قطع الغيار والموردين',                icon:Package,       gradient:'from-orange-500 to-amber-600',  roles:['admin','installation_department','installation_admin'] },
+  { key:'notifications',        title:'التنبيهات',           description:'تنبيهات الصيانة الدورية وانتهاء التأمين والفحص', icon:Bell,          gradient:'from-pink-500 to-rose-600',     roles:['admin','maintenance_manager','installation_department','installation_admin'] },
   { key:'staff-exit',           title:'إخراج الكادر',        description:'تسجيل ومتابعة عمليات خروج الكوادر',              icon:DoorOpen,      gradient:'from-emerald-500 to-teal-600',  roles:'all' },
-  { key:'violations',           title:'سجل المخالفات',       description:'تسجيل ومتابعة مخالفات الموظفين',                 icon:Shield,        gradient:'from-red-500 to-rose-600',      roles:['admin'] },
-  { key:'reports',              title:'التقارير',            description:'عرض وتصدير التقارير اليومية والأسبوعية',         icon:FileText,      gradient:'from-amber-500 to-orange-600',  roles:['admin','driver','manager','warehouse','logistics','installation_department'] },
-  { key:'reports-hub',          title:'التقارير الذكية',     description:'بحث وفلترة وتصدير موحّد للحضور والمركبات والمخالفات', icon:Sparkles,   gradient:'from-fuchsia-500 to-violet-600', roles:['admin','manager','installation_department'] },
+  { key:'violations',           title:'سجل المخالفات',       description:'تسجيل ومتابعة مخالفات الموظفين',                 icon:Shield,        gradient:'from-red-500 to-rose-600',      roles:['admin','installation_admin'] },
+  { key:'reports',              title:'التقارير',            description:'عرض وتصدير التقارير اليومية والأسبوعية',         icon:FileText,      gradient:'from-amber-500 to-orange-600',  roles:['admin','driver','manager','warehouse','logistics','installation_department','installation_admin'] },
+  { key:'reports-hub',          title:'التقارير الذكية',     description:'بحث وفلترة وتصدير موحّد للحضور والمركبات والمخالفات', icon:Sparkles,   gradient:'from-fuchsia-500 to-violet-600', roles:['admin','manager','installation_department','installation_admin'] },
   { key:'users',                title:'إدارة المستخدمين',    description:'إضافة وإدارة حسابات المستخدمين والصلاحيات',     icon:UserCog,       gradient:'from-violet-500 to-purple-600', roles:['admin'] },
   { key:'settings',             title:'الإعدادات',           description:'ضبط إعدادات النظام والتفضيلات العامة',           icon:Settings,      gradient:'from-rose-500 to-pink-600',     roles:['admin'] },
 ];
@@ -56,6 +56,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   warehouse:'مستودع',  logistics:'لوجستيات',
   gate_guard:'حارس البوابة', maintenance_manager:'مسؤول الصيانة',
   installation_department:'قسم التركيب',
+  installation_admin:'موظف تجهيز اداري',
 };
 
 const ROLE_META: Record<UserRole, { color:string; bgDark:string; bgLight:string; border:string }> = {
@@ -67,6 +68,7 @@ const ROLE_META: Record<UserRole, { color:string; bgDark:string; bgLight:string;
   logistics:           { color:'#22d3ee', bgDark:'rgba(34,211,238,0.12)', bgLight:'#cffafe', border:'rgba(34,211,238,0.3)'  },
   gate_guard:          { color:'#f472b6', bgDark:'rgba(244,114,182,0.12)',bgLight:'#fce7f3', border:'rgba(244,114,182,0.3)' },
   installation_department:{ color:'#14b8a6', bgDark:'rgba(20,184,166,0.12)',bgLight:'#ccfbf1', border:'rgba(20,184,166,0.3)' },
+  installation_admin:{ color:'#818cf8', bgDark:'rgba(129,140,248,0.12)', bgLight:'#e0e7ff', border:'rgba(129,140,248,0.3)' },
 };
 
 function getGreeting() {

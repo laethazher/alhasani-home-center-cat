@@ -176,7 +176,10 @@ export default function App() {
         isGateGuard={role === 'gate_guard'}
         onToggleDark={() => setIsDarkMode((prev: boolean) => !prev)}
         onSelectTajhiz={handleSelectTajhiz}
-        onSelectInstallation={() => setSystemArea('installation')}
+        onSelectInstallation={() => {
+          if (role === 'installation_admin') { alert('ليس من صلاحياتك الدخول إلى قسم التركيب.'); return; }
+          setSystemArea('installation');
+        }}
         onSelectOperations={() => {
           if (role !== 'admin') {
             alert('ليس من صلاحياتك الدخول إلى قسم العمليات.');
@@ -184,7 +187,10 @@ export default function App() {
           }
           setSystemArea('operations');
         }}
-        onSelectGate={() => setSystemArea('gate')}
+        onSelectGate={() => {
+          if (role === 'installation_admin') { alert('ليس من صلاحياتك الدخول إلى قسم البوابة.'); return; }
+          setSystemArea('gate');
+        }}
         onSignOut={signOut}
         signingOut={signingOut}
       />
@@ -192,6 +198,9 @@ export default function App() {
   }
 
   if (systemArea === 'gate') {
+    if (role === 'installation_admin') {
+      return <div className="min-h-screen flex items-center justify-center bg-white dark:bg-stone-950"><p className="text-stone-500 dark:text-stone-300">ليس من صلاحياتك الدخول إلى هذا القسم.</p></div>;
+    }
     return (
       <GateGuardWorkspace
         profile={profile}
@@ -205,6 +214,9 @@ export default function App() {
   }
 
   if (systemArea === 'installation') {
+    if (role === 'installation_admin') {
+      return <div className="min-h-screen flex items-center justify-center bg-white dark:bg-stone-950"><p className="text-stone-500 dark:text-stone-300">ليس من صلاحياتك الدخول إلى هذا القسم.</p></div>;
+    }
     return (
       <InstallationWorkspace
         profile={profile}

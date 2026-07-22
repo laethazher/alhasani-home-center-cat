@@ -25,7 +25,8 @@ export type UserRole =
   | 'logistics'
   | 'gate_guard'
   | 'maintenance_manager'
-  | 'installation_department';
+  | 'installation_department'
+  | 'installation_admin';
 
 /* ── Staff Exit Types ── */
 
